@@ -129,6 +129,7 @@ fun ComicViewerApp() {
     var uiState by rememberSaveable(stateSaver = ReaderUiStateSaver) {
         mutableStateOf<ReaderUiState>(ReaderUiState.Empty)
     }
+    var recentComics by remember { mutableStateOf(loadRecentComics(appContext)) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
     val browserRootPath = remember { defaultBrowserRootPath() }
 
@@ -173,13 +174,50 @@ fun ComicViewerApp() {
         }
     }
 
+    fun persistRecentComics(nextRecentComics: List<RecentComic>) {
+        recentComics = nextRecentComics
+        saveRecentComics(appContext, nextRecentComics)
+    }
+
+    fun rememberOpenedComic(book: ComicBook, pageIndex: Int) {
+        val recentComic = recentComicFor(
+            book = book,
+            pageIndex = pageIndex,
+            lastOpenedAt = System.currentTimeMillis(),
+        ) ?: return
+        persistRecentComics(upsertRecentComic(recentComics, recentComic))
+    }
+
+    fun updateRecentPage(ready: ReaderUiState.Ready, pageIndex: Int) {
+        val recentComic = recentComicFor(
+            book = ready.book,
+            pageIndex = pageIndex,
+            lastOpenedAt = 0L,
+        ) ?: return
+        persistRecentComics(
+            updateRecentComicPage(
+                recentComics = recentComics,
+                sourceType = recentComic.sourceType,
+                path = recentComic.path,
+                pageIndex = pageIndex,
+                pageCount = ready.book.pages.size,
+            ),
+        )
+    }
+
+    fun showReadyComic(book: ComicBook, pageIndex: Int) {
+        val clampedPageIndex = coercePageIndex(pageIndex, book.pages.size)
+        rememberOpenedComic(book, clampedPageIndex)
+        uiState = ReaderUiState.Ready(book = book, pageIndex = clampedPageIndex)
+    }
+
     fun openLocalArchive(file: File) {
         loadJob?.cancel()
         uiState = ReaderUiState.Loading
         loadJob = scope.launch {
             runCatching { loadLocalArchiveComic(appContext, file) }
                 .onSuccess { book ->
-                    uiState = ReaderUiState.Ready(book = book, pageIndex = 0)
+                    showReadyComic(book = book, pageIndex = 0)
                 }
                 .onFailure { throwable ->
                     if (throwable !is CancellationException) showError(throwable)
@@ -193,11 +231,37 @@ fun ComicViewerApp() {
         loadJob = scope.launch {
             runCatching { loadLocalFolderComic(folder) }
                 .onSuccess { book ->
-                    uiState = ReaderUiState.Ready(book = book, pageIndex = 0)
+                    showReadyComic(book = book, pageIndex = 0)
                 }
                 .onFailure { throwable ->
                     if (throwable !is CancellationException) showError(throwable)
                 }
+        }
+    }
+
+    fun openRecentComic(recentComic: RecentComic) {
+        loadJob?.cancel()
+        uiState = ReaderUiState.Loading
+        loadJob = scope.launch {
+            runCatching {
+                when (recentComic.sourceType) {
+                    RecentComicSourceType.LocalArchive -> loadLocalArchiveComic(appContext, File(recentComic.path))
+                    RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(recentComic.path))
+                }
+            }.onSuccess { book ->
+                showReadyComic(book = book, pageIndex = recentComic.lastPageIndex)
+            }.onFailure { throwable ->
+                if (throwable !is CancellationException) {
+                    persistRecentComics(
+                        removeRecentComic(
+                            recentComics = recentComics,
+                            sourceType = recentComic.sourceType,
+                            path = recentComic.path,
+                        ),
+                    )
+                    showError(throwable)
+                }
+            }
         }
     }
 
@@ -244,16 +308,22 @@ fun ComicViewerApp() {
             state = uiState,
             currentDirectoryPath = currentDirectoryPath,
             browserRootPath = browserRootPath,
+            recentComics = recentComics,
             onDirectoryChange = { path -> currentDirectoryPath = path },
             onOpenLocalArchive = ::openLocalArchive,
             onOpenLocalFolder = ::openLocalFolder,
+            onOpenRecentComic = ::openRecentComic,
             onPrevious = {
                 val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
-                uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size))
+                val nextPageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size)
+                updateRecentPage(ready, nextPageIndex)
+                uiState = ready.copy(pageIndex = nextPageIndex)
             },
             onNext = {
                 val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
-                uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex + 1, ready.book.pages.size))
+                val nextPageIndex = coercePageIndex(ready.pageIndex + 1, ready.book.pages.size)
+                updateRecentPage(ready, nextPageIndex)
+                uiState = ready.copy(pageIndex = nextPageIndex)
             },
             onCloseComic = ::closeComic,
         )
@@ -265,9 +335,11 @@ fun ComicViewerScreen(
     state: ReaderUiState,
     currentDirectoryPath: String,
     browserRootPath: String,
+    recentComics: List<RecentComic>,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
+    onOpenRecentComic: (RecentComic) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCloseComic: () -> Unit,
@@ -277,9 +349,11 @@ fun ComicViewerScreen(
         ReaderUiState.Empty -> FileBrowserScreen(
             currentDirectoryPath = currentDirectoryPath,
             browserRootPath = browserRootPath,
+            recentComics = recentComics,
             onDirectoryChange = onDirectoryChange,
             onOpenLocalArchive = onOpenLocalArchive,
             onOpenLocalFolder = onOpenLocalFolder,
+            onOpenRecentComic = onOpenRecentComic,
             modifier = modifier,
         )
 
@@ -353,9 +427,11 @@ sealed interface FileBrowserUiState {
 fun FileBrowserScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
+    recentComics: List<RecentComic>,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
+    onOpenRecentComic: (RecentComic) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -415,7 +491,9 @@ fun FileBrowserScreen(
 
                 is FileBrowserUiState.Loaded -> FileBrowserContent(
                     directory = state.directory,
+                    recentComics = recentComics,
                     searchQuery = searchQuery,
+                    onRecentComicClick = onOpenRecentComic,
                     onEntryClick = { entry ->
                         when (entry.type) {
                             BrowserEntryType.Directory -> onDirectoryChange(entry.path)
@@ -556,13 +634,16 @@ fun FileBrowserErrorContent(
 @Composable
 fun FileBrowserContent(
     directory: BrowserDirectory,
+    recentComics: List<RecentComic>,
     searchQuery: String,
+    onRecentComicClick: (RecentComic) -> Unit,
     onEntryClick: (BrowserEntry) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val entries = filterBrowserEntries(directory.entries, searchQuery)
+    val showRecentComics = searchQuery.isBlank() && recentComics.isNotEmpty()
 
-    if (entries.isEmpty()) {
+    if (entries.isEmpty() && !showRecentComics) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
@@ -580,6 +661,29 @@ fun FileBrowserContent(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 18.dp),
     ) {
+        if (showRecentComics) {
+            item(key = "recent_comics_header") {
+                FileBrowserSectionHeader(title = "Recenti")
+            }
+            items(
+                items = recentComics,
+                key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
+            ) { recentComic ->
+                RecentComicRow(
+                    recentComic = recentComic,
+                    onClick = { onRecentComicClick(recentComic) },
+                )
+                HorizontalDivider(
+                    modifier = Modifier.padding(start = 88.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                )
+            }
+            if (entries.isNotEmpty()) {
+                item(key = "browser_entries_header") {
+                    FileBrowserSectionHeader(title = "File")
+                }
+            }
+        }
         items(
             items = entries,
             key = { entry -> entry.path },
@@ -591,6 +695,92 @@ fun FileBrowserContent(
             HorizontalDivider(
                 modifier = Modifier.padding(start = 88.dp),
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+            )
+        }
+    }
+}
+
+@Composable
+fun FileBrowserSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+fun RecentComicRow(
+    recentComic: RecentComic,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        RecentComicThumbnail(recentComic = recentComic)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = recentComic.title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = recentComic.subtitleLabel(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = recentComic.path,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp),
+        )
+    }
+}
+
+@Composable
+fun RecentComicThumbnail(
+    recentComic: RecentComic,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.size(58.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = recentComic.sourceType.icon(),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
             )
         }
     }
@@ -1105,6 +1295,19 @@ private fun BrowserEntryType.icon(): ImageVector = when (this) {
     BrowserEntryType.ImageFile -> Icons.Filled.Image
     BrowserEntryType.UnsupportedFile -> Icons.Filled.Description
 }
+
+private fun RecentComicSourceType.icon(): ImageVector = when (this) {
+    RecentComicSourceType.LocalArchive -> Icons.Filled.Archive
+    RecentComicSourceType.LocalFolder -> Icons.Filled.Folder
+}
+
+private fun RecentComic.progressLabel(): String {
+    if (pageCount <= 0) return "Pagina 1"
+    return "Pagina ${coercePageIndex(lastPageIndex, pageCount) + 1}/$pageCount"
+}
+
+private fun RecentComic.subtitleLabel(): String =
+    "$displayName - ${progressLabel()}"
 
 private fun BrowserDirectory.hasDirectImageEntry(): Boolean =
     entries.any { entry -> entry.type == BrowserEntryType.ImageFile }

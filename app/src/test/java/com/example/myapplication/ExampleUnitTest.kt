@@ -319,12 +319,109 @@ class ExampleUnitTest {
             sorted.map { it.name },
         )
     }
+
+    @Test
+    fun upsertRecentComic_dedupesAndKeepsNewestFirst() {
+        val first = sampleRecentComic(
+            title = "Batman 001",
+            path = "/storage/emulated/0/Batman 001.cbz",
+            lastOpenedAt = 100L,
+        )
+        val second = sampleRecentComic(
+            title = "Saga 001",
+            path = "/storage/emulated/0/Saga 001.cbz",
+            lastOpenedAt = 200L,
+        )
+        val updatedFirst = sampleRecentComic(
+            title = "Batman 001 updated",
+            path = first.path,
+            lastPageIndex = 4,
+            pageCount = 12,
+            lastOpenedAt = 300L,
+        )
+
+        val result = upsertRecentComic(listOf(second, first), updatedFirst)
+
+        assertEquals(listOf(first.path, second.path), result.map { comic -> comic.path })
+        assertEquals("Batman 001 updated", result.first().title)
+        assertEquals(4, result.first().lastPageIndex)
+    }
+
+    @Test
+    fun upsertRecentComic_trimsToMaxRecentComics() {
+        val result = (0..11).fold(emptyList<RecentComic>()) { recents, index ->
+            upsertRecentComic(
+                recents,
+                sampleRecentComic(
+                    title = "Comic $index",
+                    path = "/storage/emulated/0/Comic $index.cbz",
+                    lastOpenedAt = index.toLong(),
+                ),
+            )
+        }
+
+        assertEquals(MAX_RECENT_COMICS, result.size)
+        assertEquals(
+            (11 downTo 2).map { index -> "/storage/emulated/0/Comic $index.cbz" },
+            result.map { comic -> comic.path },
+        )
+    }
+
+    @Test
+    fun updateRecentComicPage_clampsPageIndexToAvailablePages() {
+        val comic = sampleRecentComic(
+            path = "/storage/emulated/0/Batman 001.cbz",
+            lastPageIndex = 1,
+            pageCount = 20,
+        )
+
+        val result = updateRecentComicPage(
+            recentComics = listOf(comic),
+            sourceType = RecentComicSourceType.LocalArchive,
+            path = comic.path,
+            pageIndex = 99,
+            pageCount = 7,
+        )
+
+        assertEquals(6, result.single().lastPageIndex)
+        assertEquals(7, result.single().pageCount)
+    }
+
+    @Test
+    fun removeUnreadableRecentComics_filtersStaleItems() {
+        val readable = sampleRecentComic(path = "/storage/emulated/0/Readable.cbz")
+        val stale = sampleRecentComic(path = "/storage/emulated/0/Missing.cbz")
+
+        val result = removeUnreadableRecentComics(listOf(readable, stale)) { comic ->
+            comic.path == readable.path
+        }
+
+        assertEquals(listOf(readable), result)
+    }
 }
 
 private data class BrowserSortCase(
     val name: String,
     val isDirectory: Boolean,
 )
+
+private fun sampleRecentComic(
+    title: String = "Comic",
+    path: String = "/storage/emulated/0/Comic.cbz",
+    sourceType: RecentComicSourceType = RecentComicSourceType.LocalArchive,
+    lastPageIndex: Int = 0,
+    pageCount: Int = 10,
+    lastOpenedAt: Long = 0L,
+): RecentComic =
+    RecentComic(
+        sourceType = sourceType,
+        path = path,
+        displayName = path.substringAfterLast('/'),
+        title = title,
+        lastPageIndex = lastPageIndex,
+        pageCount = pageCount,
+        lastOpenedAt = lastOpenedAt,
+    )
 
 private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(
     BrowserEntry(

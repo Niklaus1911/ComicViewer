@@ -3,12 +3,13 @@ package com.example.myapplication
 import android.content.Context
 import androidx.core.net.toUri
 import java.io.File
-import java.io.FileOutputStream
+import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val BROWSER_THUMBNAIL_CACHE_DIR_NAME = "browser_thumbnails"
+private const val MAX_ARCHIVE_THUMBNAIL_BYTES = 32L * 1024L * 1024L
 
 enum class BrowserEntryType {
     Directory,
@@ -115,20 +116,46 @@ private fun File.toBrowserEntry(thumbnailCacheDir: File): BrowserEntry {
 private fun File.extractArchiveThumbnailTo(cacheDir: File): File? =
     runCatching {
         ZipFile(this).use { zipFile ->
-            val entries = zipFile.entries().asSequence()
-                .filter { entry -> !entry.isDirectory && !isHiddenComicPath(entry.name.replace('\\', '/')) }
-                .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
-                .toList()
+            val candidate = zipFile.firstSupportedImageEntry() ?: return@use null
+            val outputFile = File(cacheDir, "${absolutePath.hashCode()}_thumbnail.${candidate.format.extension}")
 
-            entries.firstNotNullOfOrNull { entry ->
-                val bytes = zipFile.getInputStream(entry).use { input -> input.readBytes() }
-                val format = detectImageFormat(bytes) ?: return@firstNotNullOfOrNull null
-                val outputFile = File(cacheDir, "${absolutePath.hashCode()}_thumbnail.${format.extension}")
-                FileOutputStream(outputFile).use { output -> output.write(bytes) }
-                outputFile
+            zipFile.getInputStream(candidate.entry).use { input ->
+                copyToFileBounded(
+                    inputStream = input,
+                    outputFile = outputFile,
+                    maxBytes = MAX_ARCHIVE_THUMBNAIL_BYTES,
+                )
             }
+            outputFile
         }
     }.getOrNull()
+
+private fun ZipFile.firstSupportedImageEntry(): ArchiveThumbnailCandidate? {
+    var bestCandidate: ArchiveThumbnailCandidate? = null
+    val entries = entries()
+
+    while (entries.hasMoreElements()) {
+        val entry = entries.nextElement()
+        val entryName = entry.name.replace('\\', '/')
+        if (entry.isDirectory || isHiddenComicPath(entryName)) continue
+
+        val format = getInputStream(entry).use { input ->
+            detectImageFormat(readImageHeader(input))
+        } ?: continue
+
+        val candidate = ArchiveThumbnailCandidate(
+            entry = entry,
+            entryName = entryName,
+            format = format,
+        )
+        val currentBest = bestCandidate
+        if (currentBest == null || compareComicPageNames(candidate.entryName, currentBest.entryName) < 0) {
+            bestCandidate = candidate
+        }
+    }
+
+    return bestCandidate
+}
 
 private fun resetBrowserThumbnailCache(context: Context): File =
     File(context.cacheDir, BROWSER_THUMBNAIL_CACHE_DIR_NAME).apply {
@@ -145,3 +172,9 @@ private object BrowserFileComparator : Comparator<File> {
             rightIsDirectory = right.isDirectory,
         )
 }
+
+private data class ArchiveThumbnailCandidate(
+    val entry: ZipEntry,
+    val entryName: String,
+    val format: ImageFormat,
+)

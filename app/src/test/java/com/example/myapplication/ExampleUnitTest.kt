@@ -1,12 +1,24 @@
 package com.example.myapplication
 
+import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.IOException
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import kotlinx.coroutines.CancellationException
 
 class ExampleUnitTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
     @Test
     fun isSupportedArchiveName_acceptsZipAndCbzOnly() {
         assertTrue(isSupportedArchiveName("comic.zip"))
@@ -60,6 +72,72 @@ class ExampleUnitTest {
     fun detectImageFormat_rejectsNonImages() {
         assertNull(detectImageFormat(byteArrayOf()))
         assertNull(detectImageFormat("not an image".encodeToByteArray()))
+    }
+
+    @Test
+    fun readImageHeader_readsOnlyHeaderBytes() {
+        val bytes = ByteArray(32) { index -> index.toByte() }
+        val inputStream = ByteArrayInputStream(bytes)
+
+        val header = readImageHeader(inputStream)
+
+        assertArrayEquals(ByteArray(12) { index -> index.toByte() }, header)
+        assertEquals(20, inputStream.available())
+    }
+
+    @Test
+    fun readImageHeader_padsShortStreams() {
+        val header = readImageHeader(ByteArrayInputStream(byteArrayOf(1, 2, 3)))
+
+        assertArrayEquals(
+            ByteArray(12) { index -> if (index < 3) (index + 1).toByte() else 0 },
+            header,
+        )
+    }
+
+    @Test
+    fun copyToFileBounded_copiesBelowLimit() {
+        val bytes = ByteArray(1024) { index -> (index % 251).toByte() }
+        val outputFile = File(temporaryFolder.root, "page.bin")
+
+        val copiedBytes = copyToFileBounded(
+            inputStream = ByteArrayInputStream(bytes),
+            outputFile = outputFile,
+            maxBytes = bytes.size.toLong(),
+        )
+
+        assertEquals(bytes.size.toLong(), copiedBytes)
+        assertArrayEquals(bytes, outputFile.readBytes())
+    }
+
+    @Test
+    fun copyToFileBounded_failsAboveLimitAndDeletesPartialFile() {
+        val outputFile = File(temporaryFolder.root, "partial-page.bin")
+
+        assertThrows(ComicLoadException::class.java) {
+            copyToFileBounded(
+                inputStream = ByteArrayInputStream(ByteArray(70 * 1024)),
+                outputFile = outputFile,
+                maxBytes = 64L * 1024L,
+            )
+        }
+
+        assertFalse(outputFile.exists())
+    }
+
+    @Test
+    fun archiveExtractionFailureFor_preservesCancellationException() {
+        val cancellationException = CancellationException("Cancelled")
+
+        assertSame(cancellationException, archiveExtractionFailureFor(cancellationException))
+    }
+
+    @Test
+    fun archiveExtractionFailureFor_mapsStorageFailuresToReadableMessage() {
+        val exception = archiveExtractionFailureFor(IOException("Disk full"))
+
+        assertTrue(exception is ComicLoadException)
+        assertEquals("Archivio non leggibile o estrazione interrotta.", exception.message)
     }
 
     @Test

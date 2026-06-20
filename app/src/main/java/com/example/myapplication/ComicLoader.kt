@@ -1,21 +1,29 @@
 package com.example.myapplication
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import java.io.BufferedInputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
+import java.io.IOException
 import java.util.Locale
+import java.util.zip.ZipException
 import java.util.zip.ZipFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val ARCHIVE_CACHE_DIR_NAME = "current_comic_pages"
 private const val MAX_REJECTION_EXAMPLES = 4
+private const val IMAGE_HEADER_BYTE_COUNT = 12
+private const val STREAM_BUFFER_SIZE = 64 * 1024
+private const val MAX_ARCHIVE_ENTRY_COUNT = 10_000
+private const val ARCHIVE_CACHE_RESERVE_BYTES = 128L * 1024L * 1024L
 
 class ComicLoadException(message: String) : IllegalArgumentException(message)
 
@@ -36,7 +44,11 @@ suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContex
 
     val cacheDir = resetArchiveCache(context)
     val archiveFile = copyArchiveToCache(context, uri, displayName, cacheDir)
-    val pages = archiveFile.extractComicPagesTo(cacheDir)
+    val pages = try {
+        archiveFile.extractComicPagesTo(cacheDir)
+    } finally {
+        archiveFile.delete()
+    }
 
     ComicBook(
         title = displayName.withoutComicExtension(),
@@ -142,13 +154,15 @@ fun clearArchiveCache(context: Context) {
 private fun File.extractComicPagesTo(cacheDir: File): List<ComicPage> {
     val extraction = try {
         extractArchivePages(this, cacheDir)
-    } catch (_: Exception) {
-        throw ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+    } catch (exception: Exception) {
+        cacheDir.deleteRecursively()
+        throw archiveExtractionFailureFor(exception)
     }
     val extractedPages = extraction.pages
         .sortedWith { left, right -> compareComicPageNames(left.entryName, right.entryName) }
 
     if (extractedPages.isEmpty()) {
+        cacheDir.deleteRecursively()
         throw ComicLoadException(extraction.emptyMessage())
     }
 
@@ -180,6 +194,10 @@ private fun extractArchivePages(
 
             if (!entry.isDirectory && !isHiddenComicPath(entryName)) {
                 scannedEntries += 1
+                if (scannedEntries > MAX_ARCHIVE_ENTRY_COUNT) {
+                    throw ComicLoadException("Archivio troppo grande: contiene piu di $MAX_ARCHIVE_ENTRY_COUNT file.")
+                }
+
                 val imageInfo = zipFile.getInputStream(entry).use { input ->
                     detectImageInfo(input)
                 }
@@ -196,9 +214,11 @@ private fun extractArchivePages(
                     safeCachePageName(extractedPages.size, imageInfo.format),
                 )
                 zipFile.getInputStream(entry).use { input ->
-                    FileOutputStream(outputFile).use { output ->
-                        input.copyTo(output)
-                    }
+                    copyToFileBounded(
+                        inputStream = input,
+                        outputFile = outputFile,
+                        maxBytes = cacheWritableBytes(cacheDir),
+                    )
                 }
                 extractedPages += ExtractedPage(entryName = entryName, file = outputFile, info = imageInfo)
             }
@@ -212,6 +232,16 @@ private fun extractArchivePages(
     )
 }
 
+internal fun archiveExtractionFailureFor(exception: Exception): Exception = when (exception) {
+    is CancellationException -> exception
+    is ComicLoadException -> exception
+    is ZipException -> ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+    is IOException,
+    is SecurityException,
+    -> ComicLoadException("Archivio non leggibile o estrazione interrotta.")
+    else -> ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+}
+
 private fun copyArchiveToCache(
     context: Context,
     uri: Uri,
@@ -223,9 +253,11 @@ private fun copyArchiveToCache(
     val archiveFile = File(cacheDir, "selected_comic.${displayName.archiveExtension()}")
 
     inputStream.use { input ->
-        archiveFile.outputStream().use { output ->
-            input.copyTo(output)
-        }
+        copyToFileBounded(
+            inputStream = input,
+            outputFile = archiveFile,
+            maxBytes = cacheWritableBytes(cacheDir),
+        )
     }
 
     return archiveFile
@@ -277,13 +309,33 @@ fun detectImageFormat(bytes: ByteArray): ImageFormat? = when {
     else -> null
 }
 
+fun readImageHeader(inputStream: InputStream): ByteArray {
+    val header = ByteArray(IMAGE_HEADER_BYTE_COUNT)
+    var offset = 0
+
+    while (offset < header.size) {
+        val bytesRead = inputStream.read(header, offset, header.size - offset)
+        if (bytesRead < 0) break
+        offset += bytesRead
+    }
+
+    if (offset < header.size) {
+        header.fill(0, fromIndex = offset)
+    }
+
+    return header
+}
+
 fun detectImageInfo(inputStream: InputStream): ImageInfo? {
-    val bytes = inputStream.readBytes()
-    val format = detectImageFormat(bytes) ?: return null
+    val bufferedInput = BufferedInputStream(inputStream, STREAM_BUFFER_SIZE)
+    bufferedInput.mark(IMAGE_HEADER_BYTE_COUNT)
+    val format = detectImageFormat(readImageHeader(bufferedInput)) ?: return null
+    bufferedInput.reset()
+
     val options = BitmapFactory.Options().apply {
         inJustDecodeBounds = true
     }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    BitmapFactory.decodeStream(bufferedInput, null, options)
 
     return if (options.outWidth > 0 && options.outHeight > 0) {
         ImageInfo(format = format, width = options.outWidth, height = options.outHeight)
@@ -296,12 +348,7 @@ fun detectImageInfo(file: File): ImageInfo? {
     if (!file.isFile || !file.canRead()) return null
 
     val header = file.inputStream().use { input ->
-        ByteArray(12).also { buffer ->
-            val bytesRead = input.read(buffer)
-            if (bytesRead < buffer.size) {
-                buffer.fill(0, fromIndex = bytesRead.coerceAtLeast(0))
-            }
-        }
+        readImageHeader(input)
     }
     val format = detectImageFormat(header) ?: return null
     val options = BitmapFactory.Options().apply {
@@ -315,6 +362,44 @@ fun detectImageInfo(file: File): ImageInfo? {
         null
     }
 }
+
+fun copyToFileBounded(
+    inputStream: InputStream,
+    outputFile: File,
+    maxBytes: Long,
+): Long {
+    if (maxBytes < 0L) {
+        throw ComicLoadException("Spazio insufficiente per estrarre questo archivio.")
+    }
+
+    val buffer = ByteArray(STREAM_BUFFER_SIZE)
+    var copiedBytes = 0L
+
+    try {
+        outputFile.outputStream().use { output ->
+            while (true) {
+                val bytesRead = inputStream.read(buffer)
+                if (bytesRead < 0) break
+
+                if (copiedBytes > maxBytes - bytesRead) {
+                    throw ComicLoadException("Spazio insufficiente per estrarre questo archivio.")
+                }
+
+                output.write(buffer, 0, bytesRead)
+                copiedBytes += bytesRead
+            }
+        }
+    } catch (throwable: Throwable) {
+        outputFile.delete()
+        throw throwable
+    }
+
+    return copiedBytes
+}
+
+@SuppressLint("UsableSpace")
+private fun cacheWritableBytes(cacheDir: File): Long =
+    cacheDir.usableSpace - ARCHIVE_CACHE_RESERVE_BYTES
 
 private fun safeCachePageName(index: Int, format: ImageFormat): String =
     "page_${index.toString().padStart(5, '0')}.${format.extension}"

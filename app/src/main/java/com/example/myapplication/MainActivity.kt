@@ -44,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -99,6 +100,7 @@ import com.example.myapplication.ui.theme.MyApplicationTheme
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -325,6 +327,12 @@ fun ComicViewerApp() {
                 updateRecentPage(ready, nextPageIndex)
                 uiState = ready.copy(pageIndex = nextPageIndex)
             },
+            onPageSelected = { pageIndex ->
+                val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
+                val nextPageIndex = coercePageIndex(pageIndex, ready.book.pages.size)
+                updateRecentPage(ready, nextPageIndex)
+                uiState = ready.copy(pageIndex = nextPageIndex)
+            },
             onCloseComic = ::closeComic,
         )
     }
@@ -342,6 +350,7 @@ fun ComicViewerScreen(
     onOpenRecentComic: (RecentComic) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onPageSelected: (Int) -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -370,6 +379,7 @@ fun ComicViewerScreen(
             pageIndex = state.pageIndex,
             onPrevious = onPrevious,
             onNext = onNext,
+            onPageSelected = onPageSelected,
             onCloseComic = onCloseComic,
             modifier = modifier,
         )
@@ -938,6 +948,7 @@ fun ComicReaderScreen(
     pageIndex: Int,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onPageSelected: (Int) -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -959,6 +970,7 @@ fun ComicReaderScreen(
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var pageScale by remember(page.imageUri) { mutableFloatStateOf(MIN_PAGE_SCALE) }
     var pageOffset by remember(page.imageUri) { mutableStateOf(Offset.Zero) }
+    var controlsVisible by remember(book) { mutableStateOf(true) }
 
     LaunchedEffect(book.pages, currentIndex, imageLoader) {
         book.pages.preloadAround(
@@ -997,13 +1009,16 @@ fun ComicReaderScreen(
                 .matchParentSize()
                 .clipToBounds()
                 .onSizeChanged { viewportSize = it }
-                .pointerInput(page.imageUri, viewportSize) {
+                .pointerInput(page.imageUri, viewportSize, controlsVisible) {
                     detectPageGestures(
                         onTap = { tapOffset ->
-                            if (tapOffset.x < size.width / 2f) {
+                            val tapZoneWidth = size.width / 3f
+                            if (tapOffset.x < tapZoneWidth) {
                                 onPrevious()
-                            } else {
+                            } else if (tapOffset.x > tapZoneWidth * 2f) {
                                 onNext()
+                            } else {
+                                controlsVisible = !controlsVisible
                             }
                         },
                     ) { centroid, pan, zoomChange ->
@@ -1055,15 +1070,27 @@ fun ComicReaderScreen(
             )
         }
 
-        ReaderTopBar(
-            title = book.title,
-            pageText = "${currentIndex + 1} / ${book.pages.size}",
-            onCloseComic = onCloseComic,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .systemBarsPadding()
-                .padding(12.dp),
-        )
+        if (controlsVisible) {
+            ReaderTopBar(
+                title = book.title,
+                pageText = "${currentIndex + 1} / ${book.pages.size}",
+                onCloseComic = onCloseComic,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .systemBarsPadding()
+                    .padding(12.dp),
+            )
+
+            ReaderPageScrubber(
+                currentPageIndex = currentIndex,
+                pageCount = book.pages.size,
+                onPageSelected = onPageSelected,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .systemBarsPadding()
+                    .padding(12.dp),
+            )
+        }
     }
 }
 
@@ -1276,6 +1303,49 @@ fun ReaderTopBar(
                 Text(
                     text = "File",
                     color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ReaderPageScrubber(
+    currentPageIndex: Int,
+    pageCount: Int,
+    onPageSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val clampedPageIndex = coercePageIndex(currentPageIndex, pageCount)
+    var scrubberValue by remember(clampedPageIndex, pageCount) {
+        mutableFloatStateOf(clampedPageIndex.toFloat())
+    }
+    val targetPageIndex = coercePageIndex(scrubberValue.roundToInt(), pageCount)
+    val sliderMax = max(pageCount - 1, 0).toFloat()
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color.Black.copy(alpha = 0.58f),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = if (pageCount <= 0) "Pagina 1 / 1" else "Pagina ${targetPageIndex + 1} / $pageCount",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(alpha = 0.86f),
+            )
+            if (pageCount > 1) {
+                Slider(
+                    value = scrubberValue.coerceIn(0f, sliderMax),
+                    onValueChange = { value -> scrubberValue = value },
+                    onValueChangeFinished = {
+                        onPageSelected(coercePageIndex(scrubberValue.roundToInt(), pageCount))
+                    },
+                    valueRange = 0f..sliderMax,
+                    steps = max(pageCount - 2, 0),
                 )
             }
         }

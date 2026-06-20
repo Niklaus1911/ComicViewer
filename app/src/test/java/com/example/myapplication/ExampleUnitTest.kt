@@ -116,4 +116,172 @@ class ExampleUnitTest {
         assertEquals(EMPTY_COMIC_MESSAGE, comicLoadErrorForPageCount(0))
         assertNull(comicLoadErrorForPageCount(1))
     }
+
+    @Test
+    fun browserEntryTypeFor_keepsDirectoriesAsDirectories() {
+        assertEquals(
+            BrowserEntryType.Directory,
+            browserEntryTypeFor(
+                name = "Chapter 1",
+                isDirectory = true,
+                isImageFile = false,
+            ),
+        )
+        assertEquals(
+            BrowserEntryType.Directory,
+            browserEntryTypeFor(
+                name = "Series",
+                isDirectory = true,
+                isImageFile = false,
+            ),
+        )
+    }
+
+    @Test
+    fun browserEntryTypeFor_classifiesArchivesImagesAndUnsupportedFiles() {
+        assertEquals(
+            BrowserEntryType.Archive,
+            browserEntryTypeFor(
+                name = "comic.cbz",
+                isDirectory = false,
+                isImageFile = false,
+            ),
+        )
+        assertEquals(
+            BrowserEntryType.ImageFile,
+            browserEntryTypeFor(
+                name = "cover",
+                isDirectory = false,
+                isImageFile = true,
+            ),
+        )
+        assertEquals(
+            BrowserEntryType.UnsupportedFile,
+            browserEntryTypeFor(
+                name = "notes.txt",
+                isDirectory = false,
+                isImageFile = false,
+            ),
+        )
+    }
+
+    @Test
+    fun browserEntry_canOpen_allowsOnlyDirectoriesAndArchives() {
+        assertTrue(
+            BrowserEntry(
+                name = "Series",
+                path = "/storage/emulated/0/Series",
+                type = BrowserEntryType.Directory,
+                thumbnailUri = null,
+            ).canOpen,
+        )
+        assertTrue(
+            BrowserEntry(
+                name = "comic.cbz",
+                path = "/storage/emulated/0/comic.cbz",
+                type = BrowserEntryType.Archive,
+                thumbnailUri = null,
+            ).canOpen,
+        )
+        assertFalse(
+            BrowserEntry(
+                name = "cover.jpg",
+                path = "/storage/emulated/0/cover.jpg",
+                type = BrowserEntryType.ImageFile,
+                thumbnailUri = null,
+            ).canOpen,
+        )
+        assertFalse(
+            BrowserEntry(
+                name = "notes.txt",
+                path = "/storage/emulated/0/notes.txt",
+                type = BrowserEntryType.UnsupportedFile,
+                thumbnailUri = null,
+            ).canOpen,
+        )
+    }
+
+    @Test
+    fun browserParentPathFor_returnsParentInsideRoot() {
+        assertEquals(
+            "/storage/emulated/0",
+            browserParentPathFor(
+                currentPath = "/storage/emulated/0/Download",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+        assertEquals(
+            "/storage/emulated/0/Download",
+            browserParentPathFor(
+                currentPath = "/storage/emulated/0/Download/Comics",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+    }
+
+    @Test
+    fun browserParentPathFor_returnsNullAtRoot() {
+        assertNull(
+            browserParentPathFor(
+                currentPath = "/storage/emulated/0",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+    }
+
+    @Test
+    fun browserParentPathFor_normalizesCurrentPath() {
+        assertEquals(
+            "/storage/emulated/0",
+            browserParentPathFor(
+                currentPath = "/storage/emulated/0/Download/Comics/..",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+    }
+
+    @Test
+    fun browserParentPathFor_doesNotClimbOutsideRoot() {
+        assertNull(
+            browserParentPathFor(
+                currentPath = "/storage/emulated",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+        assertNull(
+            browserParentPathFor(
+                currentPath = "/storage/emulated/01",
+                rootPath = "/storage/emulated/0",
+            ),
+        )
+    }
+
+    @Test
+    fun compareBrowserEntries_sortsDirectoriesFirstThenNaturally() {
+        val entries = listOf(
+            BrowserSortCase("comic-10.cbz", isDirectory = false),
+            BrowserSortCase("Chapter 2", isDirectory = true),
+            BrowserSortCase("comic-2.cbz", isDirectory = false),
+            BrowserSortCase("Chapter 1", isDirectory = true),
+        )
+
+        val sorted = entries.sortedWith { left, right ->
+            compareBrowserEntries(
+                leftName = left.name,
+                leftIsDirectory = left.isDirectory,
+                rightName = right.name,
+                rightIsDirectory = right.isDirectory,
+            )
+        }
+
+        assertEquals(
+            listOf("Chapter 1", "Chapter 2", "comic-2.cbz", "comic-10.cbz"),
+            sorted.map { it.name },
+        )
+    }
 }
+
+private data class BrowserSortCase(
+    val name: String,
+    val isDirectory: Boolean,
+)

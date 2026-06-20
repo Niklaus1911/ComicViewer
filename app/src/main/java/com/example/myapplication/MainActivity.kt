@@ -3,7 +3,11 @@ package com.example.myapplication
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -11,6 +15,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -20,24 +25,27 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +60,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -67,25 +77,22 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import com.example.myapplication.ui.theme.MyApplicationTheme
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
-
-private val supportedArchiveMimeTypes = arrayOf(
-    "application/zip",
-    "application/x-zip-compressed",
-    "application/vnd.comicbook+zip",
-    "application/x-cbz",
-    "application/octet-stream",
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,8 +112,32 @@ fun ComicViewerApp() {
     val context = LocalContext.current
     val appContext = context.applicationContext
     val scope = rememberCoroutineScope()
+    var hasFileAccess by remember { mutableStateOf(hasFileManagerAccess()) }
+    var currentDirectoryPath by rememberSaveable { mutableStateOf(defaultBrowserRootPath()) }
     var uiState by rememberSaveable(stateSaver = ReaderUiStateSaver) {
         mutableStateOf<ReaderUiState>(ReaderUiState.Empty)
+    }
+    var loadJob by remember { mutableStateOf<Job?>(null) }
+    val browserRootPath = remember { defaultBrowserRootPath() }
+
+    val fileAccessLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {
+        hasFileAccess = hasFileManagerAccess()
+    }
+
+    DisposableEffect(context) {
+        val activity = context as? ComponentActivity
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasFileAccess = hasFileManagerAccess()
+            }
+        }
+        activity?.lifecycle?.addObserver(observer)
+
+        onDispose {
+            activity?.lifecycle?.removeObserver(observer)
+        }
     }
 
     fun showError(throwable: Throwable) {
@@ -116,88 +147,127 @@ fun ComicViewerApp() {
         )
     }
 
-    fun openArchive(uri: Uri) {
-        tryTakePersistableReadPermission(context, uri)
-        uiState = ReaderUiState.Loading
-        scope.launch {
-            runCatching { loadArchiveComic(appContext, uri) }
-                .onSuccess { book ->
-                    uiState = ReaderUiState.Ready(book = book, pageIndex = 0)
-                }
-                .onFailure { throwable -> showError(throwable) }
+    fun openFileAccessSettings() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val appSettingsIntent = Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${context.packageName}"),
+            )
+            runCatching {
+                fileAccessLauncher.launch(appSettingsIntent)
+            }.onFailure {
+                fileAccessLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
         }
     }
 
-    fun openFolder(uri: Uri) {
+    fun openLocalArchive(file: File) {
+        loadJob?.cancel()
         uiState = ReaderUiState.Loading
-        scope.launch {
-            runCatching { loadFolderComic(appContext, uri) }
+        loadJob = scope.launch {
+            runCatching { loadLocalArchiveComic(appContext, file) }
                 .onSuccess { book ->
                     uiState = ReaderUiState.Ready(book = book, pageIndex = 0)
                 }
-                .onFailure { throwable -> showError(throwable) }
+                .onFailure { throwable ->
+                    if (throwable !is CancellationException) showError(throwable)
+                }
+        }
+    }
+
+    fun openLocalFolder(folder: File) {
+        loadJob?.cancel()
+        uiState = ReaderUiState.Loading
+        loadJob = scope.launch {
+            runCatching { loadLocalFolderComic(folder) }
+                .onSuccess { book ->
+                    uiState = ReaderUiState.Ready(book = book, pageIndex = 0)
+                }
+                .onFailure { throwable ->
+                    if (throwable !is CancellationException) showError(throwable)
+                }
         }
     }
 
     fun closeComic() {
+        loadJob?.cancel()
         clearArchiveCache(appContext)
         uiState = ReaderUiState.Empty
     }
 
-    val archiveLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) openArchive(uri)
+    fun returnToBrowser() {
+        loadJob?.cancel()
+        clearArchiveCache(appContext)
+        uiState = ReaderUiState.Empty
     }
 
-    val folderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        val uri = result.data?.data
-        if (uri != null) {
-            tryTakePersistableReadPermission(context, uri, result.data?.flags ?: 0)
-            openFolder(uri)
+    val browserBackPath = remember(currentDirectoryPath, browserRootPath) {
+        browserParentPathFor(
+            currentPath = currentDirectoryPath,
+            rootPath = browserRootPath,
+        )
+    }
+    val shouldHandleBack = hasFileAccess &&
+        (uiState !is ReaderUiState.Empty || browserBackPath != null)
+
+    BackHandler(enabled = shouldHandleBack) {
+        when (uiState) {
+            ReaderUiState.Empty -> {
+                if (browserBackPath != null) currentDirectoryPath = browserBackPath
+            }
+
+            ReaderUiState.Loading,
+            is ReaderUiState.Error,
+            is ReaderUiState.Ready,
+            -> returnToBrowser()
         }
     }
 
-    ComicViewerScreen(
-        state = uiState,
-        onOpenArchive = { archiveLauncher.launch(supportedArchiveMimeTypes) },
-        onOpenFolder = {
-            folderLauncher.launch(
-                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                    addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-                },
-            )
-        },
-        onPrevious = {
-            val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
-            uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size))
-        },
-        onNext = {
-            val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
-            uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex + 1, ready.book.pages.size))
-        },
-        onCloseComic = ::closeComic,
-    )
+    if (!hasFileAccess) {
+        FileAccessScreen(
+            onOpenSettings = ::openFileAccessSettings,
+        )
+    } else {
+        ComicViewerScreen(
+            state = uiState,
+            currentDirectoryPath = currentDirectoryPath,
+            browserRootPath = browserRootPath,
+            onDirectoryChange = { path -> currentDirectoryPath = path },
+            onOpenLocalArchive = ::openLocalArchive,
+            onOpenLocalFolder = ::openLocalFolder,
+            onPrevious = {
+                val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
+                uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size))
+            },
+            onNext = {
+                val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
+                uiState = ready.copy(pageIndex = coercePageIndex(ready.pageIndex + 1, ready.book.pages.size))
+            },
+            onCloseComic = ::closeComic,
+        )
+    }
 }
 
 @Composable
 fun ComicViewerScreen(
     state: ReaderUiState,
-    onOpenArchive: () -> Unit,
-    onOpenFolder: () -> Unit,
+    currentDirectoryPath: String,
+    browserRootPath: String,
+    onDirectoryChange: (String) -> Unit,
+    onOpenLocalArchive: (File) -> Unit,
+    onOpenLocalFolder: (File) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (state) {
-        ReaderUiState.Empty -> OpenComicScreen(
-            onOpenArchive = onOpenArchive,
-            onOpenFolder = onOpenFolder,
+        ReaderUiState.Empty -> FileBrowserScreen(
+            currentDirectoryPath = currentDirectoryPath,
+            browserRootPath = browserRootPath,
+            onDirectoryChange = onDirectoryChange,
+            onOpenLocalArchive = onOpenLocalArchive,
+            onOpenLocalFolder = onOpenLocalFolder,
             modifier = modifier,
         )
 
@@ -205,8 +275,7 @@ fun ComicViewerScreen(
 
         is ReaderUiState.Error -> ErrorComicScreen(
             message = state.message,
-            onOpenArchive = onOpenArchive,
-            onOpenFolder = onOpenFolder,
+            onBackToBrowser = onCloseComic,
             modifier = modifier,
         )
 
@@ -222,9 +291,8 @@ fun ComicViewerScreen(
 }
 
 @Composable
-fun OpenComicScreen(
-    onOpenArchive: () -> Unit,
-    onOpenFolder: () -> Unit,
+fun FileAccessScreen(
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -247,24 +315,309 @@ fun OpenComicScreen(
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Apri un archivio .zip/.cbz o una cartella con pagine numerate.",
+                text = "Serve l'accesso speciale ai file per mostrare la libreria.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(28.dp))
             Button(
-                onClick = onOpenArchive,
+                onClick = onOpenSettings,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Apri archivio")
+                Text("Apri impostazioni")
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onOpenFolder,
-                modifier = Modifier.fillMaxWidth(),
+        }
+    }
+}
+
+sealed interface FileBrowserUiState {
+    data object Loading : FileBrowserUiState
+    data class Loaded(val directory: BrowserDirectory) : FileBrowserUiState
+    data class Error(val message: String) : FileBrowserUiState
+}
+
+@Composable
+fun FileBrowserScreen(
+    currentDirectoryPath: String,
+    browserRootPath: String,
+    onDirectoryChange: (String) -> Unit,
+    onOpenLocalArchive: (File) -> Unit,
+    onOpenLocalFolder: (File) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var browserState by remember(currentDirectoryPath) {
+        mutableStateOf<FileBrowserUiState>(FileBrowserUiState.Loading)
+    }
+
+    fun reload() {
+        browserState = FileBrowserUiState.Loading
+    }
+
+    LaunchedEffect(currentDirectoryPath, browserState is FileBrowserUiState.Loading) {
+        if (browserState !is FileBrowserUiState.Loading) return@LaunchedEffect
+
+        runCatching { loadBrowserDirectory(context.applicationContext, File(currentDirectoryPath)) }
+            .onSuccess { directory -> browserState = FileBrowserUiState.Loaded(directory) }
+            .onFailure { throwable ->
+                browserState = FileBrowserUiState.Error(
+                    throwable.message?.takeIf { it.isNotBlank() } ?: "Cartella non leggibile.",
+                )
+            }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
+        ) {
+            FileBrowserHeader(
+                currentDirectoryPath = currentDirectoryPath,
+                parentPath = browserParentPathFor(
+                    currentPath = currentDirectoryPath,
+                    rootPath = browserRootPath,
+                ),
+                canOpenCurrentFolderAsComic = (browserState as? FileBrowserUiState.Loaded)
+                    ?.directory
+                    ?.hasDirectImageEntry()
+                    ?: false,
+                onDirectoryChange = onDirectoryChange,
+                onOpenCurrentFolderAsComic = { onOpenLocalFolder(File(currentDirectoryPath)) },
+                onReload = ::reload,
+            )
+
+            when (val state = browserState) {
+                FileBrowserUiState.Loading -> LoadingFileBrowserContent()
+                is FileBrowserUiState.Error -> FileBrowserErrorContent(
+                    message = state.message,
+                    onRetry = ::reload,
+                )
+
+                is FileBrowserUiState.Loaded -> FileBrowserContent(
+                    directory = state.directory,
+                    onEntryClick = { entry ->
+                        when (entry.type) {
+                            BrowserEntryType.Directory -> onDirectoryChange(entry.path)
+                            BrowserEntryType.Archive -> onOpenLocalArchive(File(entry.path))
+                            BrowserEntryType.ImageFile,
+                            BrowserEntryType.UnsupportedFile,
+                            -> Unit
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FileBrowserHeader(
+    currentDirectoryPath: String,
+    parentPath: String?,
+    canOpenCurrentFolderAsComic: Boolean,
+    onDirectoryChange: (String) -> Unit,
+    onOpenCurrentFolderAsComic: () -> Unit,
+    onReload: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "File",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    text = currentDirectoryPath,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TextButton(
+                onClick = { if (parentPath != null) onDirectoryChange(parentPath) },
+                enabled = parentPath != null,
             ) {
-                Text("Apri cartella")
+                Text("Su")
+            }
+            TextButton(onClick = onReload) {
+                Text("Aggiorna")
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onOpenCurrentFolderAsComic,
+                enabled = canOpenCurrentFolderAsComic,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Apri come comic")
+            }
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
+fun LoadingFileBrowserContent(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator()
+    }
+}
+
+@Composable
+fun FileBrowserErrorContent(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRetry) {
+            Text("Riprova")
+        }
+    }
+}
+
+@Composable
+fun FileBrowserContent(
+    directory: BrowserDirectory,
+    onEntryClick: (BrowserEntry) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (directory.entries.isEmpty()) {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "Cartella vuota",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 18.dp),
+    ) {
+        items(
+            items = directory.entries,
+            key = { entry -> entry.path },
+        ) { entry ->
+            FileBrowserRow(
+                entry = entry,
+                onClick = { onEntryClick(entry) },
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 88.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+            )
+        }
+    }
+}
+
+@Composable
+fun FileBrowserRow(
+    entry: BrowserEntry,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rowAlpha = if (entry.canOpen || entry.type == BrowserEntryType.ImageFile) 1f else 0.52f
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(enabled = entry.canOpen, onClick = onClick)
+            .alpha(rowAlpha)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        FileBrowserThumbnail(entry = entry)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = entry.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = entry.type.label(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+fun FileBrowserThumbnail(
+    entry: BrowserEntry,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.size(58.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        val thumbnailUri = entry.thumbnailUri
+        if (thumbnailUri != null) {
+            Image(
+                painter = rememberAsyncImagePainter(model = thumbnailUri),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp)),
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = entry.type.shortLabel(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }
@@ -298,8 +651,7 @@ fun LoadingComicScreen(modifier: Modifier = Modifier) {
 @Composable
 fun ErrorComicScreen(
     message: String,
-    onOpenArchive: () -> Unit,
-    onOpenFolder: () -> Unit,
+    onBackToBrowser: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -329,17 +681,10 @@ fun ErrorComicScreen(
             )
             Spacer(modifier = Modifier.height(28.dp))
             Button(
-                onClick = onOpenArchive,
+                onClick = onBackToBrowser,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Apri archivio")
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onOpenFolder,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Apri cartella")
+                Text("Torna ai file")
             }
         }
     }
@@ -687,7 +1032,7 @@ fun ReaderTopBar(
             }
             TextButton(onClick = onCloseComic) {
                 Text(
-                    text = "Apri",
+                    text = "File",
                     color = Color.White,
                 )
             }
@@ -695,20 +1040,49 @@ fun ReaderTopBar(
     }
 }
 
-private fun tryTakePersistableReadPermission(
-    context: Context,
-    uri: Uri,
-    grantFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION,
-) {
-    if (grantFlags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return
-
-    runCatching {
-        context.contentResolver.takePersistableUriPermission(
-            uri,
-            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-        )
-    }
+private fun BrowserEntryType.label(): String = when (this) {
+    BrowserEntryType.Directory -> "Cartella"
+    BrowserEntryType.Archive -> "Archivio comic"
+    BrowserEntryType.ImageFile -> "Immagine"
+    BrowserEntryType.UnsupportedFile -> "File"
 }
+
+private fun BrowserEntryType.shortLabel(): String = when (this) {
+    BrowserEntryType.Directory -> "DIR"
+    BrowserEntryType.Archive -> "ZIP"
+    BrowserEntryType.ImageFile -> "IMG"
+    BrowserEntryType.UnsupportedFile -> "FILE"
+}
+
+private fun BrowserDirectory.hasDirectImageEntry(): Boolean =
+    entries.any { entry -> entry.type == BrowserEntryType.ImageFile }
+
+fun browserParentPathFor(
+    currentPath: String,
+    rootPath: String,
+): String? {
+    val currentFile = File(currentPath).canonicalFile
+    val rootFile = File(rootPath).canonicalFile
+
+    if (currentFile.absolutePath == rootFile.absolutePath) return null
+    if (!currentFile.absolutePath.startsWith(rootFile.absolutePath + File.separator)) return null
+
+    val parentPath = currentFile.parentFile?.absolutePath ?: return null
+    return parentPath
+        .takeIf { it == rootFile.absolutePath || it.startsWith(rootFile.absolutePath + File.separator) }
+        ?.takeUnless { it == currentFile.absolutePath }
+}
+
+private fun hasFileManagerAccess(): Boolean =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+    } else {
+        true
+    }
+
+@Suppress("DEPRECATION")
+private fun defaultBrowserRootPath(): String =
+    Environment.getExternalStorageDirectory().absolutePath
 
 private val ReaderUiStateSaver = listSaver<ReaderUiState, String>(
     save = { state ->
@@ -720,10 +1094,23 @@ private val ReaderUiStateSaver = listSaver<ReaderUiState, String>(
             is ReaderUiState.Error -> listOf("error", state.message)
 
             is ReaderUiState.Ready -> buildList {
+                val source = state.book.source
+                val sourceType = when (source) {
+                    is ComicSource.Archive -> "archive"
+                    is ComicSource.Folder -> "folder"
+                    is ComicSource.LocalArchive -> "local_archive"
+                    is ComicSource.LocalFolder -> "local_folder"
+                }
+                val sourceLocation = when (source) {
+                    is ComicSource.Archive -> source.uri.toString()
+                    is ComicSource.Folder -> source.uri.toString()
+                    is ComicSource.LocalArchive -> source.filePath
+                    is ComicSource.LocalFolder -> source.folderPath
+                }
                 add("ready")
-                add(if (state.book.source is ComicSource.Archive) "archive" else "folder")
-                add(state.book.source.uri.toString())
-                add(state.book.source.displayName)
+                add(sourceType)
+                add(sourceLocation)
+                add(source.displayName)
                 add(state.book.title)
                 add(state.pageIndex.toString())
                 add(state.book.pages.size.toString())
@@ -749,7 +1136,7 @@ private val ReaderUiStateSaver = listSaver<ReaderUiState, String>(
 
 private fun restoreReadyState(savedValues: List<String>): ReaderUiState {
     val sourceType = savedValues.getOrNull(1) ?: return ReaderUiState.Empty
-    val sourceUri = savedValues.getOrNull(2)?.let(Uri::parse) ?: return ReaderUiState.Empty
+    val sourceLocation = savedValues.getOrNull(2) ?: return ReaderUiState.Empty
     val sourceDisplayName = savedValues.getOrNull(3) ?: return ReaderUiState.Empty
     val title = savedValues.getOrNull(4) ?: sourceDisplayName
     val pageIndex = savedValues.getOrNull(5)?.toIntOrNull() ?: 0
@@ -780,10 +1167,12 @@ private fun restoreReadyState(savedValues: List<String>): ReaderUiState {
 
     if (pages.isEmpty()) return ReaderUiState.Empty
 
-    val source = if (sourceType == "archive") {
-        ComicSource.Archive(uri = sourceUri, displayName = sourceDisplayName)
-    } else {
-        ComicSource.Folder(uri = sourceUri, displayName = sourceDisplayName)
+    val source = when (sourceType) {
+        "archive" -> ComicSource.Archive(uri = Uri.parse(sourceLocation), displayName = sourceDisplayName)
+        "folder" -> ComicSource.Folder(uri = Uri.parse(sourceLocation), displayName = sourceDisplayName)
+        "local_archive" -> ComicSource.LocalArchive(filePath = sourceLocation, displayName = sourceDisplayName)
+        "local_folder" -> ComicSource.LocalFolder(folderPath = sourceLocation, displayName = sourceDisplayName)
+        else -> return ReaderUiState.Empty
     }
 
     return ReaderUiState.Ready(
@@ -794,11 +1183,8 @@ private fun restoreReadyState(savedValues: List<String>): ReaderUiState {
 
 @Preview(showBackground = true)
 @Composable
-fun OpenComicScreenPreview() {
+fun FileAccessScreenPreview() {
     MyApplicationTheme {
-        OpenComicScreen(
-            onOpenArchive = {},
-            onOpenFolder = {},
-        )
+        FileAccessScreen(onOpenSettings = {})
     }
 }

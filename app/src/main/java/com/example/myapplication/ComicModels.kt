@@ -3,16 +3,25 @@ package com.example.myapplication
 import android.net.Uri
 
 sealed interface ComicSource {
-    val uri: Uri
     val displayName: String
 
     data class Archive(
-        override val uri: Uri,
+        val uri: Uri,
         override val displayName: String,
     ) : ComicSource
 
     data class Folder(
-        override val uri: Uri,
+        val uri: Uri,
+        override val displayName: String,
+    ) : ComicSource
+
+    data class LocalArchive(
+        val filePath: String,
+        override val displayName: String,
+    ) : ComicSource
+
+    data class LocalFolder(
+        val folderPath: String,
         override val displayName: String,
     ) : ComicSource
 }

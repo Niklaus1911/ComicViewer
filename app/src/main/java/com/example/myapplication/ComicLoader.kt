@@ -36,28 +36,7 @@ suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContex
 
     val cacheDir = resetArchiveCache(context)
     val archiveFile = copyArchiveToCache(context, uri, displayName, cacheDir)
-    val extraction = try {
-        extractArchivePages(archiveFile, cacheDir)
-    } catch (_: Exception) {
-        throw ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
-    }
-    val extractedPages = extraction.pages
-        .sortedWith { left, right -> compareComicPageNames(left.entryName, right.entryName) }
-
-    if (extractedPages.isEmpty()) {
-        throw ComicLoadException(extraction.emptyMessage())
-    }
-
-    val pages = extractedPages.mapIndexed { index, extracted ->
-        ComicPage(
-            index = index,
-            displayName = extracted.entryName.substringAfterLast('/'),
-            relativePath = extracted.entryName,
-            imageUri = extracted.file.toUri(),
-            width = extracted.info.width,
-            height = extracted.info.height,
-        )
-    }
+    val pages = archiveFile.extractComicPagesTo(cacheDir)
 
     ComicBook(
         title = displayName.withoutComicExtension(),
@@ -105,8 +84,84 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
     )
 }
 
+suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBook = withContext(Dispatchers.IO) {
+    if (!archiveFile.isFile || !archiveFile.canRead()) {
+        throw ComicLoadException("Archivio non leggibile.")
+    }
+
+    val displayName = archiveFile.name
+    val cacheDir = resetArchiveCache(context)
+    val pages = archiveFile.extractComicPagesTo(cacheDir)
+
+    ComicBook(
+        title = displayName.withoutComicExtension(),
+        source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName),
+        pages = pages,
+    )
+}
+
+suspend fun loadLocalFolderComic(folder: File): ComicBook = withContext(Dispatchers.IO) {
+    if (!folder.isDirectory || !folder.canRead()) {
+        throw ComicLoadException("Cartella non leggibile.")
+    }
+
+    val imageFiles = folder.listFiles().orEmpty()
+        .mapNotNull { file ->
+            val info = if (file.isFile && !isHiddenComicPath(file.name)) detectImageInfo(file) else null
+            if (info != null) LocalImageFile(file = file, info = info) else null
+        }
+        .sortedWith { left, right ->
+            compareComicPageNames(left.file.name, right.file.name)
+        }
+
+    comicLoadErrorForPageCount(imageFiles.size)?.let { throw ComicLoadException(it) }
+
+    val pages = imageFiles.mapIndexed { index, imageFile ->
+        ComicPage(
+            index = index,
+            displayName = imageFile.file.name,
+            relativePath = imageFile.file.name,
+            imageUri = imageFile.file.toUri(),
+            width = imageFile.info.width,
+            height = imageFile.info.height,
+        )
+    }
+
+    val displayName = folder.name.ifBlank { folder.absolutePath }
+    ComicBook(
+        title = displayName,
+        source = ComicSource.LocalFolder(folderPath = folder.absolutePath, displayName = displayName),
+        pages = pages,
+    )
+}
+
 fun clearArchiveCache(context: Context) {
     File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME).deleteRecursively()
+}
+
+private fun File.extractComicPagesTo(cacheDir: File): List<ComicPage> {
+    val extraction = try {
+        extractArchivePages(this, cacheDir)
+    } catch (_: Exception) {
+        throw ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+    }
+    val extractedPages = extraction.pages
+        .sortedWith { left, right -> compareComicPageNames(left.entryName, right.entryName) }
+
+    if (extractedPages.isEmpty()) {
+        throw ComicLoadException(extraction.emptyMessage())
+    }
+
+    return extractedPages.mapIndexed { index, extracted ->
+        ComicPage(
+            index = index,
+            displayName = extracted.entryName.substringAfterLast('/'),
+            relativePath = extracted.entryName,
+            imageUri = extracted.file.toUri(),
+            width = extracted.info.width,
+            height = extracted.info.height,
+        )
+    }
 }
 
 private fun extractArchivePages(
@@ -222,13 +277,37 @@ fun detectImageFormat(bytes: ByteArray): ImageFormat? = when {
     else -> null
 }
 
-private fun detectImageInfo(inputStream: InputStream): ImageInfo? {
+fun detectImageInfo(inputStream: InputStream): ImageInfo? {
     val bytes = inputStream.readBytes()
     val format = detectImageFormat(bytes) ?: return null
     val options = BitmapFactory.Options().apply {
         inJustDecodeBounds = true
     }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+
+    return if (options.outWidth > 0 && options.outHeight > 0) {
+        ImageInfo(format = format, width = options.outWidth, height = options.outHeight)
+    } else {
+        null
+    }
+}
+
+fun detectImageInfo(file: File): ImageInfo? {
+    if (!file.isFile || !file.canRead()) return null
+
+    val header = file.inputStream().use { input ->
+        ByteArray(12).also { buffer ->
+            val bytesRead = input.read(buffer)
+            if (bytesRead < buffer.size) {
+                buffer.fill(0, fromIndex = bytesRead.coerceAtLeast(0))
+            }
+        }
+    }
+    val format = detectImageFormat(header) ?: return null
+    val options = BitmapFactory.Options().apply {
+        inJustDecodeBounds = true
+    }
+    BitmapFactory.decodeFile(file.absolutePath, options)
 
     return if (options.outWidth > 0 && options.outHeight > 0) {
         ImageInfo(format = format, width = options.outWidth, height = options.outHeight)
@@ -251,6 +330,11 @@ private fun String.withoutComicExtension(): String =
 
 private data class ExtractedPage(
     val entryName: String,
+    val file: File,
+    val info: ImageInfo,
+)
+
+private data class LocalImageFile(
     val file: File,
     val info: ImageInfo,
 )

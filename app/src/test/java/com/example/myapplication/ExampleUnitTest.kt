@@ -202,6 +202,46 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun filterBrowserEntries_blankQueryReturnsAllEntries() {
+        val entries = sampleBrowserEntries()
+
+        assertEquals(entries, filterBrowserEntries(entries, ""))
+        assertEquals(entries, filterBrowserEntries(entries, "   "))
+    }
+
+    @Test
+    fun filterBrowserEntries_matchesNamesCaseInsensitively() {
+        val entries = listOf(
+            BrowserEntry(
+                name = "Batman 001.cbz",
+                path = "/storage/emulated/0/Batman 001.cbz",
+                type = BrowserEntryType.Archive,
+                thumbnailUri = null,
+            ),
+        )
+
+        assertEquals(
+            listOf("Batman 001.cbz"),
+            filterBrowserEntries(entries, "batMAN").map { it.name },
+        )
+    }
+
+    @Test
+    fun filterBrowserEntries_matchesAllEntryTypes() {
+        val entries = sampleBrowserEntries()
+
+        assertEquals(
+            listOf("Comic Folder", "comic archive.cbz", "comic cover.JPG", "comic notes.txt"),
+            filterBrowserEntries(entries, "comic").map { it.name },
+        )
+    }
+
+    @Test
+    fun filterBrowserEntries_returnsEmptyListWhenNothingMatches() {
+        assertTrue(filterBrowserEntries(sampleBrowserEntries(), "spider").isEmpty())
+    }
+
+    @Test
     fun browserParentPathFor_returnsParentInsideRoot() {
         assertEquals(
             "/storage/emulated/0",
@@ -284,4 +324,31 @@ class ExampleUnitTest {
 private data class BrowserSortCase(
     val name: String,
     val isDirectory: Boolean,
+)
+
+private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(
+    BrowserEntry(
+        name = "Comic Folder",
+        path = "/storage/emulated/0/Manga",
+        type = BrowserEntryType.Directory,
+        thumbnailUri = null,
+    ),
+    BrowserEntry(
+        name = "comic archive.cbz",
+        path = "/storage/emulated/0/Batman 001.cbz",
+        type = BrowserEntryType.Archive,
+        thumbnailUri = null,
+    ),
+    BrowserEntry(
+        name = "comic cover.JPG",
+        path = "/storage/emulated/0/cover.JPG",
+        type = BrowserEntryType.ImageFile,
+        thumbnailUri = null,
+    ),
+    BrowserEntry(
+        name = "comic notes.txt",
+        path = "/storage/emulated/0/notes.txt",
+        type = BrowserEntryType.UnsupportedFile,
+        thumbnailUri = null,
+    ),
 )

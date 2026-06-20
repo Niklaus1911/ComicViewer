@@ -40,10 +40,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -65,6 +76,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -347,6 +359,7 @@ fun FileBrowserScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    var searchQuery by remember(currentDirectoryPath) { mutableStateOf("") }
     var browserState by remember(currentDirectoryPath) {
         mutableStateOf<FileBrowserUiState>(FileBrowserUiState.Loading)
     }
@@ -386,6 +399,8 @@ fun FileBrowserScreen(
                     ?.directory
                     ?.hasDirectImageEntry()
                     ?: false,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { query -> searchQuery = query },
                 onDirectoryChange = onDirectoryChange,
                 onOpenCurrentFolderAsComic = { onOpenLocalFolder(File(currentDirectoryPath)) },
                 onReload = ::reload,
@@ -400,6 +415,7 @@ fun FileBrowserScreen(
 
                 is FileBrowserUiState.Loaded -> FileBrowserContent(
                     directory = state.directory,
+                    searchQuery = searchQuery,
                     onEntryClick = { entry ->
                         when (entry.type) {
                             BrowserEntryType.Directory -> onDirectoryChange(entry.path)
@@ -420,6 +436,8 @@ fun FileBrowserHeader(
     currentDirectoryPath: String,
     parentPath: String?,
     canOpenCurrentFolderAsComic: Boolean,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
     onDirectoryChange: (String) -> Unit,
     onOpenCurrentFolderAsComic: () -> Unit,
     onReload: () -> Unit,
@@ -472,6 +490,29 @@ fun FileBrowserHeader(
                 Text("Apri come comic")
             }
         }
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = null,
+                )
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { onSearchQueryChange("") }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cancella ricerca",
+                        )
+                    }
+                }
+            },
+            label = { Text("Cerca in questa cartella") },
+        )
         HorizontalDivider()
     }
 }
@@ -515,16 +556,19 @@ fun FileBrowserErrorContent(
 @Composable
 fun FileBrowserContent(
     directory: BrowserDirectory,
+    searchQuery: String,
     onEntryClick: (BrowserEntry) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (directory.entries.isEmpty()) {
+    val entries = filterBrowserEntries(directory.entries, searchQuery)
+
+    if (entries.isEmpty()) {
         Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = "Cartella vuota",
+                text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -537,7 +581,7 @@ fun FileBrowserContent(
         contentPadding = PaddingValues(bottom = 18.dp),
     ) {
         items(
-            items = directory.entries,
+            items = entries,
             key = { entry -> entry.path },
         ) { entry ->
             FileBrowserRow(
@@ -584,6 +628,14 @@ fun FileBrowserRow(
                 maxLines = 1,
             )
         }
+        if (entry.canOpen) {
+            Icon(
+                imageVector = Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(24.dp),
+            )
+        }
     }
 }
 
@@ -612,11 +664,11 @@ fun FileBrowserThumbnail(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = entry.type.shortLabel(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+                Icon(
+                    imageVector = entry.type.icon(),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp),
                 )
             }
         }
@@ -1047,11 +1099,11 @@ private fun BrowserEntryType.label(): String = when (this) {
     BrowserEntryType.UnsupportedFile -> "File"
 }
 
-private fun BrowserEntryType.shortLabel(): String = when (this) {
-    BrowserEntryType.Directory -> "DIR"
-    BrowserEntryType.Archive -> "ZIP"
-    BrowserEntryType.ImageFile -> "IMG"
-    BrowserEntryType.UnsupportedFile -> "FILE"
+private fun BrowserEntryType.icon(): ImageVector = when (this) {
+    BrowserEntryType.Directory -> Icons.Filled.Folder
+    BrowserEntryType.Archive -> Icons.Filled.Archive
+    BrowserEntryType.ImageFile -> Icons.Filled.Image
+    BrowserEntryType.UnsupportedFile -> Icons.Filled.Description
 }
 
 private fun BrowserDirectory.hasDirectImageEntry(): Boolean =

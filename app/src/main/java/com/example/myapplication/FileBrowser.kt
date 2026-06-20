@@ -77,6 +77,18 @@ fun compareBrowserEntries(
     return compareComicPageNames(leftName, rightName)
 }
 
+fun filterBrowserEntries(
+    entries: List<BrowserEntry>,
+    query: String,
+): List<BrowserEntry> {
+    val normalizedQuery = query.trim()
+    if (normalizedQuery.isEmpty()) return entries
+
+    return entries.filter { entry ->
+        entry.name.contains(normalizedQuery, ignoreCase = true)
+    }
+}
+
 private fun File.toBrowserEntry(thumbnailCacheDir: File): BrowserEntry {
     val fileImageInfo = if (isFile) detectImageInfo(this) else null
     val type = browserEntryTypeFor(

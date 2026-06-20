@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -476,6 +477,165 @@ class ExampleUnitTest {
 
         assertEquals(listOf(readable), result)
     }
+
+    @Test
+    fun encodeAndDecodeLibraryComics_roundTripsNewestFirst() {
+        val older = sampleLibraryComic(
+            title = "Older",
+            path = "/storage/emulated/0/Older.cbz",
+            addedAt = 100L,
+        )
+        val newer = sampleLibraryComic(
+            title = "Newer",
+            path = "/storage/emulated/0/Newer.cbz",
+            addedAt = 200L,
+        )
+
+        val result = decodeLibraryComics(encodeLibraryComics(listOf(older, newer)))
+
+        assertEquals(listOf(newer, older), result)
+    }
+
+    @Test
+    fun upsertLibraryComic_dedupesAndKeepsRecentlyAddedFirst() {
+        val first = sampleLibraryComic(
+            path = "/storage/emulated/0/Batman.cbz",
+            addedAt = 100L,
+        )
+        val second = sampleLibraryComic(
+            path = "/storage/emulated/0/Saga.cbz",
+            addedAt = 200L,
+        )
+        val updatedFirst = sampleLibraryComic(
+            title = "Batman updated",
+            path = first.path,
+            addedAt = 300L,
+        )
+
+        val result = upsertLibraryComic(listOf(second, first), updatedFirst)
+
+        assertEquals(listOf(first.path, second.path), result.map { comic -> comic.path })
+        assertEquals("Batman updated", result.first().title)
+    }
+
+    @Test
+    fun removeLibraryComic_removesOnlyMatchingSourceAndPath() {
+        val archive = sampleLibraryComic(
+            path = "/storage/emulated/0/Comic.cbz",
+            sourceType = RecentComicSourceType.LocalArchive,
+        )
+        val folder = sampleLibraryComic(
+            path = archive.path,
+            sourceType = RecentComicSourceType.LocalFolder,
+        )
+
+        val result = removeLibraryComic(
+            libraryComics = listOf(archive, folder),
+            sourceType = RecentComicSourceType.LocalArchive,
+            path = archive.path,
+        )
+
+        assertEquals(listOf(folder), result)
+    }
+
+    @Test
+    fun libraryComic_progressLabelUsesMatchingRecentComic() {
+        val libraryComic = sampleLibraryComic(path = "/storage/emulated/0/Comic.cbz")
+        val recentComic = sampleRecentComic(
+            path = libraryComic.path,
+            lastPageIndex = 2,
+            pageCount = 9,
+        )
+
+        assertEquals("Pagina 3/9", libraryComic.progressLabel(listOf(recentComic)))
+        assertEquals(libraryComic.displayName, libraryComic.progressLabel(emptyList()))
+    }
+
+    @Test
+    fun comicPageImageCacheKey_separatesDifferentArchivesWithSameExtractedPageUri() {
+        val firstSource = ComicSource.LocalArchive(
+            filePath = "/storage/emulated/0/Batman.cbz",
+            displayName = "Batman.cbz",
+        )
+        val secondSource = ComicSource.LocalArchive(
+            filePath = "/storage/emulated/0/Saga.cbz",
+            displayName = "Saga.cbz",
+        )
+
+        assertNotEquals(
+            comicPageImageCacheKey(
+                source = firstSource,
+                pageIndex = 0,
+                relativePath = "001.jpg",
+                imageUri = "file:///cache/current_comic_pages/page_00000.jpg",
+            ),
+            comicPageImageCacheKey(
+                source = secondSource,
+                pageIndex = 0,
+                relativePath = "001.jpg",
+                imageUri = "file:///cache/current_comic_pages/page_00000.jpg",
+            ),
+        )
+    }
+
+    @Test
+    fun comicPageImageCacheKey_separatesPagesInSameArchive() {
+        val source = ComicSource.LocalArchive(
+            filePath = "/storage/emulated/0/Batman.cbz",
+            displayName = "Batman.cbz",
+        )
+
+        assertNotEquals(
+            comicPageImageCacheKey(
+                source = source,
+                pageIndex = 0,
+                relativePath = "001.jpg",
+                imageUri = "file:///cache/current_comic_pages/page_00000.jpg",
+            ),
+            comicPageImageCacheKey(
+                source = source,
+                pageIndex = 1,
+                relativePath = "002.jpg",
+                imageUri = "file:///cache/current_comic_pages/page_00001.jpg",
+            ),
+        )
+    }
+
+    @Test
+    fun comicPageImageCacheKey_keepsFolderPageUriInKey() {
+        val source = ComicSource.LocalFolder(
+            folderPath = "/storage/emulated/0/Manga",
+            displayName = "Manga",
+        )
+        val pageUri = "file:///storage/emulated/0/Manga/001.jpg"
+
+        assertTrue(
+            comicPageImageCacheKey(
+                source = source,
+                pageIndex = 0,
+                relativePath = "001.jpg",
+                imageUri = pageUri,
+            ).contains(pageUri),
+        )
+    }
+
+    @Test
+    fun shouldAcceptThrottledAction_blocksClicksInsideWindow() {
+        assertFalse(
+            shouldAcceptThrottledAction(
+                nowMs = 1_200L,
+                lastAcceptedAtMs = 1_000L,
+                throttleMs = 350L,
+            ),
+        )
+        assertTrue(
+            shouldAcceptThrottledAction(
+                nowMs = 1_350L,
+                lastAcceptedAtMs = 1_000L,
+                throttleMs = 350L,
+            ),
+        )
+    }
 }
 
 private data class BrowserSortCase(
@@ -499,6 +659,20 @@ private fun sampleRecentComic(
         lastPageIndex = lastPageIndex,
         pageCount = pageCount,
         lastOpenedAt = lastOpenedAt,
+    )
+
+private fun sampleLibraryComic(
+    title: String = "Comic",
+    path: String = "/storage/emulated/0/Comic.cbz",
+    sourceType: RecentComicSourceType = RecentComicSourceType.LocalArchive,
+    addedAt: Long = 0L,
+): LibraryComic =
+    LibraryComic(
+        sourceType = sourceType,
+        path = path,
+        displayName = path.substringAfterLast('/'),
+        title = title,
+        addedAt = addedAt,
     )
 
 private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(

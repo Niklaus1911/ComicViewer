@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val BROWSER_THUMBNAIL_CACHE_DIR_NAME = "browser_thumbnails"
+private const val LIBRARY_THUMBNAIL_CACHE_DIR_NAME = "library_thumbnails"
 private const val MAX_ARCHIVE_THUMBNAIL_BYTES = 32L * 1024L * 1024L
 
 enum class BrowserEntryType {
@@ -89,6 +90,28 @@ fun filterBrowserEntries(
         entry.name.contains(normalizedQuery, ignoreCase = true)
     }
 }
+
+suspend fun loadLibraryComicThumbnailUri(context: Context, libraryComic: LibraryComic): android.net.Uri? =
+    withContext(Dispatchers.IO) {
+        when (libraryComic.sourceType) {
+            RecentComicSourceType.LocalArchive -> {
+                val cacheDir = File(context.cacheDir, LIBRARY_THUMBNAIL_CACHE_DIR_NAME).apply { mkdirs() }
+                File(libraryComic.path).extractArchiveThumbnailTo(cacheDir)?.toUri()
+            }
+
+            RecentComicSourceType.LocalFolder -> firstLocalFolderCoverFile(File(libraryComic.path))?.toUri()
+        }
+    }
+
+fun firstLocalFolderCoverFile(folder: File): File? =
+    if (!folder.isDirectory || !folder.canRead()) {
+        null
+    } else {
+        folder.listFiles().orEmpty()
+            .filter { file -> file.isFile && !isHiddenComicPath(file.name) && detectImageInfo(file) != null }
+            .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
+            .firstOrNull()
+    }
 
 private fun File.toBrowserEntry(thumbnailCacheDir: File): BrowserEntry {
     val fileImageInfo = if (isFile) detectImageInfo(this) else null

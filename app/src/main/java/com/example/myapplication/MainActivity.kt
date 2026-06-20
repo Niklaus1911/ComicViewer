@@ -13,21 +13,36 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,6 +50,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -43,12 +61,16 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -70,6 +92,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.alpha
@@ -107,6 +130,89 @@ import kotlinx.coroutines.launch
 
 private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
+private const val SOFT_ANIMATION_DURATION_MS = 180
+private const val TAP_THROTTLE_MS = 350L
+
+enum class AppTab {
+    Library,
+    Browse,
+}
+
+@Composable
+fun rememberThrottledAction(
+    throttleMs: Long = TAP_THROTTLE_MS,
+    action: () -> Unit,
+): () -> Unit {
+    var lastClickAt by remember { mutableStateOf(0L) }
+    return remember(throttleMs, action) {
+        {
+            val now = System.currentTimeMillis()
+            if (now - lastClickAt >= throttleMs) {
+                lastClickAt = now
+                action()
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberThrottledPageAction(
+    throttleMs: Long = TAP_THROTTLE_MS,
+    action: (Int) -> Unit,
+): (Int) -> Unit {
+    var lastClickAt by remember { mutableStateOf(0L) }
+    return remember(throttleMs, action) {
+        { value ->
+            val now = System.currentTimeMillis()
+            if (now - lastClickAt >= throttleMs) {
+                lastClickAt = now
+                action(value)
+            }
+        }
+    }
+}
+
+fun shouldAcceptThrottledAction(
+    nowMs: Long,
+    lastAcceptedAtMs: Long,
+    throttleMs: Long = TAP_THROTTLE_MS,
+): Boolean = nowMs - lastAcceptedAtMs >= throttleMs
+
+private fun Modifier.softPress(
+    interactionSource: MutableInteractionSource,
+    enabled: Boolean = true,
+): Modifier = composed {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val targetScale = if (enabled && pressed) 0.98f else 1f
+    val targetAlpha = if (enabled && pressed) 0.82f else 1f
+    val scale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = tween(SOFT_ANIMATION_DURATION_MS),
+        label = "softPressScale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = targetAlpha,
+        animationSpec = tween(SOFT_ANIMATION_DURATION_MS),
+        label = "softPressAlpha",
+    )
+
+    graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+        this.alpha = alpha
+    }
+}
+
+private fun softContentTransform(): ContentTransform =
+    (fadeIn(tween(SOFT_ANIMATION_DURATION_MS)) + scaleIn(
+        initialScale = 0.98f,
+        animationSpec = tween(SOFT_ANIMATION_DURATION_MS),
+    )).togetherWith(
+        fadeOut(tween(SOFT_ANIMATION_DURATION_MS)) + scaleOut(
+            targetScale = 1.02f,
+            animationSpec = tween(SOFT_ANIMATION_DURATION_MS),
+        ),
+    )
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,9 +237,13 @@ fun ComicViewerApp() {
     var uiState by rememberSaveable(stateSaver = ReaderUiStateSaver) {
         mutableStateOf<ReaderUiState>(ReaderUiState.Empty)
     }
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.Library.name) }
+    var isAddingToLibrary by rememberSaveable { mutableStateOf(false) }
     var recentComics by remember { mutableStateOf(loadRecentComics(appContext)) }
+    var libraryComics by remember { mutableStateOf(loadLibraryComics(appContext)) }
     var loadJob by remember { mutableStateOf<Job?>(null) }
     val browserRootPath = remember { defaultBrowserRootPath() }
+    val currentTab = AppTab.valueOf(selectedTab)
 
     val fileAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -179,6 +289,11 @@ fun ComicViewerApp() {
     fun persistRecentComics(nextRecentComics: List<RecentComic>) {
         recentComics = nextRecentComics
         saveRecentComics(appContext, nextRecentComics)
+    }
+
+    fun persistLibraryComics(nextLibraryComics: List<LibraryComic>) {
+        libraryComics = nextLibraryComics
+        saveLibraryComics(appContext, nextLibraryComics)
     }
 
     fun rememberOpenedComic(book: ComicBook, pageIndex: Int) {
@@ -267,6 +382,56 @@ fun ComicViewerApp() {
         }
     }
 
+    fun openLibraryComic(libraryComic: LibraryComic) {
+        val recentComic = libraryComic.matchingRecentComic(recentComics)
+        loadJob?.cancel()
+        uiState = ReaderUiState.Loading
+        loadJob = scope.launch {
+            runCatching {
+                when (libraryComic.sourceType) {
+                    RecentComicSourceType.LocalArchive -> loadLocalArchiveComic(appContext, File(libraryComic.path))
+                    RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(libraryComic.path))
+                }
+            }.onSuccess { book ->
+                showReadyComic(book = book, pageIndex = recentComic?.lastPageIndex ?: 0)
+            }.onFailure { throwable ->
+                if (throwable !is CancellationException) showError(throwable)
+            }
+        }
+    }
+
+    fun addArchiveToLibrary(file: File) {
+        persistLibraryComics(
+            upsertLibraryComic(
+                libraryComics = libraryComics,
+                libraryComic = libraryComicForArchive(file, addedAt = System.currentTimeMillis()),
+            ),
+        )
+        selectedTab = AppTab.Library.name
+        isAddingToLibrary = false
+    }
+
+    fun addFolderToLibrary(folder: File) {
+        persistLibraryComics(
+            upsertLibraryComic(
+                libraryComics = libraryComics,
+                libraryComic = libraryComicForFolder(folder, addedAt = System.currentTimeMillis()),
+            ),
+        )
+        selectedTab = AppTab.Library.name
+        isAddingToLibrary = false
+    }
+
+    fun removeFromLibrary(libraryComic: LibraryComic) {
+        persistLibraryComics(
+            removeLibraryComic(
+                libraryComics = libraryComics,
+                sourceType = libraryComic.sourceType,
+                path = libraryComic.path,
+            ),
+        )
+    }
+
     fun closeComic() {
         loadJob?.cancel()
         clearArchiveCache(appContext)
@@ -286,12 +451,17 @@ fun ComicViewerApp() {
         )
     }
     val shouldHandleBack = hasFileAccess &&
-        (uiState !is ReaderUiState.Empty || browserBackPath != null)
+        (uiState !is ReaderUiState.Empty || isAddingToLibrary || (currentTab == AppTab.Browse && browserBackPath != null))
 
     BackHandler(enabled = shouldHandleBack) {
         when (uiState) {
             ReaderUiState.Empty -> {
-                if (browserBackPath != null) currentDirectoryPath = browserBackPath
+                if (isAddingToLibrary) {
+                    isAddingToLibrary = false
+                    selectedTab = AppTab.Library.name
+                } else if (currentTab == AppTab.Browse && browserBackPath != null) {
+                    currentDirectoryPath = browserBackPath
+                }
             }
 
             ReaderUiState.Loading,
@@ -308,13 +478,28 @@ fun ComicViewerApp() {
     } else {
         ComicViewerScreen(
             state = uiState,
+            selectedTab = currentTab,
             currentDirectoryPath = currentDirectoryPath,
             browserRootPath = browserRootPath,
+            libraryComics = libraryComics,
             recentComics = recentComics,
+            isAddingToLibrary = isAddingToLibrary,
+            onTabSelected = { tab ->
+                selectedTab = tab.name
+                if (tab != AppTab.Browse) isAddingToLibrary = false
+            },
+            onStartAddToLibrary = {
+                selectedTab = AppTab.Browse.name
+                isAddingToLibrary = true
+            },
             onDirectoryChange = { path -> currentDirectoryPath = path },
             onOpenLocalArchive = ::openLocalArchive,
             onOpenLocalFolder = ::openLocalFolder,
             onOpenRecentComic = ::openRecentComic,
+            onOpenLibraryComic = ::openLibraryComic,
+            onAddLocalArchiveToLibrary = ::addArchiveToLibrary,
+            onAddLocalFolderToLibrary = ::addFolderToLibrary,
+            onRemoveLibraryComic = ::removeFromLibrary,
             onPrevious = {
                 val ready = uiState as? ReaderUiState.Ready ?: return@ComicViewerScreen
                 val nextPageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size)
@@ -341,40 +526,30 @@ fun ComicViewerApp() {
 @Composable
 fun ComicViewerScreen(
     state: ReaderUiState,
+    selectedTab: AppTab,
     currentDirectoryPath: String,
     browserRootPath: String,
+    libraryComics: List<LibraryComic>,
     recentComics: List<RecentComic>,
+    isAddingToLibrary: Boolean,
+    onTabSelected: (AppTab) -> Unit,
+    onStartAddToLibrary: () -> Unit,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
     onOpenRecentComic: (RecentComic) -> Unit,
+    onOpenLibraryComic: (LibraryComic) -> Unit,
+    onAddLocalArchiveToLibrary: (File) -> Unit,
+    onAddLocalFolderToLibrary: (File) -> Unit,
+    onRemoveLibraryComic: (LibraryComic) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPageSelected: (Int) -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    when (state) {
-        ReaderUiState.Empty -> FileBrowserScreen(
-            currentDirectoryPath = currentDirectoryPath,
-            browserRootPath = browserRootPath,
-            recentComics = recentComics,
-            onDirectoryChange = onDirectoryChange,
-            onOpenLocalArchive = onOpenLocalArchive,
-            onOpenLocalFolder = onOpenLocalFolder,
-            onOpenRecentComic = onOpenRecentComic,
-            modifier = modifier,
-        )
-
-        ReaderUiState.Loading -> LoadingComicScreen(modifier = modifier)
-
-        is ReaderUiState.Error -> ErrorComicScreen(
-            message = state.message,
-            onBackToBrowser = onCloseComic,
-            modifier = modifier,
-        )
-
-        is ReaderUiState.Ready -> ComicReaderScreen(
+    if (state is ReaderUiState.Ready) {
+        ComicReaderScreen(
             book = state.book,
             pageIndex = state.pageIndex,
             onPrevious = onPrevious,
@@ -382,6 +557,330 @@ fun ComicViewerScreen(
             onPageSelected = onPageSelected,
             onCloseComic = onCloseComic,
             modifier = modifier,
+        )
+    } else {
+        AnimatedContent(
+            targetState = state,
+            transitionSpec = { softContentTransform() },
+            label = "appStateTransition",
+            modifier = modifier,
+        ) { targetState ->
+            when (targetState) {
+                ReaderUiState.Empty -> HomeScreen(
+                    selectedTab = selectedTab,
+                    currentDirectoryPath = currentDirectoryPath,
+                    browserRootPath = browserRootPath,
+                    libraryComics = libraryComics,
+                    recentComics = recentComics,
+                    isAddingToLibrary = isAddingToLibrary,
+                    onTabSelected = onTabSelected,
+                    onStartAddToLibrary = onStartAddToLibrary,
+                    onDirectoryChange = onDirectoryChange,
+                    onOpenLocalArchive = onOpenLocalArchive,
+                    onOpenLocalFolder = onOpenLocalFolder,
+                    onOpenRecentComic = onOpenRecentComic,
+                    onOpenLibraryComic = onOpenLibraryComic,
+                    onAddLocalArchiveToLibrary = onAddLocalArchiveToLibrary,
+                    onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
+                    onRemoveLibraryComic = onRemoveLibraryComic,
+                )
+
+                ReaderUiState.Loading -> LoadingComicScreen()
+
+                is ReaderUiState.Error -> ErrorComicScreen(
+                    message = targetState.message,
+                    onBackToBrowser = onCloseComic,
+                )
+
+                is ReaderUiState.Ready -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+fun HomeScreen(
+    selectedTab: AppTab,
+    currentDirectoryPath: String,
+    browserRootPath: String,
+    libraryComics: List<LibraryComic>,
+    recentComics: List<RecentComic>,
+    isAddingToLibrary: Boolean,
+    onTabSelected: (AppTab) -> Unit,
+    onStartAddToLibrary: () -> Unit,
+    onDirectoryChange: (String) -> Unit,
+    onOpenLocalArchive: (File) -> Unit,
+    onOpenLocalFolder: (File) -> Unit,
+    onOpenRecentComic: (RecentComic) -> Unit,
+    onOpenLibraryComic: (LibraryComic) -> Unit,
+    onAddLocalArchiveToLibrary: (File) -> Unit,
+    onAddLocalFolderToLibrary: (File) -> Unit,
+    onRemoveLibraryComic: (LibraryComic) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.weight(1f)) {
+                AnimatedContent(
+                    targetState = selectedTab,
+                    transitionSpec = { softContentTransform() },
+                    label = "tabContentTransition",
+                    modifier = Modifier.fillMaxSize(),
+                ) { targetTab ->
+                    when (targetTab) {
+                        AppTab.Library -> LibraryScreen(
+                            libraryComics = libraryComics,
+                            recentComics = recentComics,
+                            onStartAddToLibrary = onStartAddToLibrary,
+                            onOpenLibraryComic = onOpenLibraryComic,
+                            onRemoveLibraryComic = onRemoveLibraryComic,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                        AppTab.Browse -> FileBrowserScreen(
+                            currentDirectoryPath = currentDirectoryPath,
+                            browserRootPath = browserRootPath,
+                            recentComics = recentComics,
+                            isAddingToLibrary = isAddingToLibrary,
+                            onDirectoryChange = onDirectoryChange,
+                            onOpenLocalArchive = onOpenLocalArchive,
+                            onOpenLocalFolder = onOpenLocalFolder,
+                            onOpenRecentComic = onOpenRecentComic,
+                            onAddLocalArchiveToLibrary = onAddLocalArchiveToLibrary,
+                            onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
+            AppBottomNavigation(
+                selectedTab = selectedTab,
+                onTabSelected = onTabSelected,
+            )
+        }
+    }
+}
+
+@Composable
+fun LibraryScreen(
+    libraryComics: List<LibraryComic>,
+    recentComics: List<RecentComic>,
+    onStartAddToLibrary: () -> Unit,
+    onOpenLibraryComic: (LibraryComic) -> Unit,
+    onRemoveLibraryComic: (LibraryComic) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val throttledStartAdd = rememberThrottledAction(action = onStartAddToLibrary)
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .systemBarsPadding(),
+    ) {
+        LibraryHeader(onStartAddToLibrary = throttledStartAdd)
+
+        AnimatedContent(
+            targetState = libraryComics.isEmpty(),
+            transitionSpec = { softContentTransform() },
+            label = "libraryContentTransition",
+            modifier = Modifier.weight(1f),
+        ) { isEmpty ->
+            if (isEmpty) {
+                LibraryEmptyContent(onStartAddToLibrary = throttledStartAdd)
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    gridItems(
+                        items = libraryComics,
+                        key = { comic -> "${comic.sourceType.storageName}:${comic.path}" },
+                    ) { comic ->
+                        LibraryComicCard(
+                            libraryComic = comic,
+                            progressLabel = comic.progressLabel(recentComics),
+                            onClick = rememberThrottledAction { onOpenLibraryComic(comic) },
+                            onRemove = { onRemoveLibraryComic(comic) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun LibraryHeader(
+    onStartAddToLibrary: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 20.dp, top = 18.dp, end = 12.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Library",
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onStartAddToLibrary) {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = "Aggiungi comic alla libreria",
+            )
+        }
+    }
+}
+
+@Composable
+fun LibraryEmptyContent(
+    onStartAddToLibrary: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(52.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            text = "La tua libreria e vuota",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Aggiungi archivi o cartelle comic dal browser.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        Button(onClick = onStartAddToLibrary) {
+            Text("Aggiungi comic")
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun LibraryComicCard(
+    libraryComic: LibraryComic,
+    progressLabel: String,
+    onClick: () -> Unit,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = modifier
+            .softPress(interactionSource)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+                onLongClick = onRemove,
+            ),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.68f),
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ) {
+            LibraryComicCover(libraryComic = libraryComic)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = libraryComic.title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = progressLabel,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun LibraryComicCover(
+    libraryComic: LibraryComic,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var thumbnailUri by remember(libraryComic) { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(libraryComic) {
+        thumbnailUri = loadLibraryComicThumbnailUri(context.applicationContext, libraryComic)
+    }
+
+    if (thumbnailUri != null) {
+        Image(
+            painter = rememberAsyncImagePainter(model = thumbnailUri),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = modifier.fillMaxSize(),
+        )
+    } else {
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = libraryComic.sourceType.icon(),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(42.dp),
+            )
+        }
+    }
+}
+
+@Composable
+fun AppBottomNavigation(
+    selectedTab: AppTab,
+    onTabSelected: (AppTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
+    val throttledBrowseClick = rememberThrottledAction { onTabSelected(AppTab.Browse) }
+    NavigationBar(modifier = modifier.fillMaxWidth()) {
+        NavigationBarItem(
+            selected = selectedTab == AppTab.Library,
+            onClick = throttledLibraryClick,
+            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
+            label = { Text("Library") },
+        )
+        NavigationBarItem(
+            selected = selectedTab == AppTab.Browse,
+            onClick = throttledBrowseClick,
+            icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+            label = { Text("Browse") },
         )
     }
 }
@@ -438,10 +937,13 @@ fun FileBrowserScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
     recentComics: List<RecentComic>,
+    isAddingToLibrary: Boolean,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
     onOpenRecentComic: (RecentComic) -> Unit,
+    onAddLocalArchiveToLibrary: (File) -> Unit,
+    onAddLocalFolderToLibrary: (File) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -477,6 +979,7 @@ fun FileBrowserScreen(
         ) {
             FileBrowserHeader(
                 currentDirectoryPath = currentDirectoryPath,
+                isAddingToLibrary = isAddingToLibrary,
                 parentPath = browserParentPathFor(
                     currentPath = currentDirectoryPath,
                     rootPath = browserRootPath,
@@ -488,32 +991,53 @@ fun FileBrowserScreen(
                 searchQuery = searchQuery,
                 onSearchQueryChange = { query -> searchQuery = query },
                 onDirectoryChange = onDirectoryChange,
-                onOpenCurrentFolderAsComic = { onOpenLocalFolder(File(currentDirectoryPath)) },
+                onOpenCurrentFolderAsComic = {
+                    if (isAddingToLibrary) {
+                        onAddLocalFolderToLibrary(File(currentDirectoryPath))
+                    } else {
+                        onOpenLocalFolder(File(currentDirectoryPath))
+                    }
+                },
                 onReload = ::reload,
             )
 
-            when (val state = browserState) {
-                FileBrowserUiState.Loading -> LoadingFileBrowserContent()
-                is FileBrowserUiState.Error -> FileBrowserErrorContent(
-                    message = state.message,
-                    onRetry = ::reload,
-                )
+            AnimatedContent(
+                targetState = browserState,
+                transitionSpec = { softContentTransform() },
+                label = "browserStateTransition",
+                modifier = Modifier.weight(1f),
+            ) { state ->
+                when (state) {
+                    FileBrowserUiState.Loading -> LoadingFileBrowserContent()
+                    is FileBrowserUiState.Error -> FileBrowserErrorContent(
+                        message = state.message,
+                        onRetry = ::reload,
+                    )
 
-                is FileBrowserUiState.Loaded -> FileBrowserContent(
-                    directory = state.directory,
-                    recentComics = recentComics,
-                    searchQuery = searchQuery,
-                    onRecentComicClick = onOpenRecentComic,
-                    onEntryClick = { entry ->
-                        when (entry.type) {
-                            BrowserEntryType.Directory -> onDirectoryChange(entry.path)
-                            BrowserEntryType.Archive -> onOpenLocalArchive(File(entry.path))
-                            BrowserEntryType.ImageFile,
-                            BrowserEntryType.UnsupportedFile,
-                            -> Unit
-                        }
-                    },
-                )
+                    is FileBrowserUiState.Loaded -> FileBrowserContent(
+                        directory = state.directory,
+                        recentComics = recentComics,
+                        searchQuery = searchQuery,
+                        isAddingToLibrary = isAddingToLibrary,
+                        onRecentComicClick = onOpenRecentComic,
+                        onEntryClick = { entry ->
+                            when (entry.type) {
+                                BrowserEntryType.Directory -> onDirectoryChange(entry.path)
+                                BrowserEntryType.Archive -> {
+                                    if (isAddingToLibrary) {
+                                        onAddLocalArchiveToLibrary(File(entry.path))
+                                    } else {
+                                        onOpenLocalArchive(File(entry.path))
+                                    }
+                                }
+
+                                BrowserEntryType.ImageFile,
+                                BrowserEntryType.UnsupportedFile,
+                                -> Unit
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -522,6 +1046,7 @@ fun FileBrowserScreen(
 @Composable
 fun FileBrowserHeader(
     currentDirectoryPath: String,
+    isAddingToLibrary: Boolean,
     parentPath: String?,
     canOpenCurrentFolderAsComic: Boolean,
     searchQuery: String,
@@ -531,6 +1056,9 @@ fun FileBrowserHeader(
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val throttledParentClick = rememberThrottledAction { if (parentPath != null) onDirectoryChange(parentPath) }
+    val throttledOpenFolder = rememberThrottledAction(action = onOpenCurrentFolderAsComic)
+    val throttledReload = rememberThrottledAction(action = onReload)
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -544,7 +1072,7 @@ fun FileBrowserHeader(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "File",
+                    text = if (isAddingToLibrary) "Aggiungi alla libreria" else "File",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
@@ -557,12 +1085,12 @@ fun FileBrowserHeader(
                 )
             }
             TextButton(
-                onClick = { if (parentPath != null) onDirectoryChange(parentPath) },
+                onClick = throttledParentClick,
                 enabled = parentPath != null,
             ) {
                 Text("Su")
             }
-            TextButton(onClick = onReload) {
+            TextButton(onClick = throttledReload) {
                 Text("Aggiorna")
             }
         }
@@ -571,11 +1099,11 @@ fun FileBrowserHeader(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
-                onClick = onOpenCurrentFolderAsComic,
+                onClick = throttledOpenFolder,
                 enabled = canOpenCurrentFolderAsComic,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Apri come comic")
+                Text(if (isAddingToLibrary) "Aggiungi cartella" else "Apri come comic")
             }
         }
         OutlinedTextField(
@@ -646,66 +1174,74 @@ fun FileBrowserContent(
     directory: BrowserDirectory,
     recentComics: List<RecentComic>,
     searchQuery: String,
+    isAddingToLibrary: Boolean,
     onRecentComicClick: (RecentComic) -> Unit,
     onEntryClick: (BrowserEntry) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val entries = filterBrowserEntries(directory.entries, searchQuery)
-    val showRecentComics = searchQuery.isBlank() && recentComics.isNotEmpty()
+    val showRecentComics = !isAddingToLibrary && searchQuery.isBlank() && recentComics.isNotEmpty()
 
-    if (entries.isEmpty() && !showRecentComics) {
-        Box(
-            modifier = modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        return
-    }
-
-    LazyColumn(
+    AnimatedContent(
+        targetState = entries.isEmpty() && !showRecentComics,
+        transitionSpec = { softContentTransform() },
+        label = "browserContentTransition",
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 18.dp),
-    ) {
-        if (showRecentComics) {
-            item(key = "recent_comics_header") {
-                FileBrowserSectionHeader(title = "Recenti")
-            }
-            items(
-                items = recentComics,
-                key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
-            ) { recentComic ->
-                RecentComicRow(
-                    recentComic = recentComic,
-                    onClick = { onRecentComicClick(recentComic) },
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 88.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+    ) { isEmpty ->
+        if (isEmpty) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (entries.isNotEmpty()) {
-                item(key = "browser_entries_header") {
-                    FileBrowserSectionHeader(title = "File")
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 18.dp),
+            ) {
+                if (showRecentComics) {
+                    item(key = "recent_comics_header") {
+                        FileBrowserSectionHeader(title = "Recenti")
+                    }
+                    items(
+                        items = recentComics,
+                        key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
+                    ) { recentComic ->
+                        RecentComicRow(
+                            recentComic = recentComic,
+                            onClick = { onRecentComicClick(recentComic) },
+                        )
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 88.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                        )
+                    }
+                    if (entries.isNotEmpty()) {
+                        item(key = "browser_entries_header") {
+                            FileBrowserSectionHeader(title = "File")
+                        }
+                    }
+                }
+                items(
+                    items = entries,
+                    key = { entry -> entry.path },
+                ) { entry ->
+                    FileBrowserRow(
+                        entry = entry,
+                        isAddingToLibrary = isAddingToLibrary,
+                        onClick = { onEntryClick(entry) },
+                    )
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 88.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                    )
                 }
             }
-        }
-        items(
-            items = entries,
-            key = { entry -> entry.path },
-        ) { entry ->
-            FileBrowserRow(
-                entry = entry,
-                onClick = { onEntryClick(entry) },
-            )
-            HorizontalDivider(
-                modifier = Modifier.padding(start = 88.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-            )
         }
     }
 }
@@ -731,10 +1267,17 @@ fun RecentComicRow(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val throttledRecentClick = rememberThrottledAction(action = onClick)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .softPress(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = throttledRecentClick,
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -799,14 +1342,24 @@ fun RecentComicThumbnail(
 @Composable
 fun FileBrowserRow(
     entry: BrowserEntry,
+    isAddingToLibrary: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val rowAlpha = if (entry.canOpen || entry.type == BrowserEntryType.ImageFile) 1f else 0.52f
+    val canClick = entry.canOpen || (isAddingToLibrary && entry.type == BrowserEntryType.Archive)
+    val rowAlpha = if (canClick || entry.type == BrowserEntryType.ImageFile) 1f else 0.52f
+    val throttledClick = rememberThrottledAction(action = onClick)
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(enabled = entry.canOpen, onClick = onClick)
+            .softPress(interactionSource, enabled = canClick)
+            .clickable(
+                enabled = canClick,
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = throttledClick,
+            )
             .alpha(rowAlpha)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -828,9 +1381,13 @@ fun FileBrowserRow(
                 maxLines = 1,
             )
         }
-        if (entry.canOpen) {
+        if (canClick) {
             Icon(
-                imageVector = Icons.Filled.ChevronRight,
+                imageVector = if (isAddingToLibrary && entry.type == BrowserEntryType.Archive) {
+                    Icons.Filled.Add
+                } else {
+                    Icons.Filled.ChevronRight
+                },
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(24.dp),
@@ -906,6 +1463,7 @@ fun ErrorComicScreen(
     onBackToBrowser: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val throttledBack = rememberThrottledAction(action = onBackToBrowser)
     Surface(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -933,7 +1491,7 @@ fun ErrorComicScreen(
             )
             Spacer(modifier = Modifier.height(28.dp))
             Button(
-                onClick = onBackToBrowser,
+                onClick = throttledBack,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Torna ai file")
@@ -956,8 +1514,8 @@ fun ComicReaderScreen(
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
     val page = book.pages[currentIndex]
-    val currentRequest = remember(page.imageUri) {
-        page.imageRequest(context)
+    val currentRequest = remember(book.source, page.imageUri, page.relativePath) {
+        page.imageRequest(context = context, source = book.source)
     }
     val painter = rememberAsyncImagePainter(
         model = currentRequest,
@@ -976,6 +1534,7 @@ fun ComicReaderScreen(
         book.pages.preloadAround(
             currentIndex = currentIndex,
             context = context,
+            source = book.source,
             imageLoader = imageLoader,
         )
     }
@@ -1183,22 +1742,56 @@ private suspend fun PointerInputScope.detectPageGestures(
 private fun List<ComicPage>.preloadAround(
     currentIndex: Int,
     context: Context,
+    source: ComicSource,
     imageLoader: coil3.ImageLoader,
 ) {
     listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1)
         .filter { index -> index in indices }
         .forEach { index ->
-            imageLoader.enqueue(get(index).imageRequest(context))
+            imageLoader.enqueue(get(index).imageRequest(context = context, source = source))
         }
 }
 
-private fun ComicPage.imageRequest(context: Context): ImageRequest {
-    val cacheKey = imageUri.toString()
+private fun ComicPage.imageRequest(context: Context, source: ComicSource): ImageRequest {
+    val cacheKey = comicPageImageCacheKey(source = source, page = this)
     return ImageRequest.Builder(context)
         .data(imageUri)
         .memoryCacheKey(cacheKey)
         .diskCacheKey(cacheKey)
         .build()
+}
+
+fun comicPageImageCacheKey(source: ComicSource, page: ComicPage): String =
+    comicPageImageCacheKey(
+        source = source,
+        pageIndex = page.index,
+        relativePath = page.relativePath,
+        imageUri = page.imageUri.toString(),
+    )
+
+fun comicPageImageCacheKey(
+    source: ComicSource,
+    pageIndex: Int,
+    relativePath: String,
+    imageUri: String,
+): String =
+    listOf(
+        "comic-page",
+        comicSourceImageCacheKey(source),
+        pageIndex.toString(),
+        relativePath,
+        imageUri,
+    ).joinToString(separator = "|")
+
+private fun comicSourceImageCacheKey(source: ComicSource): String = when (source) {
+    is ComicSource.Archive -> "archive-uri:${source.displayName}:${source.uri}"
+    is ComicSource.Folder -> "folder-uri:${source.displayName}:${source.uri}"
+    is ComicSource.LocalArchive -> {
+        val file = File(source.filePath)
+        "local-archive:${source.filePath}:${file.lastModified()}:${file.length()}"
+    }
+
+    is ComicSource.LocalFolder -> "local-folder:${source.folderPath}"
 }
 
 private fun Offset.clampedFor(

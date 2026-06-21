@@ -46,16 +46,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
+import com.comicviewer.R
 import com.comicviewer.LibraryComic
 import com.comicviewer.RecentComic
 import com.comicviewer.TABLET_LIBRARY_CARD_MIN_WIDTH_DP
 import com.comicviewer.isTabletWidth
 import com.comicviewer.loadLibraryComicThumbnailUri
-import com.comicviewer.progressLabel
+import com.comicviewer.coercePageIndex
+import com.comicviewer.matchingRecentComic
 import com.comicviewer.ui.common.icon
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
@@ -108,7 +111,7 @@ fun LibraryScreen(
                         ) { comic ->
                             LibraryComicCard(
                                 libraryComic = comic,
-                                progressLabel = comic.progressLabel(recentComics),
+                                progressLabel = comic.progressText(recentComics),
                                 onClick = rememberThrottledAction { onOpenLibraryComic(comic) },
                                 onRemove = { comicPendingRemoval = comic },
                             )
@@ -123,12 +126,11 @@ fun LibraryScreen(
         AlertDialog(
             onDismissRequest = { comicPendingRemoval = null },
             title = {
-                Text(text = "Rimuovere dalla libreria?")
+                Text(text = stringResource(R.string.remove_from_library_title))
             },
             text = {
                 Text(
-                    text = "\"${pendingComic.title}\" verra rimosso dalla libreria. " +
-                        "Il file originale non verra eliminato.",
+                    text = stringResource(R.string.remove_from_library_message, pendingComic.title),
                 )
             },
             confirmButton = {
@@ -138,12 +140,12 @@ fun LibraryScreen(
                         comicPendingRemoval = null
                     },
                 ) {
-                    Text("Rimuovi")
+                    Text(stringResource(R.string.remove))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { comicPendingRemoval = null }) {
-                    Text("Annulla")
+                    Text(stringResource(R.string.cancel))
                 }
             },
         )
@@ -163,7 +165,7 @@ fun LibraryHeader(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "Library",
+            text = stringResource(R.string.nav_library),
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f),
@@ -171,7 +173,7 @@ fun LibraryHeader(
         IconButton(onClick = onStartAddToLibrary) {
             Icon(
                 imageVector = Icons.Filled.Add,
-                contentDescription = "Aggiungi comic alla libreria",
+                contentDescription = stringResource(R.string.add_comic_to_library),
             )
         }
     }
@@ -197,21 +199,21 @@ fun LibraryEmptyContent(
         )
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = "La tua libreria e vuota",
+            text = stringResource(R.string.library_empty_title),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = "Aggiungi archivi o cartelle comic dal browser.",
+            text = stringResource(R.string.library_empty_message),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(20.dp))
         Button(onClick = onStartAddToLibrary) {
-            Text("Aggiungi comic")
+            Text(stringResource(R.string.add_comic))
         }
     }
 }
@@ -297,3 +299,14 @@ fun LibraryComicCover(
     }
 }
 
+
+@Composable
+private fun LibraryComic.progressText(recentComics: List<RecentComic>): String {
+    val recentComic = matchingRecentComic(recentComics) ?: return displayName
+    if (recentComic.pageCount <= 0) return stringResource(R.string.page_one)
+    return stringResource(
+        R.string.page_progress,
+        coercePageIndex(recentComic.lastPageIndex, recentComic.pageCount) + 1,
+        recentComic.pageCount,
+    )
+}

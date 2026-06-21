@@ -11,6 +11,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.comicviewer.ComicBook
+import com.comicviewer.ComicLoadException
+import com.comicviewer.R
 import com.comicviewer.LibraryComic
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
@@ -256,8 +258,11 @@ class ComicViewerAppState(
 
     private fun showError(throwable: Throwable) {
         uiState = ReaderUiState.Error(
-            throwable.message?.takeIf { it.isNotBlank() }
-                ?: "Non e stato possibile aprire questo comic.",
+            when (throwable) {
+                is ComicLoadException -> throwable.localizedMessage(appContext)
+                else -> throwable.message?.takeIf { it.isNotBlank() }
+                    ?: appContext.getString(R.string.open_comic_error_message)
+            },
         )
     }
 

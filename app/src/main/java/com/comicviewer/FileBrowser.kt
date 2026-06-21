@@ -39,7 +39,7 @@ data class BrowserDirectory(
 
 suspend fun loadBrowserDirectory(context: Context, directory: File): BrowserDirectory = withContext(Dispatchers.IO) {
     if (!directory.isDirectory || !directory.canRead()) {
-        throw ComicLoadException("Cartella non leggibile.")
+        throw ComicLoadException(ComicLoadError.FolderNotReadable)
     }
 
     val thumbnailCacheDir = resetBrowserThumbnailCache(context)

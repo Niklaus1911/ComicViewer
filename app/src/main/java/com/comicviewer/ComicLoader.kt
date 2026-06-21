@@ -25,7 +25,51 @@ private const val STREAM_BUFFER_SIZE = 64 * 1024
 private const val MAX_ARCHIVE_ENTRY_COUNT = 10_000
 private const val ARCHIVE_CACHE_RESERVE_BYTES = 128L * 1024L * 1024L
 
-class ComicLoadException(message: String) : IllegalArgumentException(message)
+class ComicLoadException(
+    val error: ComicLoadError,
+    private vararg val formatArgs: Any,
+) : IllegalArgumentException(error.defaultMessage(*formatArgs)) {
+    fun localizedMessage(context: Context): String = error.localizedMessage(context, *formatArgs)
+}
+
+enum class ComicLoadError {
+    FolderNotReadable,
+    FolderReadPermissionUnavailable,
+    ArchiveNotReadable,
+    ArchiveTooLarge,
+    InvalidArchive,
+    ArchiveExtractionFailed,
+    NotEnoughArchiveSpace,
+    NoSupportedImagesFound,
+    NoValidImagesFound,
+    NoValidImagesFoundWithExamples;
+
+    fun defaultMessage(vararg args: Any): String = when (this) {
+        FolderNotReadable -> "Folder not readable."
+        FolderReadPermissionUnavailable -> "Folder read permission is not available."
+        ArchiveNotReadable -> "Archive not readable."
+        ArchiveTooLarge -> "Archive too large: it contains more than ${args[0]} files."
+        InvalidArchive -> "Select a valid .zip or .cbz archive."
+        ArchiveExtractionFailed -> "Archive not readable or extraction interrupted."
+        NotEnoughArchiveSpace -> "Not enough space to extract this archive."
+        NoSupportedImagesFound -> "No supported images found."
+        NoValidImagesFound -> "No valid images found. Scanned ${args[0]} files."
+        NoValidImagesFoundWithExamples -> "No valid images found. Scanned ${args[0]} files. Rejected examples: ${args[1]}."
+    }
+
+    fun localizedMessage(context: Context, vararg args: Any): String = when (this) {
+        FolderNotReadable -> context.getString(R.string.folder_not_readable)
+        FolderReadPermissionUnavailable -> context.getString(R.string.folder_read_permission_unavailable)
+        ArchiveNotReadable -> context.getString(R.string.archive_not_readable)
+        ArchiveTooLarge -> context.getString(R.string.archive_too_large, args[0])
+        InvalidArchive -> context.getString(R.string.invalid_archive)
+        ArchiveExtractionFailed -> context.getString(R.string.archive_extraction_failed)
+        NotEnoughArchiveSpace -> context.getString(R.string.not_enough_archive_space)
+        NoSupportedImagesFound -> context.getString(R.string.no_supported_images_found)
+        NoValidImagesFound -> context.getString(R.string.no_valid_images_found, args[0])
+        NoValidImagesFoundWithExamples -> context.getString(R.string.no_valid_images_found_with_examples, args[0], args[1])
+    }
+}
 
 enum class ImageFormat(val extension: String) {
     JPEG("jpg"),
@@ -59,10 +103,10 @@ suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContex
 
 suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
     val folder = DocumentFile.fromTreeUri(context, uri)
-        ?: throw ComicLoadException("Cartella non leggibile.")
+        ?: throw ComicLoadException(ComicLoadError.FolderNotReadable)
 
     if (!folder.canRead()) {
-        throw ComicLoadException("Permesso di lettura della cartella non disponibile.")
+        throw ComicLoadException(ComicLoadError.FolderReadPermissionUnavailable)
     }
 
     val imageFiles = folder.listFiles()
@@ -77,7 +121,7 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
     comicLoadErrorForPageCount(imageFiles.size)?.let { throw ComicLoadException(it) }
 
     val pages = imageFiles.mapIndexed { index, document ->
-        val displayName = document.name ?: "Pagina ${index + 1}"
+        val displayName = document.name ?: "Page ${index + 1}"
         ComicPage(
             index = index,
             displayName = displayName,
@@ -88,7 +132,7 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
         )
     }
 
-    val displayName = folder.name ?: "Cartella comic"
+    val displayName = folder.name ?: "Comic folder"
     ComicBook(
         title = displayName,
         source = ComicSource.Folder(uri = uri, displayName = displayName),
@@ -98,7 +142,7 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
 
 suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBook = withContext(Dispatchers.IO) {
     if (!archiveFile.isFile || !archiveFile.canRead()) {
-        throw ComicLoadException("Archivio non leggibile.")
+        throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
     }
 
     val displayName = archiveFile.name
@@ -114,7 +158,7 @@ suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBoo
 
 suspend fun loadLocalFolderComic(folder: File): ComicBook = withContext(Dispatchers.IO) {
     if (!folder.isDirectory || !folder.canRead()) {
-        throw ComicLoadException("Cartella non leggibile.")
+        throw ComicLoadException(ComicLoadError.FolderNotReadable)
     }
 
     val imageFiles = folder.listFiles().orEmpty()
@@ -163,7 +207,7 @@ private fun File.extractComicPagesTo(cacheDir: File): List<ComicPage> {
 
     if (extractedPages.isEmpty()) {
         cacheDir.deleteRecursively()
-        throw ComicLoadException(extraction.emptyMessage())
+        throw extraction.emptyException()
     }
 
     return extractedPages.mapIndexed { index, extracted ->
@@ -195,7 +239,7 @@ private fun extractArchivePages(
             if (!entry.isDirectory && !isHiddenComicPath(entryName)) {
                 scannedEntries += 1
                 if (scannedEntries > MAX_ARCHIVE_ENTRY_COUNT) {
-                    throw ComicLoadException("Archivio troppo grande: contiene piu di $MAX_ARCHIVE_ENTRY_COUNT file.")
+                    throw ComicLoadException(ComicLoadError.ArchiveTooLarge, MAX_ARCHIVE_ENTRY_COUNT)
                 }
 
                 val imageInfo = zipFile.getInputStream(entry).use { input ->
@@ -235,11 +279,11 @@ private fun extractArchivePages(
 internal fun archiveExtractionFailureFor(exception: Exception): Exception = when (exception) {
     is CancellationException -> exception
     is ComicLoadException -> exception
-    is ZipException -> ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+    is ZipException -> ComicLoadException(ComicLoadError.InvalidArchive)
     is IOException,
     is SecurityException,
-    -> ComicLoadException("Archivio non leggibile o estrazione interrotta.")
-    else -> ComicLoadException("Seleziona un archivio .zip o .cbz valido.")
+    -> ComicLoadException(ComicLoadError.ArchiveExtractionFailed)
+    else -> ComicLoadException(ComicLoadError.InvalidArchive)
 }
 
 private fun copyArchiveToCache(
@@ -249,7 +293,7 @@ private fun copyArchiveToCache(
     cacheDir: File,
 ): File {
     val inputStream = context.contentResolver.openInputStream(uri)
-        ?: throw ComicLoadException("Archivio non leggibile.")
+        ?: throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
     val archiveFile = File(cacheDir, "selected_comic.${displayName.archiveExtension()}")
 
     inputStream.use { input ->
@@ -369,7 +413,7 @@ fun copyToFileBounded(
     maxBytes: Long,
 ): Long {
     if (maxBytes < 0L) {
-        throw ComicLoadException("Spazio insufficiente per estrarre questo archivio.")
+        throw ComicLoadException(ComicLoadError.NotEnoughArchiveSpace)
     }
 
     val buffer = ByteArray(STREAM_BUFFER_SIZE)
@@ -382,7 +426,7 @@ fun copyToFileBounded(
                 if (bytesRead < 0) break
 
                 if (copiedBytes > maxBytes - bytesRead) {
-                    throw ComicLoadException("Spazio insufficiente per estrarre questo archivio.")
+                    throw ComicLoadException(ComicLoadError.NotEnoughArchiveSpace)
                 }
 
                 output.write(buffer, 0, bytesRead)
@@ -429,12 +473,13 @@ private data class ArchiveExtraction(
     val pages: List<ExtractedPage>,
     val rejectedExamples: List<String>,
 ) {
-    fun emptyMessage(): String {
-        val examples = if (rejectedExamples.isEmpty()) {
-            ""
-        } else {
-            " Esempi rifiutati: ${rejectedExamples.joinToString()}."
-        }
-        return "Nessuna immagine valida trovata. Scansionati $scannedEntries file.$examples"
+    fun emptyException(): ComicLoadException = if (rejectedExamples.isEmpty()) {
+        ComicLoadException(ComicLoadError.NoValidImagesFound, scannedEntries)
+    } else {
+        ComicLoadException(
+            ComicLoadError.NoValidImagesFoundWithExamples,
+            scannedEntries,
+            rejectedExamples.joinToString(),
+        )
     }
 }

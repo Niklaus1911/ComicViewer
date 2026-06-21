@@ -39,11 +39,13 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.comicviewer.R
 import com.comicviewer.LibraryComic
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
@@ -309,13 +311,13 @@ fun AppBottomNavigation(
             selected = selectedTab == AppTab.Library,
             onClick = throttledLibraryClick,
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
-            label = { Text("Library") },
+            label = { Text(stringResource(R.string.nav_library)) },
         )
         NavigationBarItem(
             selected = selectedTab == AppTab.Browse,
             onClick = throttledBrowseClick,
             icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
-            label = { Text("Browse") },
+            label = { Text(stringResource(R.string.nav_browse)) },
         )
     }
 }
@@ -338,13 +340,13 @@ fun AppNavigationRail(
             selected = selectedTab == AppTab.Library,
             onClick = throttledLibraryClick,
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
-            label = { Text("Library") },
+            label = { Text(stringResource(R.string.nav_library)) },
         )
         NavigationRailItem(
             selected = selectedTab == AppTab.Browse,
             onClick = throttledBrowseClick,
             icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
-            label = { Text("Browse") },
+            label = { Text(stringResource(R.string.nav_browse)) },
         )
     }
 }
@@ -374,21 +376,21 @@ fun FileAccessScreen(
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Consenti accesso ai file",
+                text = stringResource(R.string.file_access_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "Comic Viewer ha bisogno del permesso per leggere archivi e cartelle sul dispositivo.",
+                text = stringResource(R.string.file_access_message),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
             Spacer(modifier = Modifier.height(28.dp))
             Button(onClick = onOpenSettings) {
-                Text("Apri impostazioni")
+                Text(stringResource(R.string.open_settings))
             }
         }
     }

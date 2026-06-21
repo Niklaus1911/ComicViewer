@@ -50,10 +50,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
+import com.comicviewer.R
 import com.comicviewer.BrowserDirectory
 import com.comicviewer.BrowserEntry
 import com.comicviewer.BrowserEntryType
@@ -65,12 +67,11 @@ import com.comicviewer.firstLocalFolderCoverFile
 import com.comicviewer.isTabletWidth
 import com.comicviewer.loadBrowserDirectory
 import com.comicviewer.ui.common.icon
-import com.comicviewer.ui.common.label
-import com.comicviewer.ui.common.progressLabel
+import com.comicviewer.ui.common.labelText
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
-import com.comicviewer.ui.common.subtitleLabel
+import com.comicviewer.ui.common.subtitleText
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -111,7 +112,7 @@ fun FileBrowserScreen(
             .onSuccess { directory -> browserState = FileBrowserUiState.Loaded(directory) }
             .onFailure { throwable ->
                 browserState = FileBrowserUiState.Error(
-                    throwable.message?.takeIf { it.isNotBlank() } ?: "Cartella non leggibile.",
+                    throwable.message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.folder_not_readable),
                 )
             }
     }
@@ -220,7 +221,7 @@ fun FileBrowserHeader(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (isAddingToLibrary) "Aggiungi alla libreria" else "File",
+                    text = if (isAddingToLibrary) stringResource(R.string.browser_title_add_to_library) else stringResource(R.string.browser_title_file),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
@@ -236,10 +237,10 @@ fun FileBrowserHeader(
                 onClick = throttledParentClick,
                 enabled = parentPath != null,
             ) {
-                Text("Su")
+                Text(stringResource(R.string.browser_up))
             }
             TextButton(onClick = throttledReload) {
-                Text("Aggiorna")
+                Text(stringResource(R.string.browser_refresh))
             }
         }
         Row(
@@ -251,7 +252,7 @@ fun FileBrowserHeader(
                 enabled = canOpenCurrentFolderAsComic,
                 modifier = Modifier.weight(1f),
             ) {
-                Text(if (isAddingToLibrary) "Aggiungi cartella" else "Apri come comic")
+                Text(if (isAddingToLibrary) stringResource(R.string.browser_add_folder) else stringResource(R.string.browser_open_as_comic))
             }
         }
         OutlinedTextField(
@@ -270,12 +271,12 @@ fun FileBrowserHeader(
                     IconButton(onClick = { onSearchQueryChange("") }) {
                         Icon(
                             imageVector = Icons.Filled.Close,
-                            contentDescription = "Cancella ricerca",
+                            contentDescription = stringResource(R.string.browser_clear_search),
                         )
                     }
                 }
             },
-            label = { Text("Cerca in questa cartella") },
+            label = { Text(stringResource(R.string.browser_search_label)) },
         )
         HorizontalDivider()
     }
@@ -312,7 +313,7 @@ fun FileBrowserErrorContent(
         )
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onRetry) {
-            Text("Riprova")
+            Text(stringResource(R.string.retry))
         }
     }
 }
@@ -353,7 +354,7 @@ fun FileBrowserContent(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
+                        text = if (searchQuery.isBlank()) stringResource(R.string.empty_folder) else stringResource(R.string.no_results),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -369,7 +370,7 @@ fun FileBrowserContent(
                     ) {
                         if (showRecentComics) {
                             item(key = "recent_comics_header") {
-                                FileBrowserSectionHeader(title = "Recenti")
+                                FileBrowserSectionHeader(title = stringResource(R.string.recent_section))
                             }
                             items(
                                 items = recentComics,
@@ -386,7 +387,7 @@ fun FileBrowserContent(
                             }
                             if (entries.isNotEmpty()) {
                                 item(key = "browser_entries_header") {
-                                    FileBrowserSectionHeader(title = "File")
+                                    FileBrowserSectionHeader(title = stringResource(R.string.files_section))
                                 }
                             }
                         }
@@ -457,7 +458,7 @@ fun RecentComicRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = recentComic.subtitleLabel(),
+                text = recentComic.subtitleText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -540,7 +541,7 @@ fun FileBrowserRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = entry.type.label(),
+                text = entry.type.labelText(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,

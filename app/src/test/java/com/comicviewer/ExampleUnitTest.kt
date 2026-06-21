@@ -138,7 +138,7 @@ class ExampleUnitTest {
         val exception = archiveExtractionFailureFor(IOException("Disk full"))
 
         assertTrue(exception is ComicLoadException)
-        assertEquals("Archivio non leggibile o estrazione interrotta.", exception.message)
+        assertEquals(ComicLoadError.ArchiveExtractionFailed.defaultMessage(), exception.message)
     }
 
     @Test
@@ -192,7 +192,7 @@ class ExampleUnitTest {
 
     @Test
     fun comicLoadErrorForPageCount_reportsEmptyComic() {
-        assertEquals(EMPTY_COMIC_MESSAGE, comicLoadErrorForPageCount(0))
+        assertEquals(ComicLoadError.NoSupportedImagesFound, comicLoadErrorForPageCount(0))
         assertNull(comicLoadErrorForPageCount(1))
     }
 
@@ -547,7 +547,7 @@ class ExampleUnitTest {
             pageCount = 9,
         )
 
-        assertEquals("Pagina 3/9", libraryComic.progressLabel(listOf(recentComic)))
+        assertEquals("Page 3/9", libraryComic.progressLabel(listOf(recentComic)))
         assertEquals(libraryComic.displayName, libraryComic.progressLabel(emptyList()))
     }
 

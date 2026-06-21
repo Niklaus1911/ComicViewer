@@ -2,7 +2,6 @@ package com.comicviewer
 
 import java.util.Locale
 
-const val EMPTY_COMIC_MESSAGE = "Nessuna immagine supportata trovata."
 
 private val supportedArchiveExtensions = setOf("zip", "cbz")
 private val supportedImageExtensions = setOf("jpg", "jpeg", "png", "webp")
@@ -22,8 +21,8 @@ fun sortComicPaths(paths: List<String>): List<String> =
 fun coercePageIndex(index: Int, pageCount: Int): Int =
     if (pageCount <= 0) 0 else index.coerceIn(0, pageCount - 1)
 
-fun comicLoadErrorForPageCount(pageCount: Int): String? =
-    if (pageCount == 0) EMPTY_COMIC_MESSAGE else null
+fun comicLoadErrorForPageCount(pageCount: Int): ComicLoadError? =
+    if (pageCount == 0) ComicLoadError.NoSupportedImagesFound else null
 
 private fun String.extension(): String =
     substringAfterLast('.', missingDelimiterValue = "")

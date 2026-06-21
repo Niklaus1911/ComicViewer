@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +67,7 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.SingletonImageLoader
 import coil3.imageLoader
 import coil3.request.ImageRequest
+import com.comicviewer.R
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicPage
 import com.comicviewer.ComicSource
@@ -97,7 +99,7 @@ fun LoadingComicScreen(modifier: Modifier = Modifier) {
             CircularProgressIndicator()
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Caricamento pagine...",
+                text = stringResource(R.string.loading_pages),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -125,7 +127,7 @@ fun ErrorComicScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = "Impossibile aprire il comic",
+                text = stringResource(R.string.open_comic_error_title),
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center,
@@ -142,7 +144,7 @@ fun ErrorComicScreen(
                 onClick = throttledBack,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Torna ai file")
+                Text(stringResource(R.string.back_to_files))
             }
         }
     }
@@ -195,7 +197,7 @@ fun ComicReaderScreen(
             }
 
             is AsyncImagePainter.State.Error -> {
-                pageLoadError = "Impossibile visualizzare ${page.displayName}"
+                pageLoadError = context.getString(R.string.page_image_error, page.displayName)
             }
 
             else -> Unit
@@ -509,7 +511,7 @@ fun ReaderTopBar(
             }
             TextButton(onClick = onCloseComic) {
                 Text(
-                    text = "File",
+                    text = stringResource(R.string.reader_close_file),
                     color = Color.White,
                 )
             }
@@ -541,7 +543,11 @@ fun ReaderPageScrubber(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                text = if (pageCount <= 0) "Pagina 1 / 1" else "Pagina ${targetPageIndex + 1} / $pageCount",
+                text = if (pageCount <= 0) {
+                    stringResource(R.string.page_progress_spaced, 1, 1)
+                } else {
+                    stringResource(R.string.page_progress_spaced, targetPageIndex + 1, pageCount)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White.copy(alpha = 0.86f),
             )

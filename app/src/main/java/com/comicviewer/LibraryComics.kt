@@ -81,8 +81,8 @@ fun LibraryComic.progressLabel(recentComics: List<RecentComic>): String =
     matchingRecentComic(recentComics)?.libraryProgressLabel() ?: displayName
 
 private fun RecentComic.libraryProgressLabel(): String {
-    if (pageCount <= 0) return "Pagina 1"
-    return "Pagina ${coercePageIndex(lastPageIndex, pageCount) + 1}/$pageCount"
+    if (pageCount <= 0) return "Page 1"
+    return "Page ${coercePageIndex(lastPageIndex, pageCount) + 1}/$pageCount"
 }
 
 private fun Context.libraryComicsPrefs() =

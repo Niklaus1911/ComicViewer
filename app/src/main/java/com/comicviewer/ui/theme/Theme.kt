@@ -1,4 +1,4 @@
-package com.example.myapplication.ui.theme
+package com.comicviewer.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -71,7 +71,7 @@ private val OrangeLightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun MyApplicationTheme(
+fun ComicViewerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     appColor: AppColor = AppColor.BLUE,

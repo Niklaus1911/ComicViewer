@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.comicviewer
 
 import android.content.Context
 import androidx.core.net.toUri

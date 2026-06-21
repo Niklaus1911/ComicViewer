@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.comicviewer
 
 import android.content.Context
 import android.content.Intent
@@ -38,23 +38,27 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -63,6 +67,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -119,7 +125,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
-import com.example.myapplication.ui.theme.MyApplicationTheme
+import com.comicviewer.ui.theme.ComicViewerTheme
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
@@ -132,6 +138,9 @@ private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
 private const val SOFT_ANIMATION_DURATION_MS = 180
 private const val TAP_THROTTLE_MS = 350L
+private const val TABLET_WIDTH_DP = 600
+private const val TABLET_LIBRARY_CARD_MIN_WIDTH_DP = 180
+private const val TABLET_BROWSER_CONTENT_MAX_WIDTH_DP = 840
 
 enum class AppTab {
     Library,
@@ -178,6 +187,8 @@ fun shouldAcceptThrottledAction(
     throttleMs: Long = TAP_THROTTLE_MS,
 ): Boolean = nowMs - lastAcceptedAtMs >= throttleMs
 
+fun isTabletWidth(widthDp: Int): Boolean = widthDp >= TABLET_WIDTH_DP
+
 private fun Modifier.softPress(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
@@ -220,7 +231,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MyApplicationTheme {
+            ComicViewerTheme {
                 ComicViewerApp()
             }
         }
@@ -622,44 +633,65 @@ fun HomeScreen(
         modifier = modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.weight(1f)) {
-                AnimatedContent(
-                    targetState = selectedTab,
-                    transitionSpec = { softContentTransform() },
-                    label = "tabContentTransition",
-                    modifier = Modifier.fillMaxSize(),
-                ) { targetTab ->
-                    when (targetTab) {
-                        AppTab.Library -> LibraryScreen(
-                            libraryComics = libraryComics,
-                            recentComics = recentComics,
-                            onStartAddToLibrary = onStartAddToLibrary,
-                            onOpenLibraryComic = onOpenLibraryComic,
-                            onRemoveLibraryComic = onRemoveLibraryComic,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val tabletLayout = isTabletWidth(maxWidth.value.roundToInt())
+            val tabContent: @Composable () -> Unit = {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = { softContentTransform() },
+                        label = "tabContentTransition",
+                        modifier = Modifier.fillMaxSize(),
+                    ) { targetTab ->
+                        when (targetTab) {
+                            AppTab.Library -> LibraryScreen(
+                                libraryComics = libraryComics,
+                                recentComics = recentComics,
+                                onStartAddToLibrary = onStartAddToLibrary,
+                                onOpenLibraryComic = onOpenLibraryComic,
+                                onRemoveLibraryComic = onRemoveLibraryComic,
+                                modifier = Modifier.fillMaxSize(),
+                            )
 
-                        AppTab.Browse -> FileBrowserScreen(
-                            currentDirectoryPath = currentDirectoryPath,
-                            browserRootPath = browserRootPath,
-                            recentComics = recentComics,
-                            isAddingToLibrary = isAddingToLibrary,
-                            onDirectoryChange = onDirectoryChange,
-                            onOpenLocalArchive = onOpenLocalArchive,
-                            onOpenLocalFolder = onOpenLocalFolder,
-                            onOpenRecentComic = onOpenRecentComic,
-                            onAddLocalArchiveToLibrary = onAddLocalArchiveToLibrary,
-                            onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                            AppTab.Browse -> FileBrowserScreen(
+                                currentDirectoryPath = currentDirectoryPath,
+                                browserRootPath = browserRootPath,
+                                recentComics = recentComics,
+                                isAddingToLibrary = isAddingToLibrary,
+                                onDirectoryChange = onDirectoryChange,
+                                onOpenLocalArchive = onOpenLocalArchive,
+                                onOpenLocalFolder = onOpenLocalFolder,
+                                onOpenRecentComic = onOpenRecentComic,
+                                onAddLocalArchiveToLibrary = onAddLocalArchiveToLibrary,
+                                onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
             }
-            AppBottomNavigation(
-                selectedTab = selectedTab,
-                onTabSelected = onTabSelected,
-            )
+
+            if (tabletLayout) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    AppNavigationRail(
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected,
+                    )
+                    Box(modifier = Modifier.weight(1f)) {
+                        tabContent()
+                    }
+                }
+            } else {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        tabContent()
+                    }
+                    AppBottomNavigation(
+                        selectedTab = selectedTab,
+                        onTabSelected = onTabSelected,
+                    )
+                }
+            }
         }
     }
 }
@@ -674,6 +706,7 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val throttledStartAdd = rememberThrottledAction(action = onStartAddToLibrary)
+    var comicPendingRemoval by remember { mutableStateOf<LibraryComic?>(null) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -690,27 +723,64 @@ fun LibraryScreen(
             if (isEmpty) {
                 LibraryEmptyContent(onStartAddToLibrary = throttledStartAdd)
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    gridItems(
-                        items = libraryComics,
-                        key = { comic -> "${comic.sourceType.storageName}:${comic.path}" },
-                    ) { comic ->
-                        LibraryComicCard(
-                            libraryComic = comic,
-                            progressLabel = comic.progressLabel(recentComics),
-                            onClick = rememberThrottledAction { onOpenLibraryComic(comic) },
-                            onRemove = { onRemoveLibraryComic(comic) },
-                        )
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val tabletLayout = isTabletWidth(maxWidth.value.roundToInt())
+                    LazyVerticalGrid(
+                        columns = if (tabletLayout) {
+                            GridCells.Adaptive(TABLET_LIBRARY_CARD_MIN_WIDTH_DP.dp)
+                        } else {
+                            GridCells.Fixed(2)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        gridItems(
+                            items = libraryComics,
+                            key = { comic -> "${comic.sourceType.storageName}:${comic.path}" },
+                        ) { comic ->
+                            LibraryComicCard(
+                                libraryComic = comic,
+                                progressLabel = comic.progressLabel(recentComics),
+                                onClick = rememberThrottledAction { onOpenLibraryComic(comic) },
+                                onRemove = { comicPendingRemoval = comic },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    comicPendingRemoval?.let { pendingComic ->
+        AlertDialog(
+            onDismissRequest = { comicPendingRemoval = null },
+            title = {
+                Text(text = "Rimuovere dalla libreria?")
+            },
+            text = {
+                Text(
+                    text = "\"${pendingComic.title}\" verra rimosso dalla libreria. " +
+                        "Il file originale non verra eliminato.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onRemoveLibraryComic(pendingComic)
+                        comicPendingRemoval = null
+                    },
+                ) {
+                    Text("Rimuovi")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { comicPendingRemoval = null }) {
+                    Text("Annulla")
+                }
+            },
+        )
     }
 }
 
@@ -877,6 +947,35 @@ fun AppBottomNavigation(
             label = { Text("Library") },
         )
         NavigationBarItem(
+            selected = selectedTab == AppTab.Browse,
+            onClick = throttledBrowseClick,
+            icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
+            label = { Text("Browse") },
+        )
+    }
+}
+
+@Composable
+fun AppNavigationRail(
+    selectedTab: AppTab,
+    onTabSelected: (AppTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
+    val throttledBrowseClick = rememberThrottledAction { onTabSelected(AppTab.Browse) }
+    NavigationRail(
+        modifier = modifier
+            .fillMaxHeight()
+            .systemBarsPadding(),
+    ) {
+        Spacer(modifier = Modifier.height(12.dp))
+        NavigationRailItem(
+            selected = selectedTab == AppTab.Library,
+            onClick = throttledLibraryClick,
+            icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
+            label = { Text("Library") },
+        )
+        NavigationRailItem(
             selected = selectedTab == AppTab.Browse,
             onClick = throttledBrowseClick,
             icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
@@ -1182,64 +1281,81 @@ fun FileBrowserContent(
     val entries = filterBrowserEntries(directory.entries, searchQuery)
     val showRecentComics = !isAddingToLibrary && searchQuery.isBlank() && recentComics.isNotEmpty()
 
-    AnimatedContent(
-        targetState = entries.isEmpty() && !showRecentComics,
-        transitionSpec = { softContentTransform() },
-        label = "browserContentTransition",
-        modifier = modifier.fillMaxSize(),
-    ) { isEmpty ->
-        if (isEmpty) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val tabletLayout = isTabletWidth(maxWidth.value.roundToInt())
+        val listModifier = if (tabletLayout) {
+            Modifier
+                .fillMaxHeight()
+                .widthIn(max = TABLET_BROWSER_CONTENT_MAX_WIDTH_DP.dp)
+                .fillMaxWidth()
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 18.dp),
-            ) {
-                if (showRecentComics) {
-                    item(key = "recent_comics_header") {
-                        FileBrowserSectionHeader(title = "Recenti")
-                    }
-                    items(
-                        items = recentComics,
-                        key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
-                    ) { recentComic ->
-                        RecentComicRow(
-                            recentComic = recentComic,
-                            onClick = { onRecentComicClick(recentComic) },
-                        )
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 88.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-                        )
-                    }
-                    if (entries.isNotEmpty()) {
-                        item(key = "browser_entries_header") {
-                            FileBrowserSectionHeader(title = "File")
+            Modifier.fillMaxSize()
+        }
+
+        AnimatedContent(
+            targetState = entries.isEmpty() && !showRecentComics,
+            transitionSpec = { softContentTransform() },
+            label = "browserContentTransition",
+            modifier = Modifier.fillMaxSize(),
+        ) { isEmpty ->
+            if (isEmpty) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (searchQuery.isBlank()) "Cartella vuota" else "Nessun risultato",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    LazyColumn(
+                        modifier = listModifier,
+                        contentPadding = PaddingValues(bottom = 18.dp),
+                    ) {
+                        if (showRecentComics) {
+                            item(key = "recent_comics_header") {
+                                FileBrowserSectionHeader(title = "Recenti")
+                            }
+                            items(
+                                items = recentComics,
+                                key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
+                            ) { recentComic ->
+                                RecentComicRow(
+                                    recentComic = recentComic,
+                                    onClick = { onRecentComicClick(recentComic) },
+                                )
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(start = 88.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                                )
+                            }
+                            if (entries.isNotEmpty()) {
+                                item(key = "browser_entries_header") {
+                                    FileBrowserSectionHeader(title = "File")
+                                }
+                            }
+                        }
+                        items(
+                            items = entries,
+                            key = { entry -> entry.path },
+                        ) { entry ->
+                            FileBrowserRow(
+                                entry = entry,
+                                isAddingToLibrary = isAddingToLibrary,
+                                onClick = { onEntryClick(entry) },
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 88.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
+                            )
                         }
                     }
-                }
-                items(
-                    items = entries,
-                    key = { entry -> entry.path },
-                ) { entry ->
-                    FileBrowserRow(
-                        entry = entry,
-                        isAddingToLibrary = isAddingToLibrary,
-                        onClick = { onEntryClick(entry) },
-                    )
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 88.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-                    )
                 }
             }
         }
@@ -2102,7 +2218,7 @@ private fun restoreReadyState(savedValues: List<String>): ReaderUiState {
 @Preview(showBackground = true)
 @Composable
 fun FileAccessScreenPreview() {
-    MyApplicationTheme {
+        ComicViewerTheme {
         FileAccessScreen(onOpenSettings = {})
     }
 }

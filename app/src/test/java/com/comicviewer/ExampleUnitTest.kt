@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.comicviewer
 
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -635,6 +635,13 @@ class ExampleUnitTest {
                 throttleMs = 350L,
             ),
         )
+    }
+
+    @Test
+    fun isTabletWidth_usesSixHundredDpThreshold() {
+        assertFalse(isTabletWidth(599))
+        assertTrue(isTabletWidth(600))
+        assertTrue(isTabletWidth(840))
     }
 }
 

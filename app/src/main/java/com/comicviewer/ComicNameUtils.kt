@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.comicviewer
 
 import java.util.Locale
 

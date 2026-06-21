@@ -1,0 +1,36 @@
+package com.comicviewer
+
+import java.io.File
+
+fun comicPageImageCacheKey(source: ComicSource, page: ComicPage): String =
+    comicPageImageCacheKey(
+        source = source,
+        pageIndex = page.index,
+        relativePath = page.relativePath,
+        imageUri = page.imageUri.toString(),
+    )
+
+fun comicPageImageCacheKey(
+    source: ComicSource,
+    pageIndex: Int,
+    relativePath: String,
+    imageUri: String,
+): String =
+    listOf(
+        "comic-page",
+        comicSourceImageCacheKey(source),
+        pageIndex.toString(),
+        relativePath,
+        imageUri,
+    ).joinToString(separator = "|")
+
+private fun comicSourceImageCacheKey(source: ComicSource): String = when (source) {
+    is ComicSource.Archive -> "archive-uri:${source.displayName}:${source.uri}"
+    is ComicSource.Folder -> "folder-uri:${source.displayName}:${source.uri}"
+    is ComicSource.LocalArchive -> {
+        val file = File(source.filePath)
+        "local-archive:${source.filePath}:${file.lastModified()}:${file.length()}"
+    }
+
+    is ComicSource.LocalFolder -> "local-folder:${source.folderPath}"
+}

@@ -57,6 +57,19 @@ fun upsertLibraryComic(
         .sortedByDescending { comic -> comic.addedAt }
         .take(maxItems)
 
+fun upsertLibraryComics(
+    libraryComics: List<LibraryComic>,
+    newComics: List<LibraryComic>,
+    maxItems: Int = MAX_LIBRARY_COMICS,
+): List<LibraryComic> =
+    newComics.fold(libraryComics) { currentComics, libraryComic ->
+        upsertLibraryComic(
+            libraryComics = currentComics,
+            libraryComic = libraryComic,
+            maxItems = maxItems,
+        )
+    }
+
 fun removeLibraryComic(
     libraryComics: List<LibraryComic>,
     sourceType: RecentComicSourceType,

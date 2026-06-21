@@ -33,6 +33,7 @@ import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
 import com.comicviewer.saveRecentComics
 import com.comicviewer.upsertLibraryComic
+import com.comicviewer.upsertLibraryComics
 import com.comicviewer.upsertRecentComic
 import com.comicviewer.updateRecentComicPage
 import java.io.File
@@ -177,6 +178,22 @@ class ComicViewerAppState(
             upsertLibraryComic(
                 libraryComics = libraryComics,
                 libraryComic = libraryComicForArchive(file, addedAt = System.currentTimeMillis()),
+            ),
+        )
+        selectedTabName = AppTab.Library.name
+        isAddingToLibrary = false
+    }
+
+    fun addArchivesToLibrary(files: List<File>) {
+        if (files.isEmpty()) return
+        val addedAt = System.currentTimeMillis()
+        val newComics = files.mapIndexed { index, file ->
+            libraryComicForArchive(file, addedAt = addedAt + index)
+        }
+        persistLibraryComics(
+            upsertLibraryComics(
+                libraryComics = libraryComics,
+                newComics = newComics,
             ),
         )
         selectedTabName = AppTab.Library.name

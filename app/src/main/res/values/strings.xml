@@ -22,6 +22,10 @@
     <string name="browser_refresh">Refresh</string>
     <string name="browser_open_as_comic">Open as comic</string>
     <string name="browser_add_folder">Add folder</string>
+    <string name="browser_add_selected">Add selected (%1$d)</string>
+    <string name="browser_selected">Selected</string>
+    <string name="browser_select_comic">Select comic</string>
+    <string name="browser_deselect_comic">Deselect comic</string>
     <string name="browser_clear_search">Clear search</string>
     <string name="browser_search_label">Search in this folder</string>
     <string name="retry">Retry</string>

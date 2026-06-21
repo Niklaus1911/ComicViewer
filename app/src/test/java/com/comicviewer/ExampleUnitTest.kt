@@ -519,6 +519,58 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun upsertLibraryComics_addsMultipleComicsAndKeepsNewestFirst() {
+        val existing = sampleLibraryComic(
+            path = "/storage/emulated/0/Existing.cbz",
+            addedAt = 100L,
+        )
+        val first = sampleLibraryComic(
+            path = "/storage/emulated/0/Batman.cbz",
+            addedAt = 200L,
+        )
+        val second = sampleLibraryComic(
+            path = "/storage/emulated/0/Saga.cbz",
+            addedAt = 201L,
+        )
+
+        val result = upsertLibraryComics(
+            libraryComics = listOf(existing),
+            newComics = listOf(first, second),
+        )
+
+        assertEquals(
+            listOf(second.path, first.path, existing.path),
+            result.map { comic -> comic.path },
+        )
+    }
+
+    @Test
+    fun upsertLibraryComics_dedupesBatchAgainstExistingLibrary() {
+        val existing = sampleLibraryComic(
+            title = "Old Batman",
+            path = "/storage/emulated/0/Batman.cbz",
+            addedAt = 100L,
+        )
+        val updated = sampleLibraryComic(
+            title = "New Batman",
+            path = existing.path,
+            addedAt = 300L,
+        )
+        val newComic = sampleLibraryComic(
+            path = "/storage/emulated/0/Saga.cbz",
+            addedAt = 301L,
+        )
+
+        val result = upsertLibraryComics(
+            libraryComics = listOf(existing),
+            newComics = listOf(updated, newComic),
+        )
+
+        assertEquals(listOf(newComic.path, updated.path), result.map { comic -> comic.path })
+        assertEquals("New Batman", result.single { comic -> comic.path == existing.path }.title)
+    }
+
+    @Test
     fun removeLibraryComic_removesOnlyMatchingSourceAndPath() {
         val archive = sampleLibraryComic(
             path = "/storage/emulated/0/Comic.cbz",

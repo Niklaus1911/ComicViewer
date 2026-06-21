@@ -41,8 +41,6 @@ jobs:
           name: ComicViewer ${{ github.ref_name }}
           files: ComicViewer-${{ github.ref_name }}-debug.apk
           body: |
-            # ComicViewer ${{ github.ref_name }}
-
             This first release provides a debug APK for ComicViewer.
 
             ⚠️ Debug APK warning: this APK is signed with a debug key. Future signed/release APKs may require uninstalling this debug APK before installing the release-signed version.

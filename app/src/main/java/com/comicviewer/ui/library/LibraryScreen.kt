@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -59,6 +60,8 @@ import com.comicviewer.isTabletWidth
 import com.comicviewer.loadLibraryComicThumbnailUri
 import com.comicviewer.coercePageIndex
 import com.comicviewer.matchingRecentComic
+import com.comicviewer.billing.ProBillingState
+import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.icon
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
@@ -69,19 +72,27 @@ import kotlin.math.roundToInt
 fun LibraryScreen(
     libraryComics: List<LibraryComic>,
     recentComics: List<RecentComic>,
+    proBillingState: ProBillingState,
     onStartAddToLibrary: () -> Unit,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
     onOpenLibraryComic: (LibraryComic) -> Unit,
     onRemoveLibraryComic: (LibraryComic) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val throttledStartAdd = rememberThrottledAction(action = onStartAddToLibrary)
     var comicPendingRemoval by remember { mutableStateOf<LibraryComic?>(null) }
+    var showProDialog by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
             .systemBarsPadding(),
     ) {
-        LibraryHeader(onStartAddToLibrary = throttledStartAdd)
+        LibraryHeader(
+            isProUnlocked = proBillingState.isProUnlocked,
+            onStartAddToLibrary = throttledStartAdd,
+            onShowPro = { showProDialog = true },
+        )
 
         AnimatedContent(
             targetState = libraryComics.isEmpty(),
@@ -122,6 +133,15 @@ fun LibraryScreen(
         }
     }
 
+    if (showProDialog) {
+        ProUpgradeDialog(
+            billingState = proBillingState,
+            onBuyPro = onBuyPro,
+            onRestorePro = onRestorePro,
+            onDismiss = { showProDialog = false },
+        )
+    }
+
     comicPendingRemoval?.let { pendingComic ->
         AlertDialog(
             onDismissRequest = { comicPendingRemoval = null },
@@ -154,7 +174,9 @@ fun LibraryScreen(
 
 @Composable
 fun LibraryHeader(
+    isProUnlocked: Boolean,
     onStartAddToLibrary: () -> Unit,
+    onShowPro: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -170,6 +192,19 @@ fun LibraryHeader(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f),
         )
+        IconButton(onClick = onShowPro) {
+            Icon(
+                imageVector = Icons.Filled.WorkspacePremium,
+                contentDescription = stringResource(
+                    if (isProUnlocked) R.string.pro_unlocked else R.string.pro_upgrade,
+                ),
+                tint = if (isProUnlocked) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
         IconButton(onClick = onStartAddToLibrary) {
             Icon(
                 imageVector = Icons.Filled.Add,
@@ -177,6 +212,82 @@ fun LibraryHeader(
             )
         }
     }
+}
+
+@Composable
+fun ProUpgradeDialog(
+    billingState: ProBillingState,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = if (billingState.isProUnlocked) {
+                    stringResource(R.string.pro_unlocked)
+                } else {
+                    stringResource(R.string.pro_upgrade)
+                },
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = if (billingState.isProUnlocked) {
+                        stringResource(R.string.pro_unlocked_message)
+                    } else {
+                        stringResource(R.string.pro_upgrade_message)
+                    },
+                )
+                billingState.formattedPrice?.let { price ->
+                    Text(
+                        text = stringResource(R.string.pro_price, price),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (billingState.status is ProBillingStatus.Unavailable && !billingState.isProUnlocked) {
+                    Text(
+                        text = stringResource(R.string.pro_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                billingState.message?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (!billingState.isProUnlocked) {
+                TextButton(
+                    onClick = onBuyPro,
+                    enabled = billingState.status is ProBillingStatus.Available,
+                ) {
+                    Text(stringResource(R.string.pro_buy))
+                }
+            } else {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.ok))
+                }
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onRestorePro) {
+                    Text(stringResource(R.string.pro_restore))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        },
+    )
 }
 
 @Composable

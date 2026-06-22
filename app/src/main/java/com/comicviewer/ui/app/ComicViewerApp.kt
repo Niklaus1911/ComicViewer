@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +36,10 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -46,10 +50,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.comicviewer.R
+import com.comicviewer.AppLanguage
 import com.comicviewer.LibraryComic
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
 import com.comicviewer.isTabletWidth
+import com.comicviewer.billing.ProBillingRepository
+import com.comicviewer.billing.ProBillingState
 import com.comicviewer.ui.browser.FileBrowserScreen
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
@@ -57,17 +64,25 @@ import com.comicviewer.ui.library.LibraryScreen
 import com.comicviewer.ui.reader.ComicReaderScreen
 import com.comicviewer.ui.reader.ErrorComicScreen
 import com.comicviewer.ui.reader.LoadingComicScreen
+import com.comicviewer.ui.settings.SettingsScreen
 import com.comicviewer.ui.theme.ComicViewerTheme
 import java.io.File
 import kotlin.math.roundToInt
 
 @Composable
-fun ComicViewerApp() {
+fun ComicViewerApp(
+    selectedLanguage: AppLanguage,
+    amoledThemeEnabled: Boolean,
+    onLanguageSelected: (AppLanguage) -> Unit,
+    onAmoledThemeChanged: (Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val appState = rememberComicViewerAppState(
-        appContext = context.applicationContext,
+        appContext = context,
         hasFileAccess = hasFileManagerAccess(),
     )
+    val billingRepository = remember(context) { ProBillingRepository(context.applicationContext) }
+    val proBillingState by billingRepository.state.collectAsState()
 
     val fileAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -89,11 +104,17 @@ fun ComicViewerApp() {
         }
     }
 
-    DisposableEffect(context, appState) {
+    DisposableEffect(billingRepository) {
+        billingRepository.startConnection()
+        onDispose { billingRepository.endConnection() }
+    }
+
+    DisposableEffect(context, appState, billingRepository) {
         val activity = context as? ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 appState.refreshFileAccess(hasFileManagerAccess())
+                billingRepository.restorePurchases()
             }
         }
         activity?.lifecycle?.addObserver(observer)
@@ -118,6 +139,15 @@ fun ComicViewerApp() {
             libraryComics = appState.libraryComics,
             recentComics = appState.recentComics,
             isAddingToLibrary = appState.isAddingToLibrary,
+            proBillingState = proBillingState,
+            selectedLanguage = selectedLanguage,
+            amoledThemeEnabled = amoledThemeEnabled,
+            onBuyPro = {
+                (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
+            },
+            onRestorePro = billingRepository::restorePurchases,
+            onLanguageSelected = onLanguageSelected,
+            onAmoledThemeChanged = onAmoledThemeChanged,
             onTabSelected = appState::selectTab,
             onStartAddToLibrary = appState::startAddToLibrary,
             onDirectoryChange = appState::changeDirectory,
@@ -145,6 +175,13 @@ fun ComicViewerScreen(
     libraryComics: List<LibraryComic>,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
+    proBillingState: ProBillingState,
+    selectedLanguage: AppLanguage,
+    amoledThemeEnabled: Boolean,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
+    onLanguageSelected: (AppLanguage) -> Unit,
+    onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
     onDirectoryChange: (String) -> Unit,
@@ -186,6 +223,13 @@ fun ComicViewerScreen(
                     libraryComics = libraryComics,
                     recentComics = recentComics,
                     isAddingToLibrary = isAddingToLibrary,
+                    proBillingState = proBillingState,
+                    selectedLanguage = selectedLanguage,
+                    amoledThemeEnabled = amoledThemeEnabled,
+                    onBuyPro = onBuyPro,
+                    onRestorePro = onRestorePro,
+                    onLanguageSelected = onLanguageSelected,
+                    onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
                     onStartAddToLibrary = onStartAddToLibrary,
                     onDirectoryChange = onDirectoryChange,
@@ -219,6 +263,13 @@ fun HomeScreen(
     libraryComics: List<LibraryComic>,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
+    proBillingState: ProBillingState,
+    selectedLanguage: AppLanguage,
+    amoledThemeEnabled: Boolean,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
+    onLanguageSelected: (AppLanguage) -> Unit,
+    onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
     onDirectoryChange: (String) -> Unit,
@@ -249,7 +300,10 @@ fun HomeScreen(
                             AppTab.Library -> LibraryScreen(
                                 libraryComics = libraryComics,
                                 recentComics = recentComics,
+                                proBillingState = proBillingState,
                                 onStartAddToLibrary = onStartAddToLibrary,
+                                onBuyPro = onBuyPro,
+                                onRestorePro = onRestorePro,
                                 onOpenLibraryComic = onOpenLibraryComic,
                                 onRemoveLibraryComic = onRemoveLibraryComic,
                                 modifier = Modifier.fillMaxSize(),
@@ -266,6 +320,14 @@ fun HomeScreen(
                                 onOpenRecentComic = onOpenRecentComic,
                                             onAddLocalArchivesToLibrary = onAddLocalArchivesToLibrary,
                                 onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+
+                            AppTab.Settings -> SettingsScreen(
+                                selectedLanguage = selectedLanguage,
+                                amoledThemeEnabled = amoledThemeEnabled,
+                                onLanguageSelected = onLanguageSelected,
+                                onAmoledThemeChanged = onAmoledThemeChanged,
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -306,6 +368,7 @@ fun AppBottomNavigation(
 ) {
     val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
     val throttledBrowseClick = rememberThrottledAction { onTabSelected(AppTab.Browse) }
+    val throttledSettingsClick = rememberThrottledAction { onTabSelected(AppTab.Settings) }
     NavigationBar(modifier = modifier.fillMaxWidth()) {
         NavigationBarItem(
             selected = selectedTab == AppTab.Library,
@@ -319,6 +382,12 @@ fun AppBottomNavigation(
             icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_browse)) },
         )
+        NavigationBarItem(
+            selected = selectedTab == AppTab.Settings,
+            onClick = throttledSettingsClick,
+            icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_settings)) },
+        )
     }
 }
 
@@ -330,6 +399,7 @@ fun AppNavigationRail(
 ) {
     val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
     val throttledBrowseClick = rememberThrottledAction { onTabSelected(AppTab.Browse) }
+    val throttledSettingsClick = rememberThrottledAction { onTabSelected(AppTab.Settings) }
     NavigationRail(
         modifier = modifier
             .fillMaxHeight()
@@ -347,6 +417,12 @@ fun AppNavigationRail(
             onClick = throttledBrowseClick,
             icon = { Icon(Icons.Filled.Folder, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_browse)) },
+        )
+        NavigationRailItem(
+            selected = selectedTab == AppTab.Settings,
+            onClick = throttledSettingsClick,
+            icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+            label = { Text(stringResource(R.string.nav_settings)) },
         )
     }
 }

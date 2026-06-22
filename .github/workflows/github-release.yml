@@ -38,10 +38,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ComicViewer ${{ github.ref_name }}
+          name: Comic Viewer ${{ github.ref_name }}
           files: ComicViewer-${{ github.ref_name }}-debug.apk
           body: |
-            This first release provides a debug APK for ComicViewer.
+            This first release provides a debug APK for Comic Viewer.
 
             ⚠️ Debug APK warning: this APK is signed with a debug key. Future signed/release APKs may require uninstalling this debug APK before installing the release-signed version.
 

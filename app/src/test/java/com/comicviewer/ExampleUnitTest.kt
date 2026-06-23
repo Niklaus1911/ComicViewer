@@ -3,6 +3,14 @@ package com.comicviewer
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import com.comicviewer.ui.reader.ReaderSwipeDirection
+import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
+import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
+import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
+import com.comicviewer.ui.reader.readerSwipeCommitDirection
+import com.comicviewer.ui.reader.readerSwipeStartOffset
+import com.comicviewer.ui.reader.readerSwipeTargetIndex
+import com.comicviewer.ui.reader.resistedReaderSwipeOffset
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
@@ -694,6 +702,219 @@ class ExampleUnitTest {
         assertFalse(isTabletWidth(599))
         assertTrue(isTabletWidth(600))
         assertTrue(isTabletWidth(840))
+    }
+
+    @Test
+    fun readerSwipeCommitDirection_commitsWhenDistancePassesThreshold() {
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerSwipeCommitDirection(
+                offsetX = -150f,
+                velocityX = 0f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerSwipeCommitDirection(
+                offsetX = 150f,
+                velocityX = 0f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeCommitDirection_commitsWhenVelocityPassesThreshold() {
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerSwipeCommitDirection(
+                offsetX = -20f,
+                velocityX = -720f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerSwipeCommitDirection(
+                offsetX = 20f,
+                velocityX = 720f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeCommitDirection_doesNotCommitOutOfBounds() {
+        assertNull(
+            readerSwipeCommitDirection(
+                offsetX = 250f,
+                velocityX = 900f,
+                viewportWidth = 1000f,
+                currentPageIndex = 0,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+        assertNull(
+            readerSwipeCommitDirection(
+                offsetX = -250f,
+                velocityX = -900f,
+                viewportWidth = 1000f,
+                currentPageIndex = 4,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+            ),
+        )
+    }
+
+    @Test
+    fun resistedReaderSwipeOffset_appliesResistanceOnlyAtEdges() {
+        assertEquals(70f, resistedReaderSwipeOffset(250f, currentPageIndex = 0, pageCount = 5))
+        assertEquals(-70f, resistedReaderSwipeOffset(-250f, currentPageIndex = 4, pageCount = 5))
+        assertEquals(250f, resistedReaderSwipeOffset(250f, currentPageIndex = 2, pageCount = 5))
+    }
+
+    @Test
+    fun resistedReaderSwipeOffset_continuesInterruptedSettleFromCurrentOffset() {
+        val settleOffset = 650f
+        val dragDelta = -200f
+
+        assertEquals(
+            450f,
+            resistedReaderSwipeOffset(
+                rawOffsetX = settleOffset + dragDelta,
+                currentPageIndex = 2,
+                pageCount = 5,
+            ),
+        )
+    }
+
+    @Test
+    fun readerIncomingPageOffsetAfterCommit_keepsIncomingPageWithinViewport() {
+        assertEquals(
+            700f,
+            readerIncomingPageOffsetAfterCommit(
+                direction = ReaderSwipeDirection.Next,
+                currentOffsetX = -300f,
+                viewportWidth = 1000f,
+            ),
+        )
+        assertEquals(
+            -700f,
+            readerIncomingPageOffsetAfterCommit(
+                direction = ReaderSwipeDirection.Previous,
+                currentOffsetX = 300f,
+                viewportWidth = 1000f,
+            ),
+        )
+        assertEquals(
+            1000f,
+            readerIncomingPageOffsetAfterCommit(
+                direction = ReaderSwipeDirection.Next,
+                currentOffsetX = 300f,
+                viewportWidth = 1000f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeTargetIndex_returnsAdjacentPageOnlyWhenAvailable() {
+        assertEquals(1, readerSwipeTargetIndex(2, pageCount = 5, ReaderSwipeDirection.Previous))
+        assertEquals(3, readerSwipeTargetIndex(2, pageCount = 5, ReaderSwipeDirection.Next))
+        assertNull(readerSwipeTargetIndex(0, pageCount = 5, ReaderSwipeDirection.Previous))
+        assertNull(readerSwipeTargetIndex(4, pageCount = 5, ReaderSwipeDirection.Next))
+    }
+
+    @Test
+    fun readerSwipeDirectionForOffset_mapsOffsetSignToPageDirection() {
+        assertEquals(ReaderSwipeDirection.Previous, readerSwipeDirectionForOffset(10f))
+        assertEquals(ReaderSwipeDirection.Next, readerSwipeDirectionForOffset(-10f))
+        assertNull(readerSwipeDirectionForOffset(0f))
+    }
+
+    @Test
+    fun readerSwipeStartOffset_preservesCompatibleInterruptedSettleOffset() {
+        assertEquals(
+            320f,
+            readerSwipeStartOffset(
+                currentOffsetX = 320f,
+                direction = ReaderSwipeDirection.Previous,
+            ),
+        )
+        assertEquals(
+            -320f,
+            readerSwipeStartOffset(
+                currentOffsetX = -320f,
+                direction = ReaderSwipeDirection.Next,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeStartOffset_snapsConflictingInterruptedSettleOffsetToCenter() {
+        assertEquals(
+            0f,
+            readerSwipeStartOffset(
+                currentOffsetX = 320f,
+                direction = ReaderSwipeDirection.Next,
+            ),
+        )
+        assertEquals(
+            0f,
+            readerSwipeStartOffset(
+                currentOffsetX = -320f,
+                direction = ReaderSwipeDirection.Previous,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeAdjacentDirection_prefersActiveGestureDirectionOverOffsetSign() {
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerSwipeAdjacentDirection(
+                activeSwipeDirection = ReaderSwipeDirection.Next,
+                offsetX = 320f,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerSwipeAdjacentDirection(
+                activeSwipeDirection = ReaderSwipeDirection.Previous,
+                offsetX = -320f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeAdjacentDirection_fallsBackToOffsetSignWithoutActiveGesture() {
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerSwipeAdjacentDirection(
+                activeSwipeDirection = null,
+                offsetX = 320f,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerSwipeAdjacentDirection(
+                activeSwipeDirection = null,
+                offsetX = -320f,
+            ),
+        )
     }
 }
 

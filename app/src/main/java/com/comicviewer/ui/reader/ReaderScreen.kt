@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -55,6 +55,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -88,13 +89,131 @@ import com.comicviewer.ui.common.rememberThrottledAction
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
-private const val SWIPE_DISTANCE_FRACTION = 0.18f
-private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 900f
-private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 140
+internal const val READER_SWIPE_DISTANCE_FRACTION = 0.14f
+private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 700f
+private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 260
+private const val EDGE_SWIPE_RESISTANCE = 0.28f
+
+internal enum class ReaderSwipeDirection {
+    Previous,
+    Next,
+}
+
+internal fun readerSwipeTargetIndex(
+    currentPageIndex: Int,
+    pageCount: Int,
+    direction: ReaderSwipeDirection,
+): Int? = when (direction) {
+    ReaderSwipeDirection.Previous -> (currentPageIndex - 1).takeIf { currentPageIndex > 0 }
+    ReaderSwipeDirection.Next -> (currentPageIndex + 1).takeIf { currentPageIndex < pageCount - 1 }
+}
+
+internal fun readerSwipeCommitDirection(
+    offsetX: Float,
+    velocityX: Float,
+    viewportWidth: Float,
+    currentPageIndex: Int,
+    pageCount: Int,
+    distanceFraction: Float = READER_SWIPE_DISTANCE_FRACTION,
+    velocityThresholdPx: Float,
+): ReaderSwipeDirection? {
+    val velocityDirection = when {
+        velocityX >= velocityThresholdPx -> ReaderSwipeDirection.Previous
+        velocityX <= -velocityThresholdPx -> ReaderSwipeDirection.Next
+        else -> null
+    }
+    val offsetDirection = when {
+        offsetX > 0f -> ReaderSwipeDirection.Previous
+        offsetX < 0f -> ReaderSwipeDirection.Next
+        else -> null
+    }
+    val direction = velocityDirection ?: offsetDirection ?: return null
+    val targetIndex = readerSwipeTargetIndex(
+        currentPageIndex = currentPageIndex,
+        pageCount = pageCount,
+        direction = direction,
+    ) ?: return null
+    val distanceThreshold = viewportWidth * distanceFraction
+    val velocityCommits = velocityDirection != null
+    val distanceCommits = abs(offsetX) >= distanceThreshold
+
+    return if (targetIndex in 0 until pageCount && (velocityCommits || distanceCommits)) direction else null
+}
+
+internal fun resistedReaderSwipeOffset(
+    rawOffsetX: Float,
+    currentPageIndex: Int,
+    pageCount: Int,
+    edgeResistance: Float = EDGE_SWIPE_RESISTANCE,
+): Float = when {
+    rawOffsetX > 0f &&
+        readerSwipeTargetIndex(currentPageIndex, pageCount, ReaderSwipeDirection.Previous) == null ->
+        rawOffsetX * edgeResistance
+
+    rawOffsetX < 0f &&
+        readerSwipeTargetIndex(currentPageIndex, pageCount, ReaderSwipeDirection.Next) == null ->
+        rawOffsetX * edgeResistance
+
+    else -> rawOffsetX
+}
+
+internal fun readerIncomingPageOffsetAfterCommit(
+    direction: ReaderSwipeDirection,
+    currentOffsetX: Float,
+    viewportWidth: Float,
+): Float {
+    if (viewportWidth <= 0f) return 0f
+    return when (direction) {
+        ReaderSwipeDirection.Previous -> (currentOffsetX - viewportWidth).coerceIn(-viewportWidth, 0f)
+        ReaderSwipeDirection.Next -> (currentOffsetX + viewportWidth).coerceIn(0f, viewportWidth)
+    }
+}
+
+private fun adjacentPageIndexForOffset(
+    visualPageIndex: Int,
+    pageCount: Int,
+    offsetX: Float,
+    activeSwipeDirection: ReaderSwipeDirection?,
+): Int? = readerSwipeAdjacentDirection(activeSwipeDirection, offsetX)?.let { direction ->
+    readerSwipeTargetIndex(visualPageIndex, pageCount, direction)
+}
+
+internal fun readerSwipeDirectionForOffset(offsetX: Float): ReaderSwipeDirection? = when {
+    offsetX > 0f -> ReaderSwipeDirection.Previous
+    offsetX < 0f -> ReaderSwipeDirection.Next
+    else -> null
+}
+
+internal fun readerSwipeStartOffset(
+    currentOffsetX: Float,
+    direction: ReaderSwipeDirection,
+): Float =
+    if (readerSwipeDirectionForOffset(currentOffsetX) == direction) currentOffsetX else 0f
+
+internal fun readerSwipeAdjacentDirection(
+    activeSwipeDirection: ReaderSwipeDirection?,
+    offsetX: Float,
+): ReaderSwipeDirection? =
+    activeSwipeDirection ?: readerSwipeDirectionForOffset(offsetX)
+
+private fun adjacentPageTranslationX(
+    offsetX: Float,
+    viewportWidth: Float,
+    direction: ReaderSwipeDirection,
+): Float = when (direction) {
+    ReaderSwipeDirection.Previous -> offsetX - viewportWidth
+    ReaderSwipeDirection.Next -> offsetX + viewportWidth
+}
+
+private data class RememberedPagePainter(
+    val imageUri: String,
+    val painter: Painter,
+)
 
 @Composable
 fun LoadingComicScreen(modifier: Modifier = Modifier) {
@@ -180,9 +299,10 @@ fun ComicReaderScreen(
     val scope = rememberCoroutineScope()
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
-    val page = book.pages[currentIndex]
-    val currentRequest = remember(book.source, page.imageUri, page.relativePath) {
-        page.imageRequest(context = context, source = book.source)
+    var visualPageIndex by remember(book) { mutableStateOf(currentIndex) }
+    val visualPage = book.pages[coercePageIndex(visualPageIndex, book.pages.size)]
+    val currentRequest = remember(book.source, visualPage.imageUri, visualPage.relativePath) {
+        visualPage.imageRequest(context = context, source = book.source)
     }
     val painter = rememberAsyncImagePainter(
         model = currentRequest,
@@ -190,21 +310,29 @@ fun ComicReaderScreen(
         contentScale = ContentScale.Fit,
     )
     val painterState by painter.state.collectAsState()
-    var lastSuccessfulPainter by remember(book) { mutableStateOf<androidx.compose.ui.graphics.painter.Painter?>(null) }
-    var pageLoadError by remember(page.imageUri) { mutableStateOf<String?>(null) }
+    var lastSuccessfulPainter by remember(book) { mutableStateOf<RememberedPagePainter?>(null) }
+    var pageLoadError by remember(visualPage.imageUri) { mutableStateOf<String?>(null) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    var pageScale by remember(page.imageUri) { mutableFloatStateOf(MIN_PAGE_SCALE) }
-    var pageOffset by remember(page.imageUri) { mutableStateOf(Offset.Zero) }
+    var pageScale by remember(visualPage.imageUri) { mutableFloatStateOf(MIN_PAGE_SCALE) }
+    var pageOffset by remember(visualPage.imageUri) { mutableStateOf(Offset.Zero) }
     var controlsVisible by remember(book) { mutableStateOf(true) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
-    var swipeDirection by remember { mutableStateOf<SwipeDirection?>(null) }
-    var swipeTargetIndex by remember { mutableStateOf<Int?>(null) }
-    val swipeTargetPage = swipeTargetIndex?.let(book.pages::getOrNull)
-    val swipeTargetRequest = remember(book.source, swipeTargetPage?.imageUri, swipeTargetPage?.relativePath) {
-        swipeTargetPage?.imageRequest(context = context, source = book.source)
+    var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
+    var activeSwipeDirection by remember { mutableStateOf<ReaderSwipeDirection?>(null) }
+    var swipeSettleJob by remember(book) { mutableStateOf<Job?>(null) }
+    val adjacentPageDirection = readerSwipeAdjacentDirection(activeSwipeDirection, swipeOffsetX)
+    val adjacentPageIndex = adjacentPageIndexForOffset(
+        visualPageIndex = visualPage.index,
+        pageCount = book.pages.size,
+        offsetX = swipeOffsetX,
+        activeSwipeDirection = activeSwipeDirection,
+    )
+    val adjacentPage = adjacentPageIndex?.let(book.pages::getOrNull)
+    val adjacentRequest = remember(book.source, adjacentPage?.imageUri, adjacentPage?.relativePath) {
+        adjacentPage?.imageRequest(context = context, source = book.source)
     }
-    val swipeTargetPainter = rememberAsyncImagePainter(
-        model = swipeTargetRequest,
+    val adjacentPainter = rememberAsyncImagePainter(
+        model = adjacentRequest,
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
     )
@@ -231,27 +359,45 @@ fun ComicReaderScreen(
         }
     }
 
-    fun resetSwipeDrag() {
-        swipeOffsetX = 0f
-        swipeDirection = null
-        swipeTargetIndex = null
-    }
-
-    fun targetIndexFor(direction: SwipeDirection): Int? = when (direction) {
-        SwipeDirection.Previous -> (currentIndex - 1).takeIf { currentIndex > 0 }
-        SwipeDirection.Next -> (currentIndex + 1).takeIf { currentIndex < book.pages.lastIndex }
-    }
-
-    fun updateSwipeDrag(offsetX: Float, direction: SwipeDirection) {
-        val targetIndex = targetIndexFor(direction)
-        if (targetIndex == null) {
-            resetSwipeDrag()
-            return
+    DisposableEffect(book) {
+        onDispose {
+            swipeSettleJob?.cancel()
         }
+    }
 
-        swipeDirection = direction
-        swipeTargetIndex = targetIndex
-        swipeOffsetX = offsetX
+    LaunchedEffect(book, currentIndex) {
+        if (currentIndex != visualPageIndex) {
+            swipeSettleJob?.cancel()
+            visualPageIndex = currentIndex
+            swipeOffsetX = 0f
+            swipeDragStartOffsetX = 0f
+            activeSwipeDirection = null
+        }
+    }
+
+    fun resetSwipeState() {
+        swipeOffsetX = 0f
+        swipeDragStartOffsetX = 0f
+        activeSwipeDirection = null
+        swipeSettleJob = null
+    }
+
+    fun startSwipeDrag(direction: ReaderSwipeDirection) {
+        swipeSettleJob?.cancel()
+        swipeSettleJob = null
+        val startOffsetX = readerSwipeStartOffset(swipeOffsetX, direction)
+        swipeOffsetX = startOffsetX
+        swipeDragStartOffsetX = startOffsetX
+        activeSwipeDirection = direction
+    }
+
+    fun updateSwipeDrag(offsetX: Float) {
+        activeSwipeDirection = readerSwipeDirectionForOffset(offsetX) ?: activeSwipeDirection
+        swipeOffsetX = resistedReaderSwipeOffset(
+            rawOffsetX = swipeDragStartOffsetX + offsetX,
+            currentPageIndex = visualPage.index,
+            pageCount = book.pages.size,
+        )
     }
 
     suspend fun animateSwipeRelease(targetOffsetX: Float) {
@@ -260,7 +406,7 @@ fun ComicReaderScreen(
             targetValue = targetOffsetX,
             animationSpec = tween(
                 durationMillis = SWIPE_RELEASE_ANIMATION_DURATION_MS,
-                easing = FastOutSlowInEasing,
+                easing = LinearOutSlowInEasing,
             ),
         ) { value, _ ->
             swipeOffsetX = value
@@ -269,72 +415,76 @@ fun ComicReaderScreen(
 
     fun finishSwipeDrag(offsetX: Float, velocityX: Float) {
         val velocityThreshold = with(density) { SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND.dp.toPx() }
-        val velocityDirection = when {
-            velocityX >= velocityThreshold -> SwipeDirection.Previous
-            velocityX <= -velocityThreshold -> SwipeDirection.Next
-            else -> null
+        val direction = readerSwipeCommitDirection(
+            offsetX = offsetX,
+            velocityX = velocityX,
+            viewportWidth = viewportSize.width.toFloat(),
+            currentPageIndex = visualPage.index,
+            pageCount = book.pages.size,
+            velocityThresholdPx = velocityThreshold,
+        )
+        val targetPageIndex = direction?.let {
+            readerSwipeTargetIndex(
+                currentPageIndex = visualPage.index,
+                pageCount = book.pages.size,
+                direction = it,
+            )
         }
-        val offsetDirection = when {
-            offsetX > 0f -> SwipeDirection.Previous
-            offsetX < 0f -> SwipeDirection.Next
-            else -> null
-        }
-        val direction = velocityDirection ?: offsetDirection
-        val targetIndex = direction?.let(::targetIndexFor)
-        val distanceThreshold = viewportSize.width * SWIPE_DISTANCE_FRACTION
-        val velocityCommits = velocityDirection != null
-        val distanceCommits = abs(offsetX) >= distanceThreshold
-        val shouldCommit = targetIndex != null && (velocityCommits || distanceCommits)
 
-        if (shouldCommit) {
-            swipeDirection = direction
-            swipeTargetIndex = targetIndex
-            val releaseOffset = when (direction) {
-                SwipeDirection.Previous -> viewportSize.width.toFloat()
-                SwipeDirection.Next -> -viewportSize.width.toFloat()
-            }
-            scope.launch {
-                animateSwipeRelease(releaseOffset)
-                when (direction) {
-                    SwipeDirection.Previous -> onPrevious()
-                    SwipeDirection.Next -> onNext()
-                }
-                resetSwipeDrag()
+        if (direction != null && targetPageIndex != null) {
+            val incomingOffsetX = readerIncomingPageOffsetAfterCommit(
+                direction = direction,
+                currentOffsetX = swipeOffsetX,
+                viewportWidth = viewportSize.width.toFloat(),
+            )
+            swipeSettleJob?.cancel()
+            visualPageIndex = targetPageIndex
+            swipeOffsetX = incomingOffsetX
+            swipeDragStartOffsetX = 0f
+            activeSwipeDirection = null
+            onPageSelected(targetPageIndex)
+            swipeSettleJob = scope.launch {
+                animateSwipeRelease(0f)
+                resetSwipeState()
             }
         } else {
-            scope.launch {
+            swipeSettleJob?.cancel()
+            swipeSettleJob = scope.launch {
                 animateSwipeRelease(0f)
-                resetSwipeDrag()
+                resetSwipeState()
             }
         }
     }
 
-    LaunchedEffect(book.pages, currentIndex, imageLoader) {
+    LaunchedEffect(book.pages, visualPage.index, imageLoader) {
         book.pages.preloadAround(
-            currentIndex = currentIndex,
+            currentIndex = visualPage.index,
             context = context,
             source = book.source,
             imageLoader = imageLoader,
         )
     }
 
-    LaunchedEffect(painterState, page.imageUri) {
+    LaunchedEffect(painterState, visualPage.imageUri) {
         when (val state = painterState) {
             is AsyncImagePainter.State.Success -> {
-                lastSuccessfulPainter = state.painter
+                lastSuccessfulPainter = RememberedPagePainter(
+                    imageUri = visualPage.imageUri.toString(),
+                    painter = state.painter,
+                )
                 pageLoadError = null
             }
 
             is AsyncImagePainter.State.Error -> {
-                pageLoadError = context.getString(R.string.page_image_error, page.displayName)
+                pageLoadError = context.getString(R.string.page_image_error, visualPage.displayName)
             }
 
             else -> Unit
         }
     }
 
-    LaunchedEffect(page.imageUri, viewportSize, pageScale) {
-        pageOffset = pageOffset.clampedFor(page = page, scale = pageScale, viewportSize = viewportSize)
+    LaunchedEffect(visualPage.imageUri, viewportSize, pageScale) {
+        pageOffset = pageOffset.clampedFor(page = visualPage, scale = pageScale, viewportSize = viewportSize)
     }
 
     Box(
@@ -347,7 +497,7 @@ fun ComicReaderScreen(
                 .matchParentSize()
                 .clipToBounds()
                 .onSizeChanged { viewportSize = it }
-                .pointerInput(page.imageUri, viewportSize, controlsVisible, pageScale) {
+                .pointerInput(visualPage.imageUri, viewportSize, controlsVisible, pageScale) {
                     detectPageGestures(
                         swipingEnabled = pageScale == MIN_PAGE_SCALE,
                         onTap = { tapOffset ->
@@ -360,9 +510,16 @@ fun ComicReaderScreen(
                                 controlsVisible = !controlsVisible
                             }
                         },
+                        onSwipeStart = ::startSwipeDrag,
                         onSwipeDrag = ::updateSwipeDrag,
                         onSwipeEnd = ::finishSwipeDrag,
-                        onSwipeCancel = ::resetSwipeDrag,
+                        onSwipeCancel = {
+                            swipeSettleJob?.cancel()
+                            swipeSettleJob = scope.launch {
+                                animateSwipeRelease(0f)
+                                resetSwipeState()
+                            }
+                        },
                     ) { centroid, pan, zoomChange ->
                         val previousScale = pageScale
                         val nextScale = (previousScale * zoomChange).coerceIn(MIN_PAGE_SCALE, MAX_PAGE_SCALE)
@@ -378,39 +535,36 @@ fun ComicReaderScreen(
 
                         pageScale = nextScale
                         pageOffset = nextOffset.clampedFor(
-                            page = page,
+                            page = visualPage,
                             scale = nextScale,
                             viewportSize = viewportSize,
                         )
                     }
                 },
         ) {
-            val activeSwipeDirection = swipeDirection
-            val targetPage = swipeTargetPage
-            if (activeSwipeDirection != null && targetPage != null) {
+            val viewportWidth = viewportSize.width.toFloat()
+            val targetPage = adjacentPage
+            val targetPageDirection = adjacentPageDirection
+            if (targetPage != null && targetPageDirection != null && swipeOffsetX != 0f) {
                 SwipeTargetPageImage(
-                    painter = swipeTargetPainter,
+                    painter = adjacentPainter,
                     contentDescription = targetPage.displayName,
-                    swipeOffsetX = swipeOffsetX,
-                    viewportWidth = viewportSize.width.toFloat(),
-                    direction = activeSwipeDirection,
+                    translationX = adjacentPageTranslationX(
+                        offsetX = swipeOffsetX,
+                        viewportWidth = viewportWidth,
+                        direction = targetPageDirection,
+                    ),
                 )
             }
 
-            lastSuccessfulPainter?.let { cachedPainter ->
+            val fallbackPainter = lastSuccessfulPainter
+                ?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }
+                ?.painter
+            val displayedPainter = if (painterState is AsyncImagePainter.State.Success) painter else fallbackPainter
+            displayedPainter?.let { pagePainter ->
                 ZoomablePageImage(
-                    painter = cachedPainter,
-                    contentDescription = null,
-                    scale = pageScale,
-                    offset = pageOffset,
-                    swipeOffsetX = swipeOffsetX,
-                )
-            }
-
-            if (painterState is AsyncImagePainter.State.Success) {
-                ZoomablePageImage(
-                    painter = painter,
-                    contentDescription = page.displayName,
+                    painter = pagePainter,
+                    contentDescription = visualPage.displayName,
                     scale = pageScale,
                     offset = pageOffset,
                     swipeOffsetX = swipeOffsetX,
@@ -421,7 +575,7 @@ fun ComicReaderScreen(
         pageLoadError?.let { message ->
             PageImageError(
                 message = message,
-                relativePath = page.relativePath,
+                relativePath = visualPage.relativePath,
                 modifier = Modifier.align(Alignment.Center),
             )
         }
@@ -429,7 +583,7 @@ fun ComicReaderScreen(
         if (controlsVisible) {
             ReaderTopBar(
                 title = book.title,
-                pageText = "${currentIndex + 1} / ${book.pages.size}",
+                pageText = "${visualPage.index + 1} / ${book.pages.size}",
                 onCloseComic = onCloseComic,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -438,7 +592,7 @@ fun ComicReaderScreen(
             )
 
             ReaderPageScrubber(
-                currentPageIndex = currentIndex,
+                currentPageIndex = visualPage.index,
                 pageCount = book.pages.size,
                 onPageSelected = onPageSelected,
                 modifier = Modifier
@@ -478,32 +632,22 @@ fun ZoomablePageImage(
 private fun SwipeTargetPageImage(
     painter: androidx.compose.ui.graphics.painter.Painter,
     contentDescription: String?,
-    swipeOffsetX: Float,
-    viewportWidth: Float,
-    direction: SwipeDirection,
+    translationX: Float,
 ) {
-    val targetTranslationX = when (direction) {
-        SwipeDirection.Previous -> swipeOffsetX - viewportWidth
-        SwipeDirection.Next -> swipeOffsetX + viewportWidth
-    }
     ZoomablePageImage(
         painter = painter,
         contentDescription = contentDescription,
         scale = MIN_PAGE_SCALE,
         offset = Offset.Zero,
-        swipeOffsetX = targetTranslationX,
+        swipeOffsetX = translationX,
     )
-}
-
-private enum class SwipeDirection {
-    Previous,
-    Next,
 }
 
 private suspend fun PointerInputScope.detectPageGestures(
     swipingEnabled: Boolean,
     onTap: (Offset) -> Unit,
-    onSwipeDrag: (offsetX: Float, direction: SwipeDirection) -> Unit,
+    onSwipeStart: (ReaderSwipeDirection) -> Unit,
+    onSwipeDrag: (offsetX: Float) -> Unit,
     onSwipeEnd: (offsetX: Float, velocityX: Float) -> Unit,
     onSwipeCancel: () -> Unit,
     onTransform: (centroid: Offset, pan: Offset, zoom: Float) -> Unit,
@@ -547,13 +691,12 @@ private suspend fun PointerInputScope.detectPageGestures(
 
             if (swipeActive) {
                 accumulatedPan += panChange
-                val direction = if (accumulatedPan.x > 0f) SwipeDirection.Previous else SwipeDirection.Next
                 event.changes.forEach { change ->
                     if (change.positionChanged()) {
                         change.consume()
                     }
                 }
-                onSwipeDrag(accumulatedPan.x, direction)
+                onSwipeDrag(accumulatedPan.x)
             } else if (!pastTransformSlop) {
                 accumulatedZoom *= zoomChange
                 accumulatedPan += panChange
@@ -573,13 +716,15 @@ private suspend fun PointerInputScope.detectPageGestures(
 
                 if (shouldStartSwipe) {
                     swipeActive = true
-                    val direction = if (accumulatedPan.x > 0f) SwipeDirection.Previous else SwipeDirection.Next
+                    onSwipeStart(
+                        if (accumulatedPan.x > 0f) ReaderSwipeDirection.Previous else ReaderSwipeDirection.Next,
+                    )
                     event.changes.forEach { change ->
                         if (change.positionChanged()) {
                             change.consume()
                         }
                     }
-                    onSwipeDrag(accumulatedPan.x, direction)
+                    onSwipeDrag(accumulatedPan.x)
                 } else if (horizontalSwipeCandidate) {
                     event.changes.forEach { change ->
                         if (change.positionChanged()) {
@@ -618,7 +763,7 @@ private fun List<ComicPage>.preloadAround(
     source: ComicSource,
     imageLoader: coil3.ImageLoader,
 ) {
-    listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1)
+    listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1, currentIndex - 2)
         .filter { index -> index in indices }
         .forEach { index ->
             imageLoader.enqueue(get(index).imageRequest(context = context, source = source))

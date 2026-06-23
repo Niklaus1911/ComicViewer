@@ -4,9 +4,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -41,14 +38,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -56,15 +51,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.core.view.WindowCompat
@@ -86,16 +81,14 @@ import com.comicviewer.ComicSource
 import com.comicviewer.coercePageIndex
 import com.comicviewer.comicPageImageCacheKey
 import com.comicviewer.ui.common.rememberThrottledAction
-import com.comicviewer.ui.common.rememberThrottledPageAction
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
-import kotlinx.coroutines.launch
 
 private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
-private const val SWIPE_PAGE_ANIMATION_MS = 190
 private const val SWIPE_DISTANCE_FRACTION = 0.18f
+private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 900f
 
 @Composable
 fun LoadingComicScreen(modifier: Modifier = Modifier) {
@@ -176,6 +169,7 @@ fun ComicReaderScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val view = LocalView.current
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
@@ -195,9 +189,7 @@ fun ComicReaderScreen(
     var pageScale by remember(page.imageUri) { mutableFloatStateOf(MIN_PAGE_SCALE) }
     var pageOffset by remember(page.imageUri) { mutableStateOf(Offset.Zero) }
     var controlsVisible by remember(book) { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
-    val swipeOffset = remember { Animatable(0f) }
-    var isSwipeAnimating by remember { mutableStateOf(false) }
+    var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDirection by remember { mutableStateOf<SwipeDirection?>(null) }
     var swipeTargetIndex by remember { mutableStateOf<Int?>(null) }
     val swipeTargetPage = swipeTargetIndex?.let(book.pages::getOrNull)
@@ -232,45 +224,53 @@ fun ComicReaderScreen(
         }
     }
 
-    fun animateSwipePage(direction: SwipeDirection) {
-        if (isSwipeAnimating || viewportSize.width <= 0) return
-        val canMove = when (direction) {
-            SwipeDirection.Previous -> currentIndex > 0
-            SwipeDirection.Next -> currentIndex < book.pages.lastIndex
-        }
-        if (!canMove) return
-        val targetIndex = when (direction) {
-            SwipeDirection.Previous -> currentIndex - 1
-            SwipeDirection.Next -> currentIndex + 1
+    fun resetSwipeDrag() {
+        swipeOffsetX = 0f
+        swipeDirection = null
+        swipeTargetIndex = null
+    }
+
+    fun targetIndexFor(direction: SwipeDirection): Int? = when (direction) {
+        SwipeDirection.Previous -> (currentIndex - 1).takeIf { currentIndex > 0 }
+        SwipeDirection.Next -> (currentIndex + 1).takeIf { currentIndex < book.pages.lastIndex }
+    }
+
+    fun updateSwipeDrag(offsetX: Float, direction: SwipeDirection) {
+        val targetIndex = targetIndexFor(direction)
+        if (targetIndex == null) {
+            resetSwipeDrag()
+            return
         }
 
-        scope.launch {
-            isSwipeAnimating = true
-            swipeDirection = direction
-            swipeTargetIndex = targetIndex
-            try {
-                val targetOffset = when (direction) {
-                    SwipeDirection.Previous -> viewportSize.width.toFloat()
-                    SwipeDirection.Next -> -viewportSize.width.toFloat()
-                }
-                swipeOffset.snapTo(0f)
-                withFrameNanos { }
-                swipeOffset.animateTo(
-                    targetValue = targetOffset,
-                    animationSpec = tween(
-                        durationMillis = SWIPE_PAGE_ANIMATION_MS,
-                        easing = FastOutSlowInEasing,
-                    ),
-                )
-                when (direction) {
-                    SwipeDirection.Previous -> onPrevious()
-                    SwipeDirection.Next -> onNext()
-                }
-            } finally {
-                swipeOffset.snapTo(0f)
-                swipeDirection = null
-                swipeTargetIndex = null
-                isSwipeAnimating = false
+        swipeDirection = direction
+        swipeTargetIndex = targetIndex
+        swipeOffsetX = offsetX
+    }
+
+    fun finishSwipeDrag(offsetX: Float, velocityX: Float) {
+        val velocityThreshold = with(density) { SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND.dp.toPx() }
+        val velocityDirection = when {
+            velocityX >= velocityThreshold -> SwipeDirection.Previous
+            velocityX <= -velocityThreshold -> SwipeDirection.Next
+            else -> null
+        }
+        val offsetDirection = when {
+            offsetX > 0f -> SwipeDirection.Previous
+            offsetX < 0f -> SwipeDirection.Next
+            else -> null
+        }
+        val direction = velocityDirection ?: offsetDirection
+        val canMove = direction?.let(::targetIndexFor) != null
+        val distanceThreshold = viewportSize.width * SWIPE_DISTANCE_FRACTION
+        val velocityCommits = velocityDirection != null
+        val distanceCommits = abs(offsetX) >= distanceThreshold
+        val shouldCommit = canMove && (velocityCommits || distanceCommits)
+
+        resetSwipeDrag()
+        if (shouldCommit) {
+            when (direction) {
+                SwipeDirection.Previous -> onPrevious()
+                SwipeDirection.Next -> onNext()
             }
         }
     }
@@ -313,9 +313,9 @@ fun ComicReaderScreen(
                 .matchParentSize()
                 .clipToBounds()
                 .onSizeChanged { viewportSize = it }
-                .pointerInput(page.imageUri, viewportSize, controlsVisible, pageScale, isSwipeAnimating) {
+                .pointerInput(page.imageUri, viewportSize, controlsVisible, pageScale) {
                     detectPageGestures(
-                        swipingEnabled = pageScale == MIN_PAGE_SCALE && !isSwipeAnimating,
+                        swipingEnabled = pageScale == MIN_PAGE_SCALE,
                         onTap = { tapOffset ->
                             val tapZoneWidth = size.width / 3f
                             if (tapOffset.x < tapZoneWidth) {
@@ -326,7 +326,9 @@ fun ComicReaderScreen(
                                 controlsVisible = !controlsVisible
                             }
                         },
-                        onSwipe = ::animateSwipePage,
+                        onSwipeDrag = ::updateSwipeDrag,
+                        onSwipeEnd = ::finishSwipeDrag,
+                        onSwipeCancel = ::resetSwipeDrag,
                     ) { centroid, pan, zoomChange ->
                         val previousScale = pageScale
                         val nextScale = (previousScale * zoomChange).coerceIn(MIN_PAGE_SCALE, MAX_PAGE_SCALE)
@@ -355,21 +357,20 @@ fun ComicReaderScreen(
                 SwipeTargetPageImage(
                     painter = swipeTargetPainter,
                     contentDescription = targetPage.displayName,
-                    swipeOffsetX = swipeOffset.value,
+                    swipeOffsetX = swipeOffsetX,
                     viewportWidth = viewportSize.width.toFloat(),
                     direction = activeSwipeDirection,
                 )
             }
 
-            if (!isSwipeAnimating) {
-                lastSuccessfulPainter?.let { cachedPainter ->
-                    ZoomablePageImage(
-                        painter = cachedPainter,
-                        contentDescription = null,
-                        scale = pageScale,
-                        offset = pageOffset,
-                    )
-                }
+            lastSuccessfulPainter?.let { cachedPainter ->
+                ZoomablePageImage(
+                    painter = cachedPainter,
+                    contentDescription = null,
+                    scale = pageScale,
+                    offset = pageOffset,
+                    swipeOffsetX = swipeOffsetX,
+                )
             }
 
             if (painterState is AsyncImagePainter.State.Success) {
@@ -378,7 +379,7 @@ fun ComicReaderScreen(
                     contentDescription = page.displayName,
                     scale = pageScale,
                     offset = pageOffset,
-                    swipeOffsetX = swipeOffset.value,
+                    swipeOffsetX = swipeOffsetX,
                 )
             }
         }
@@ -468,30 +469,40 @@ private enum class SwipeDirection {
 private suspend fun PointerInputScope.detectPageGestures(
     swipingEnabled: Boolean,
     onTap: (Offset) -> Unit,
-    onSwipe: (SwipeDirection) -> Unit,
+    onSwipeDrag: (offsetX: Float, direction: SwipeDirection) -> Unit,
+    onSwipeEnd: (offsetX: Float, velocityX: Float) -> Unit,
+    onSwipeCancel: () -> Unit,
     onTransform: (centroid: Offset, pan: Offset, zoom: Float) -> Unit,
 ) {
     awaitEachGesture {
         val firstDown = awaitFirstDown(requireUnconsumed = false)
         val startPosition = firstDown.position
+        val velocityTracker = VelocityTracker().apply {
+            addPosition(firstDown.uptimeMillis, firstDown.position)
+        }
         val touchSlop = viewConfiguration.touchSlop
         var event: PointerEvent
         var pointerCountExceededTap = false
         var movedPastTapSlop = false
         var pastTransformSlop = false
+        var swipeActive = false
         var accumulatedPan = Offset.Zero
         var accumulatedZoom = 1f
-        val swipeDistanceThreshold = max(touchSlop * 4f, size.width * SWIPE_DISTANCE_FRACTION)
 
         do {
             event = awaitPointerEvent()
             if (event.changes.count { it.pressed } > 1) {
                 pointerCountExceededTap = true
+                if (swipeActive) {
+                    onSwipeCancel()
+                    return@awaitEachGesture
+                }
             }
 
             event.changes
                 .firstOrNull { it.id == firstDown.id }
                 ?.let { firstPointer ->
+                    velocityTracker.addPosition(firstPointer.uptimeMillis, firstPointer.position)
                     if ((firstPointer.position - startPosition).getDistance() > touchSlop) {
                         movedPastTapSlop = true
                     }
@@ -500,7 +511,16 @@ private suspend fun PointerInputScope.detectPageGestures(
             val zoomChange = event.calculateZoom()
             val panChange = event.calculatePan()
 
-            if (!pastTransformSlop) {
+            if (swipeActive) {
+                accumulatedPan += panChange
+                val direction = if (accumulatedPan.x > 0f) SwipeDirection.Previous else SwipeDirection.Next
+                event.changes.forEach { change ->
+                    if (change.positionChanged()) {
+                        change.consume()
+                    }
+                }
+                onSwipeDrag(accumulatedPan.x, direction)
+            } else if (!pastTransformSlop) {
                 accumulatedZoom *= zoomChange
                 accumulatedPan += panChange
 
@@ -513,21 +533,20 @@ private suspend fun PointerInputScope.detectPageGestures(
                     !pointerCountExceededTap &&
                     zoomMotion <= touchSlop &&
                     horizontalSwipeMotion > verticalSwipeMotion * 1.4f
-                val shouldSwipe = horizontalSwipeCandidate &&
-                    horizontalSwipeMotion >= swipeDistanceThreshold &&
+                val shouldStartSwipe = horizontalSwipeCandidate &&
+                    horizontalSwipeMotion > touchSlop &&
                     panMotion > touchSlop
 
-                if (shouldSwipe) {
+                if (shouldStartSwipe) {
+                    swipeActive = true
+                    val direction = if (accumulatedPan.x > 0f) SwipeDirection.Previous else SwipeDirection.Next
                     event.changes.forEach { change ->
                         if (change.positionChanged()) {
                             change.consume()
                         }
                     }
-                    onSwipe(if (accumulatedPan.x > 0f) SwipeDirection.Previous else SwipeDirection.Next)
-                    return@awaitEachGesture
-                }
-
-                if (horizontalSwipeCandidate) {
+                    onSwipeDrag(accumulatedPan.x, direction)
+                } else if (horizontalSwipeCandidate) {
                     event.changes.forEach { change ->
                         if (change.positionChanged()) {
                             change.consume()
@@ -551,7 +570,9 @@ private suspend fun PointerInputScope.detectPageGestures(
             }
         } while (event.changes.any { it.pressed })
 
-        if (!pointerCountExceededTap && !movedPastTapSlop && !pastTransformSlop) {
+        if (swipeActive) {
+            onSwipeEnd(accumulatedPan.x, velocityTracker.calculateVelocity().x)
+        } else if (!pointerCountExceededTap && !movedPastTapSlop && !pastTransformSlop) {
             onTap(startPosition)
         }
     }

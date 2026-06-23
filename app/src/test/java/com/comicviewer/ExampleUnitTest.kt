@@ -705,6 +705,13 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun currentAppBuildInfo_includesGeneratedBuildTimestamp() {
+        val timestampPattern = Regex("""\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} (Z|[+-]\d{2}:\d{2})""")
+
+        assertTrue(currentAppBuildInfo().buildTimestamp.matches(timestampPattern))
+    }
+
+    @Test
     fun readerSwipeCommitDirection_commitsWhenDistancePassesThreshold() {
         assertEquals(
             ReaderSwipeDirection.Next,

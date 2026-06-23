@@ -11,17 +11,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.comicviewer.AppBuildInfo
 import com.comicviewer.AppLanguage
 import com.comicviewer.R
 
@@ -29,6 +33,7 @@ import com.comicviewer.R
 fun SettingsScreen(
     selectedLanguage: AppLanguage,
     amoledThemeEnabled: Boolean,
+    buildInfo: AppBuildInfo,
     onLanguageSelected: (AppLanguage) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -45,6 +50,8 @@ fun SettingsScreen(
             style = MaterialTheme.typography.headlineSmall,
             color = MaterialTheme.colorScheme.onBackground,
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        BuildTimestampBadge(timestamp = buildInfo.buildTimestamp)
         Spacer(modifier = Modifier.height(28.dp))
 
         SettingsSectionTitle(text = stringResource(R.string.settings_language_title))
@@ -95,6 +102,12 @@ fun SettingsScreen(
                 onCheckedChange = onAmoledThemeChanged,
             )
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(24.dp))
+
+        BuildInfoSection(buildInfo = buildInfo)
     }
 }
 
@@ -126,6 +139,93 @@ private fun LanguageOption(
             text = text,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onBackground,
+        )
+    }
+}
+
+@Composable
+private fun BuildInfoSection(buildInfo: AppBuildInfo) {
+    SettingsSectionTitle(text = stringResource(R.string.settings_build_info_title))
+    Spacer(modifier = Modifier.height(8.dp))
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_version_name),
+        value = buildInfo.versionName,
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_version_code),
+        value = buildInfo.versionCode.toString(),
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_build_time),
+        value = buildInfo.buildTimestamp,
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_application_id),
+        value = buildInfo.applicationId,
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_build_type),
+        value = buildInfo.buildType,
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_debug),
+        value = stringResource(
+            if (buildInfo.debug) R.string.settings_build_info_yes else R.string.settings_build_info_no,
+        ),
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_min_sdk),
+        value = buildInfo.minSdk.toString(),
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_target_sdk),
+        value = buildInfo.targetSdk.toString(),
+    )
+    BuildInfoRow(
+        label = stringResource(R.string.settings_build_info_compile_sdk),
+        value = buildInfo.compileSdk,
+    )
+}
+
+@Composable
+private fun BuildTimestampBadge(timestamp: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    ) {
+        Text(
+            text = stringResource(R.string.settings_build_timestamp_badge, timestamp),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun BuildInfoRow(
+    label: String,
+    value: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
     }
 }

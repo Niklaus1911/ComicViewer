@@ -54,6 +54,7 @@ import com.comicviewer.AppLanguage
 import com.comicviewer.LibraryComic
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
+import com.comicviewer.currentAppBuildInfo
 import com.comicviewer.isTabletWidth
 import com.comicviewer.billing.ProBillingRepository
 import com.comicviewer.billing.ProBillingState
@@ -326,6 +327,7 @@ fun HomeScreen(
                             AppTab.Settings -> SettingsScreen(
                                 selectedLanguage = selectedLanguage,
                                 amoledThemeEnabled = amoledThemeEnabled,
+                                buildInfo = currentAppBuildInfo(),
                                 onLanguageSelected = onLanguageSelected,
                                 onAmoledThemeChanged = onAmoledThemeChanged,
                                 modifier = Modifier.fillMaxSize(),

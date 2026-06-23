@@ -1,4 +1,10 @@
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Properties
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     alias(libs.plugins.android.application)
@@ -12,22 +18,66 @@ val keystoreProperties = Properties().apply {
     }
 }
 
+val appCompileSdk = 36
+val appCompileSdkMinor = 1
+val appMinSdk = 24
+val appTargetSdk = 36
+val appVersionCode = 8
+val appVersionName = "1.0.5"
+val appCompileSdkDisplay = "$appCompileSdk.$appCompileSdkMinor"
+
+abstract class GenerateBuildStampTask : DefaultTask() {
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    init {
+        outputs.upToDateWhen { false }
+    }
+
+    @TaskAction
+    fun generate() {
+        val timestamp = OffsetDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX"))
+        val escapedTimestamp = timestamp
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        val packageDir = outputDir.get().asFile.resolve("com/comicviewer")
+
+        packageDir.mkdirs()
+        packageDir.resolve("GeneratedBuildStamp.java").writeText(
+            """
+            package com.comicviewer;
+
+            public final class GeneratedBuildStamp {
+                public static final String BUILD_TIMESTAMP = "$escapedTimestamp";
+
+                private GeneratedBuildStamp() {
+                }
+            }
+            """.trimIndent(),
+        )
+    }
+}
+
 android {
     namespace = "com.comicviewer"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
+        version = release(appCompileSdk) {
+            minorApiLevel = appCompileSdkMinor
         }
     }
 
     defaultConfig {
         applicationId = "com.comicviewer"
-        minSdk = 24
-        targetSdk = 36
-        versionCode = 8
-        versionName = "1.0.5"
+        minSdk = appMinSdk
+        targetSdk = appTargetSdk
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("int", "APP_MIN_SDK", appMinSdk.toString())
+        buildConfigField("int", "APP_TARGET_SDK", appTargetSdk.toString())
+        buildConfigField("String", "APP_COMPILE_SDK", "\"$appCompileSdkDisplay\"")
     }
 
     signingConfigs {
@@ -61,6 +111,25 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val capitalizedVariantName = variant.name.replaceFirstChar { char ->
+            if (char.isLowerCase()) char.titlecase() else char.toString()
+        }
+        val generateBuildStamp = tasks.register<GenerateBuildStampTask>(
+            "generate${capitalizedVariantName}BuildStamp",
+        ) {
+            outputDir.set(layout.buildDirectory.dir("generated/source/buildStamp/${variant.name}"))
+        }
+
+        variant.sources.java?.addGeneratedSourceDirectory(
+            generateBuildStamp,
+            GenerateBuildStampTask::outputDir,
+        )
     }
 }
 

@@ -96,7 +96,7 @@ private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
 internal const val READER_SWIPE_DISTANCE_FRACTION = 0.14f
 private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 700f
-private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 260
+private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 380
 private const val EDGE_SWIPE_RESISTANCE = 0.28f
 
 internal enum class ReaderSwipeDirection {

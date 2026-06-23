@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -38,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -84,11 +88,13 @@ import com.comicviewer.ui.common.rememberThrottledAction
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private const val MIN_PAGE_SCALE = 1f
 private const val MAX_PAGE_SCALE = 5f
 private const val SWIPE_DISTANCE_FRACTION = 0.18f
 private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 900f
+private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 140
 
 @Composable
 fun LoadingComicScreen(modifier: Modifier = Modifier) {
@@ -171,6 +177,7 @@ fun ComicReaderScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
     val page = book.pages[currentIndex]
@@ -247,6 +254,19 @@ fun ComicReaderScreen(
         swipeOffsetX = offsetX
     }
 
+    suspend fun animateSwipeRelease(targetOffsetX: Float) {
+        animate(
+            initialValue = swipeOffsetX,
+            targetValue = targetOffsetX,
+            animationSpec = tween(
+                durationMillis = SWIPE_RELEASE_ANIMATION_DURATION_MS,
+                easing = FastOutSlowInEasing,
+            ),
+        ) { value, _ ->
+            swipeOffsetX = value
+        }
+    }
+
     fun finishSwipeDrag(offsetX: Float, velocityX: Float) {
         val velocityThreshold = with(density) { SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND.dp.toPx() }
         val velocityDirection = when {
@@ -260,17 +280,31 @@ fun ComicReaderScreen(
             else -> null
         }
         val direction = velocityDirection ?: offsetDirection
-        val canMove = direction?.let(::targetIndexFor) != null
+        val targetIndex = direction?.let(::targetIndexFor)
         val distanceThreshold = viewportSize.width * SWIPE_DISTANCE_FRACTION
         val velocityCommits = velocityDirection != null
         val distanceCommits = abs(offsetX) >= distanceThreshold
-        val shouldCommit = canMove && (velocityCommits || distanceCommits)
+        val shouldCommit = targetIndex != null && (velocityCommits || distanceCommits)
 
-        resetSwipeDrag()
         if (shouldCommit) {
-            when (direction) {
-                SwipeDirection.Previous -> onPrevious()
-                SwipeDirection.Next -> onNext()
+            swipeDirection = direction
+            swipeTargetIndex = targetIndex
+            val releaseOffset = when (direction) {
+                SwipeDirection.Previous -> viewportSize.width.toFloat()
+                SwipeDirection.Next -> -viewportSize.width.toFloat()
+            }
+            scope.launch {
+                animateSwipeRelease(releaseOffset)
+                when (direction) {
+                    SwipeDirection.Previous -> onPrevious()
+                    SwipeDirection.Next -> onNext()
+                }
+                resetSwipeDrag()
+            }
+        } else {
+            scope.launch {
+                animateSwipeRelease(0f)
+                resetSwipeDrag()
             }
         }
     }

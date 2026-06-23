@@ -147,6 +147,13 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
     implementation(libs.play.billing.ktx)
+
+    constraints {
+        implementation(libs.androidx.fragment) {
+            because("Play Console flags the transitive androidx.fragment:fragment:1.1.0 SDK as obsolete.")
+        }
+    }
+
     testImplementation(libs.json)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))

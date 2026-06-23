@@ -52,6 +52,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.comicviewer.R
 import com.comicviewer.AppLanguage
 import com.comicviewer.LibraryComic
+import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
 import com.comicviewer.currentAppBuildInfo
@@ -138,6 +139,7 @@ fun ComicViewerApp(
             currentDirectoryPath = appState.currentDirectoryPath,
             browserRootPath = appState.browserRootPath,
             libraryComics = appState.libraryComics,
+            libraryAutoScanState = appState.libraryAutoScanState,
             recentComics = appState.recentComics,
             isAddingToLibrary = appState.isAddingToLibrary,
             proBillingState = proBillingState,
@@ -151,6 +153,8 @@ fun ComicViewerApp(
             onAmoledThemeChanged = onAmoledThemeChanged,
             onTabSelected = appState::selectTab,
             onStartAddToLibrary = appState::startAddToLibrary,
+            onAutoScanLibrary = appState::autoScanLibraryArchives,
+            onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
             onDirectoryChange = appState::changeDirectory,
             onOpenLocalArchive = appState::openLocalArchive,
             onOpenLocalFolder = appState::openLocalFolder,
@@ -174,6 +178,7 @@ fun ComicViewerScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
     libraryComics: List<LibraryComic>,
+    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
@@ -185,6 +190,8 @@ fun ComicViewerScreen(
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
+    onClearLibraryAutoScanResult: () -> Unit,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
@@ -222,6 +229,7 @@ fun ComicViewerScreen(
                     currentDirectoryPath = currentDirectoryPath,
                     browserRootPath = browserRootPath,
                     libraryComics = libraryComics,
+                    libraryAutoScanState = libraryAutoScanState,
                     recentComics = recentComics,
                     isAddingToLibrary = isAddingToLibrary,
                     proBillingState = proBillingState,
@@ -233,6 +241,8 @@ fun ComicViewerScreen(
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
                     onStartAddToLibrary = onStartAddToLibrary,
+                    onAutoScanLibrary = onAutoScanLibrary,
+                    onClearLibraryAutoScanResult = onClearLibraryAutoScanResult,
                     onDirectoryChange = onDirectoryChange,
                     onOpenLocalArchive = onOpenLocalArchive,
                     onOpenLocalFolder = onOpenLocalFolder,
@@ -262,6 +272,7 @@ fun HomeScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
     libraryComics: List<LibraryComic>,
+    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
@@ -273,6 +284,8 @@ fun HomeScreen(
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
+    onClearLibraryAutoScanResult: () -> Unit,
     onDirectoryChange: (String) -> Unit,
     onOpenLocalArchive: (File) -> Unit,
     onOpenLocalFolder: (File) -> Unit,
@@ -300,9 +313,12 @@ fun HomeScreen(
                         when (targetTab) {
                             AppTab.Library -> LibraryScreen(
                                 libraryComics = libraryComics,
+                                libraryAutoScanState = libraryAutoScanState,
                                 recentComics = recentComics,
                                 proBillingState = proBillingState,
                                 onStartAddToLibrary = onStartAddToLibrary,
+                                onAutoScanLibrary = onAutoScanLibrary,
+                                onClearAutoScanResult = onClearLibraryAutoScanResult,
                                 onBuyPro = onBuyPro,
                                 onRestorePro = onRestorePro,
                                 onOpenLibraryComic = onOpenLibraryComic,

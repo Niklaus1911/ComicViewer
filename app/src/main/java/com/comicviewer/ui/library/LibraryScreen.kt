@@ -28,9 +28,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -54,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
 import com.comicviewer.R
 import com.comicviewer.LibraryComic
+import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.RecentComic
 import com.comicviewer.TABLET_LIBRARY_CARD_MIN_WIDTH_DP
 import com.comicviewer.isTabletWidth
@@ -67,13 +70,19 @@ import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+
+private const val AUTO_SCAN_RESULT_VISIBLE_MS = 5_000L
 
 @Composable
 fun LibraryScreen(
     libraryComics: List<LibraryComic>,
+    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     proBillingState: ProBillingState,
     onStartAddToLibrary: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
+    onClearAutoScanResult: () -> Unit,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
     onOpenLibraryComic: (LibraryComic) -> Unit,
@@ -81,8 +90,18 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val throttledStartAdd = rememberThrottledAction(action = onStartAddToLibrary)
+    val throttledAutoScan = rememberThrottledAction(action = onAutoScanLibrary)
     var comicPendingRemoval by remember { mutableStateOf<LibraryComic?>(null) }
     var showProDialog by remember { mutableStateOf(false) }
+    val isAutoScanning = libraryAutoScanState is LibraryAutoScanState.Scanning
+
+    LaunchedEffect(libraryAutoScanState) {
+        if (libraryAutoScanState is LibraryAutoScanState.Complete) {
+            delay(AUTO_SCAN_RESULT_VISIBLE_MS)
+            onClearAutoScanResult()
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -90,8 +109,16 @@ fun LibraryScreen(
     ) {
         LibraryHeader(
             isProUnlocked = proBillingState.isProUnlocked,
+            isAutoScanning = isAutoScanning,
             onStartAddToLibrary = throttledStartAdd,
+            onAutoScanLibrary = throttledAutoScan,
             onShowPro = { showProDialog = true },
+        )
+        LibraryAutoScanStatus(
+            autoScanState = libraryAutoScanState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
         )
 
         AnimatedContent(
@@ -175,7 +202,9 @@ fun LibraryScreen(
 @Composable
 fun LibraryHeader(
     isProUnlocked: Boolean,
+    isAutoScanning: Boolean,
     onStartAddToLibrary: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
     onShowPro: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -205,12 +234,87 @@ fun LibraryHeader(
                 },
             )
         }
+        IconButton(
+            onClick = onAutoScanLibrary,
+            enabled = !isAutoScanning,
+        ) {
+            if (isAutoScanning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Search,
+                    contentDescription = stringResource(R.string.library_auto_scan),
+                )
+            }
+        }
         IconButton(onClick = onStartAddToLibrary) {
             Icon(
                 imageVector = Icons.Filled.Add,
                 contentDescription = stringResource(R.string.add_comic_to_library),
             )
         }
+    }
+}
+
+@Composable
+fun LibraryAutoScanStatus(
+    autoScanState: LibraryAutoScanState,
+    modifier: Modifier = Modifier,
+) {
+    val message = when (autoScanState) {
+        LibraryAutoScanState.Idle -> null
+        LibraryAutoScanState.Scanning -> stringResource(R.string.library_auto_scan_scanning)
+        is LibraryAutoScanState.Complete -> when {
+            autoScanState.directoryLimitReached -> stringResource(
+                R.string.library_auto_scan_directory_limit,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+
+            autoScanState.libraryLimitReached -> stringResource(
+                R.string.library_auto_scan_library_limit,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+
+            autoScanState.addedCount == 0 -> stringResource(
+                R.string.library_auto_scan_no_new,
+                autoScanState.foundCount,
+            )
+
+            else -> stringResource(
+                R.string.library_auto_scan_complete,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+        }
+
+        is LibraryAutoScanState.Failed -> autoScanState.message
+    } ?: return
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (autoScanState is LibraryAutoScanState.Scanning) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (autoScanState is LibraryAutoScanState.Failed) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
 

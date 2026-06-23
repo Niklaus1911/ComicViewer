@@ -14,6 +14,7 @@ import com.comicviewer.ComicBook
 import com.comicviewer.ComicLoadException
 import com.comicviewer.R
 import com.comicviewer.LibraryComic
+import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
 import com.comicviewer.RecentComicSourceType
@@ -27,11 +28,13 @@ import com.comicviewer.loadLocalArchiveComic
 import com.comicviewer.loadLocalFolderComic
 import com.comicviewer.loadRecentComics
 import com.comicviewer.matchingRecentComic
+import com.comicviewer.newLibraryComicsForArchiveScan
 import com.comicviewer.recentComicFor
 import com.comicviewer.removeLibraryComic
 import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
 import com.comicviewer.saveRecentComics
+import com.comicviewer.scanLibraryArchives
 import com.comicviewer.upsertLibraryComic
 import com.comicviewer.upsertLibraryComics
 import com.comicviewer.upsertRecentComic
@@ -68,7 +71,10 @@ class ComicViewerAppState(
         private set
     var libraryComics by mutableStateOf(libraryComics)
         private set
+    var libraryAutoScanState by mutableStateOf<LibraryAutoScanState>(LibraryAutoScanState.Idle)
+        private set
     private var loadJob by mutableStateOf<Job?>(null)
+    private var libraryAutoScanJob: Job? = null
 
     val currentTab: AppTab
         get() = runCatching { AppTab.valueOf(selectedTabName) }.getOrDefault(AppTab.Library)
@@ -219,6 +225,63 @@ class ComicViewerAppState(
                 path = libraryComic.path,
             ),
         )
+    }
+
+    fun autoScanLibraryArchives() {
+        if (libraryAutoScanState is LibraryAutoScanState.Scanning) return
+
+        libraryAutoScanJob?.cancel()
+        libraryAutoScanState = LibraryAutoScanState.Scanning
+        libraryAutoScanJob = scope.launch {
+            runCatching { scanLibraryArchives(File(browserRootPath)) }
+                .onSuccess { scanResult ->
+                    val existingArchivePaths = libraryComics
+                        .filter { comic -> comic.sourceType == RecentComicSourceType.LocalArchive }
+                        .mapTo(mutableSetOf()) { comic -> comic.path }
+                    val newCandidateCount = scanResult.candidates
+                        .map { candidate -> candidate.archiveFile.absolutePath }
+                        .distinct()
+                        .count { path -> path !in existingArchivePaths }
+                    val newLibraryComics = newLibraryComicsForArchiveScan(
+                        libraryComics = libraryComics,
+                        candidates = scanResult.candidates,
+                        addedAt = System.currentTimeMillis(),
+                    )
+                    if (newLibraryComics.isNotEmpty()) {
+                        persistLibraryComics(
+                            upsertLibraryComics(
+                                libraryComics = libraryComics,
+                                newComics = newLibraryComics,
+                            ),
+                        )
+                    }
+
+                    libraryAutoScanState = LibraryAutoScanState.Complete(
+                        foundCount = scanResult.candidates.size,
+                        addedCount = newLibraryComics.size,
+                        skippedExistingCount = scanResult.candidates.size - newCandidateCount,
+                        scannedDirectoryCount = scanResult.scannedDirectoryCount,
+                        libraryLimitReached = newCandidateCount > newLibraryComics.size,
+                        directoryLimitReached = scanResult.directoryLimitReached,
+                    )
+                }
+                .onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        libraryAutoScanState = LibraryAutoScanState.Idle
+                    } else {
+                        libraryAutoScanState = LibraryAutoScanState.Failed(
+                            throwable.message?.takeIf { message -> message.isNotBlank() }
+                                ?: appContext.getString(R.string.library_auto_scan_failed),
+                        )
+                    }
+                }
+        }
+    }
+
+    fun clearLibraryAutoScanResult() {
+        if (libraryAutoScanState is LibraryAutoScanState.Complete) {
+            libraryAutoScanState = LibraryAutoScanState.Idle
+        }
     }
 
     fun previousPage() {

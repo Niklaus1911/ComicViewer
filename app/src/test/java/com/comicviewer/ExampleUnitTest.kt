@@ -3,6 +3,8 @@ package com.comicviewer
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import com.comicviewer.ui.reader.ReaderSwipeDirection
 import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
@@ -612,6 +614,92 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun scanLibraryArchives_findsOnlyArchivesWithSupportedImages() {
+        val root = temporaryFolder.newFolder("scan-root")
+        val comicArchive = File(root, "Comic.cbz")
+        val pdfFile = File(root, "Comic.pdf")
+        val nonComicArchive = File(root, "Notes.zip")
+        val invalidArchive = File(root, "Broken.zip")
+
+        writeZipArchive(
+            comicArchive,
+            mapOf("001.jpg" to sampleJpegHeader()),
+        )
+        writeZipArchive(
+            pdfFile,
+            mapOf("001.jpg" to sampleJpegHeader()),
+        )
+        writeZipArchive(
+            nonComicArchive,
+            mapOf("notes.txt" to "hello".encodeToByteArray()),
+        )
+        invalidArchive.writeText("not a zip")
+
+        val result = scanLibraryArchivesInDirectory(root)
+
+        assertEquals(listOf(comicArchive.absolutePath), result.candidates.map { candidate ->
+            candidate.archiveFile.absolutePath
+        })
+    }
+
+    @Test
+    fun scanLibraryArchives_doesNotAddImageFolders() {
+        val root = temporaryFolder.newFolder("folder-scan-root")
+        val extractedFolder = File(root, "Extracted Comic").apply { mkdirs() }
+        File(extractedFolder, "001.jpg").writeBytes(sampleJpegHeader())
+
+        val result = scanLibraryArchivesInDirectory(root)
+
+        assertTrue(result.candidates.isEmpty())
+    }
+
+    @Test
+    fun scanLibraryArchives_skipsHiddenAndTopLevelAndroidDirectoryOnly() {
+        val root = temporaryFolder.newFolder("skip-scan-root")
+        val hiddenArchive = File(File(root, ".hidden").apply { mkdirs() }, "Hidden.cbz")
+        val androidArchive = File(File(root, "Android/data").apply { mkdirs() }, "Android.cbz")
+        val nestedAndroidArchive = File(File(root, "Comics/Android").apply { mkdirs() }, "Nested Android.cbz")
+        val visibleArchive = File(File(root, "Download").apply { mkdirs() }, "Visible.cbz")
+
+        listOf(hiddenArchive, androidArchive, nestedAndroidArchive, visibleArchive).forEach { archive ->
+            writeZipArchive(
+                archive,
+                mapOf("001.jpg" to sampleJpegHeader()),
+            )
+        }
+
+        val result = scanLibraryArchivesInDirectory(root)
+
+        assertEquals(
+            listOf(visibleArchive.absolutePath, nestedAndroidArchive.absolutePath),
+            result.candidates.map { candidate ->
+                candidate.archiveFile.absolutePath
+            },
+        )
+    }
+
+    @Test
+    fun newLibraryComicsForArchiveScan_skipsExistingAndRespectsLibraryLimit() {
+        val existingFile = File(temporaryFolder.root, "Existing.cbz")
+        val newFile = File(temporaryFolder.root, "New.cbz")
+        val extraFile = File(temporaryFolder.root, "Extra.cbz")
+        val existingComic = sampleLibraryComic(path = existingFile.absolutePath)
+        val candidates = listOf(existingFile, newFile, extraFile).map { archiveFile ->
+            LibraryArchiveScanCandidate(archiveFile = archiveFile)
+        }
+
+        val result = newLibraryComicsForArchiveScan(
+            libraryComics = listOf(existingComic),
+            candidates = candidates,
+            addedAt = 100L,
+            maxItems = 2,
+        )
+
+        assertEquals(listOf(newFile.absolutePath), result.map { comic -> comic.path })
+        assertEquals(100L, result.single().addedAt)
+    }
+
+    @Test
     fun comicPageImageCacheKey_separatesDifferentArchivesWithSameExtractedPageUri() {
         val firstSource = ComicSource.LocalArchive(
             filePath = "/storage/emulated/0/Batman.cbz",
@@ -988,3 +1076,20 @@ private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(
         thumbnailUri = null,
     ),
 )
+
+private fun sampleJpegHeader(): ByteArray =
+    byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x00, 0x00, 0x00)
+
+private fun writeZipArchive(
+    file: File,
+    entries: Map<String, ByteArray>,
+) {
+    file.parentFile?.mkdirs()
+    ZipOutputStream(file.outputStream()).use { output ->
+        entries.forEach { (name, bytes) ->
+            output.putNextEntry(ZipEntry(name))
+            output.write(bytes)
+            output.closeEntry()
+        }
+    }
+}

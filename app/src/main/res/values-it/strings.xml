@@ -40,6 +40,13 @@
     <string name="cancel">Annulla</string>
     <string name="ok">OK</string>
     <string name="add_comic_to_library">Aggiungi comic alla libreria</string>
+    <string name="library_auto_scan">Scansione automatica dispositivo</string>
+    <string name="library_auto_scan_scanning">Scansione del dispositivo per archivi comic...</string>
+    <string name="library_auto_scan_complete">Scansione completata. Aggiunti %1$d nuovi comic (%2$d trovati).</string>
+    <string name="library_auto_scan_no_new">Scansione completata. Nessun nuovo comic aggiunto (%1$d trovati).</string>
+    <string name="library_auto_scan_library_limit">Limite libreria raggiunto. Aggiunti %1$d nuovi comic (%2$d trovati).</string>
+    <string name="library_auto_scan_directory_limit">Scansione interrotta in anticipo. Aggiunti %1$d nuovi comic (%2$d trovati).</string>
+    <string name="library_auto_scan_failed">Impossibile scansionare il dispositivo.</string>
     <string name="library_empty_title">La tua libreria e vuota</string>
     <string name="library_empty_message">Aggiungi archivi o cartelle comic dal browser.</string>
     <string name="add_comic">Aggiungi comic</string>

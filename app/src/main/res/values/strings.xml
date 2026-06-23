@@ -40,6 +40,13 @@
     <string name="cancel">Cancel</string>
     <string name="ok">OK</string>
     <string name="add_comic_to_library">Add comic to library</string>
+    <string name="library_auto_scan">Auto scan device</string>
+    <string name="library_auto_scan_scanning">Scanning device for comic archives...</string>
+    <string name="library_auto_scan_complete">Scan complete. Added %1$d new comics (%2$d found).</string>
+    <string name="library_auto_scan_no_new">Scan complete. No new comics added (%1$d found).</string>
+    <string name="library_auto_scan_library_limit">Library limit reached. Added %1$d new comics (%2$d found).</string>
+    <string name="library_auto_scan_directory_limit">Scan stopped early. Added %1$d new comics (%2$d found).</string>
+    <string name="library_auto_scan_failed">Could not scan the device.</string>
     <string name="library_empty_title">Your library is empty</string>
     <string name="library_empty_message">Add comic archives or folders from the browser.</string>
     <string name="add_comic">Add comic</string>

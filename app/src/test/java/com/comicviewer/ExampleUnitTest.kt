@@ -419,6 +419,75 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun browserBreadcrumbs_returnsOnlyRootWhenAtRoot() {
+        val crumbs = browserBreadcrumbs(
+            currentPath = "/storage/emulated/0",
+            rootPath = "/storage/emulated/0",
+        )
+
+        assertEquals(listOf("/storage/emulated/0"), crumbs.map { crumb -> crumb.path })
+    }
+
+    @Test
+    fun browserBreadcrumbs_buildsRootToCurrentChain() {
+        val crumbs = browserBreadcrumbs(
+            currentPath = "/storage/emulated/0/Download/Comics",
+            rootPath = "/storage/emulated/0",
+        )
+
+        assertEquals(
+            listOf(
+                "/storage/emulated/0",
+                "/storage/emulated/0/Download",
+                "/storage/emulated/0/Download/Comics",
+            ),
+            crumbs.map { crumb -> crumb.path },
+        )
+        assertEquals(listOf("0", "Download", "Comics"), crumbs.map { crumb -> crumb.name })
+    }
+
+    @Test
+    fun browserBreadcrumbs_normalizesDotDotSegments() {
+        val crumbs = browserBreadcrumbs(
+            currentPath = "/storage/emulated/0/Download/Comics/..",
+            rootPath = "/storage/emulated/0",
+        )
+
+        assertEquals(
+            listOf("/storage/emulated/0", "/storage/emulated/0/Download"),
+            crumbs.map { crumb -> crumb.path },
+        )
+    }
+
+    @Test
+    fun browserBreadcrumbs_degradesToRootWhenCurrentOutsideRoot() {
+        assertEquals(
+            listOf("/storage/emulated/0"),
+            browserBreadcrumbs(
+                currentPath = "/storage/emulated",
+                rootPath = "/storage/emulated/0",
+            ).map { crumb -> crumb.path },
+        )
+        assertEquals(
+            listOf("/storage/emulated/0"),
+            browserBreadcrumbs(
+                currentPath = "/storage/emulated/01",
+                rootPath = "/storage/emulated/0",
+            ).map { crumb -> crumb.path },
+        )
+    }
+
+    @Test
+    fun browserBreadcrumbs_lastCrumbPathEqualsCanonicalCurrent() {
+        val crumbs = browserBreadcrumbs(
+            currentPath = "/storage/emulated/0/Download/Comics/..",
+            rootPath = "/storage/emulated/0",
+        )
+
+        assertEquals("/storage/emulated/0/Download", crumbs.last().path)
+    }
+
+    @Test
     fun compareBrowserEntries_sortsDirectoriesFirstThenNaturally() {
         val entries = listOf(
             BrowserSortCase("comic-10.cbz", isDirectory = false),

@@ -38,6 +38,12 @@
     <string name="browser_deselect_comic">Deselect comic</string>
     <string name="browser_clear_search">Clear search</string>
     <string name="browser_search_label">Search in this folder</string>
+    <string name="browser_breadcrumb_home">Home</string>
+    <string name="browser_up_action">Go up</string>
+    <string name="browser_refresh_action">Refresh</string>
+    <string name="browser_error_title">Couldn\'t open folder</string>
+    <string name="browser_empty_folder_title">Empty folder</string>
+    <string name="browser_no_results_title">No results</string>
     <string name="retry">Retry</string>
     <string name="empty_folder">Empty folder</string>
     <string name="no_results">No results</string>

@@ -38,6 +38,12 @@
     <string name="browser_deselect_comic">Deseleziona comic</string>
     <string name="browser_clear_search">Cancella ricerca</string>
     <string name="browser_search_label">Cerca in questa cartella</string>
+    <string name="browser_breadcrumb_home">Home</string>
+    <string name="browser_up_action">Vai su</string>
+    <string name="browser_refresh_action">Aggiorna</string>
+    <string name="browser_error_title">Impossibile aprire la cartella</string>
+    <string name="browser_empty_folder_title">Cartella vuota</string>
+    <string name="browser_no_results_title">Nessun risultato</string>
     <string name="retry">Riprova</string>
     <string name="empty_folder">Cartella vuota</string>
     <string name="no_results">Nessun risultato</string>

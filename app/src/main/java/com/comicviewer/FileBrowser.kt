@@ -92,14 +92,24 @@ fun filterBrowserEntries(
 }
 
 suspend fun loadLibraryComicThumbnailUri(context: Context, libraryComic: LibraryComic): android.net.Uri? =
+    loadComicThumbnailUri(context, libraryComic.sourceType, libraryComic.path)
+
+suspend fun loadRecentComicThumbnailUri(context: Context, recentComic: RecentComic): android.net.Uri? =
+    loadComicThumbnailUri(context, recentComic.sourceType, recentComic.path)
+
+private suspend fun loadComicThumbnailUri(
+    context: Context,
+    sourceType: RecentComicSourceType,
+    path: String,
+): android.net.Uri? =
     withContext(Dispatchers.IO) {
-        when (libraryComic.sourceType) {
+        when (sourceType) {
             RecentComicSourceType.LocalArchive -> {
                 val cacheDir = File(context.cacheDir, LIBRARY_THUMBNAIL_CACHE_DIR_NAME).apply { mkdirs() }
-                File(libraryComic.path).extractArchiveThumbnailTo(cacheDir)?.toUri()
+                File(path).extractArchiveThumbnailTo(cacheDir)?.toUri()
             }
 
-            RecentComicSourceType.LocalFolder -> firstLocalFolderCoverFile(File(libraryComic.path))?.toUri()
+            RecentComicSourceType.LocalFolder -> firstLocalFolderCoverFile(File(path))?.toUri()
         }
     }
 

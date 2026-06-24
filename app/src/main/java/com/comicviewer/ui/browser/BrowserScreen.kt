@@ -1,9 +1,10 @@
 package com.comicviewer.ui.browser
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,33 +12,36 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FolderOff
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,26 +52,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil3.compose.rememberAsyncImagePainter
 import com.comicviewer.R
 import com.comicviewer.BrowserDirectory
 import com.comicviewer.BrowserEntry
 import com.comicviewer.BrowserEntryType
 import com.comicviewer.RecentComic
 import com.comicviewer.TABLET_BROWSER_CONTENT_MAX_WIDTH_DP
+import com.comicviewer.browserBreadcrumbs
 import com.comicviewer.browserParentPathFor
 import com.comicviewer.filterBrowserEntries
-import com.comicviewer.firstLocalFolderCoverFile
 import com.comicviewer.isTabletWidth
 import com.comicviewer.loadBrowserDirectory
+import com.comicviewer.loadRecentComicThumbnailUri
+import com.comicviewer.ui.common.CoverThumbnail
+import com.comicviewer.ui.common.StaggeredReveal
+import com.comicviewer.ui.common.StatusContent
 import com.comicviewer.ui.common.icon
 import com.comicviewer.ui.common.labelText
 import com.comicviewer.ui.common.rememberThrottledAction
@@ -75,7 +81,11 @@ import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
 import com.comicviewer.ui.common.subtitleText
 import java.io.File
+import kotlin.math.min
 import kotlin.math.roundToInt
+
+private const val MAX_STAGGER_STEPS = 8
+private const val STAGGER_STEP_MS = 40
 
 sealed interface FileBrowserUiState {
     data object Loading : FileBrowserUiState
@@ -139,6 +149,7 @@ fun FileBrowserScreen(
         ) {
             FileBrowserHeader(
                 currentDirectoryPath = currentDirectoryPath,
+                browserRootPath = browserRootPath,
                 isAddingToLibrary = isAddingToLibrary,
                 parentPath = browserParentPathFor(
                     currentPath = currentDirectoryPath,
@@ -186,6 +197,7 @@ fun FileBrowserScreen(
                         isAddingToLibrary = isAddingToLibrary,
                         selectedArchivePaths = selectedArchivePaths,
                         onRecentComicClick = onOpenRecentComic,
+                        onClearSearch = { searchQuery = "" },
                         onEntryClick = { entry ->
                             when (entry.type) {
                                 BrowserEntryType.Directory -> onDirectoryChange(entry.path)
@@ -212,6 +224,7 @@ fun FileBrowserScreen(
 @Composable
 fun FileBrowserHeader(
     currentDirectoryPath: String,
+    browserRootPath: String,
     isAddingToLibrary: Boolean,
     parentPath: String?,
     canOpenCurrentFolderAsComic: Boolean,
@@ -232,37 +245,41 @@ fun FileBrowserHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (isAddingToLibrary) stringResource(R.string.browser_title_add_to_library) else stringResource(R.string.browser_title_file),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Text(
-                    text = currentDirectoryPath,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            TextButton(
+            Text(
+                text = if (isAddingToLibrary) stringResource(R.string.browser_title_add_to_library) else stringResource(R.string.browser_title_file),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
                 onClick = throttledParentClick,
                 enabled = parentPath != null,
             ) {
-                Text(stringResource(R.string.browser_up))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.browser_up_action),
+                )
             }
-            TextButton(onClick = throttledReload) {
-                Text(stringResource(R.string.browser_refresh))
+            IconButton(onClick = throttledReload) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = stringResource(R.string.browser_refresh_action),
+                )
             }
         }
+        FileBrowserBreadcrumbs(
+            currentDirectoryPath = currentDirectoryPath,
+            browserRootPath = browserRootPath,
+            onDirectoryChange = onDirectoryChange,
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -306,7 +323,75 @@ fun FileBrowserHeader(
             },
             label = { Text(stringResource(R.string.browser_search_label)) },
         )
-        HorizontalDivider()
+    }
+}
+
+@Composable
+private fun FileBrowserBreadcrumbs(
+    currentDirectoryPath: String,
+    browserRootPath: String,
+    onDirectoryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val crumbs = remember(currentDirectoryPath, browserRootPath) {
+        browserBreadcrumbs(currentDirectoryPath, browserRootPath)
+    }
+    val scrollState = rememberScrollState()
+    LaunchedEffect(crumbs, scrollState.maxValue) {
+        scrollState.scrollTo(scrollState.maxValue)
+    }
+    Row(
+        modifier = modifier.horizontalScroll(scrollState),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        crumbs.forEachIndexed { index, crumb ->
+            if (index > 0) {
+                Icon(
+                    imageVector = Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            val isLast = index == crumbs.lastIndex
+            val crumbColor = if (isLast) {
+                MaterialTheme.colorScheme.onBackground
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
+            // The current folder (last crumb) is shown but not interactive — only ancestors navigate.
+            val crumbModifier = if (isLast) {
+                Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            } else {
+                Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onDirectoryChange(crumb.path) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            }
+            Row(
+                modifier = crumbModifier,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (index == 0) {
+                    Icon(
+                        imageVector = Icons.Filled.Home,
+                        contentDescription = stringResource(R.string.browser_breadcrumb_home),
+                        tint = crumbColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                } else {
+                    Text(
+                        text = crumb.name,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = crumbColor,
+                        fontWeight = if (isLast) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -326,24 +411,14 @@ fun FileBrowserErrorContent(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRetry) {
-            Text(stringResource(R.string.retry))
-        }
-    }
+    StatusContent(
+        icon = Icons.Filled.ErrorOutline,
+        title = stringResource(R.string.browser_error_title),
+        message = message,
+        modifier = modifier,
+        actionLabel = stringResource(R.string.retry),
+        onAction = onRetry,
+    )
 }
 
 @Composable
@@ -355,10 +430,15 @@ fun FileBrowserContent(
     selectedArchivePaths: Set<String>,
     onRecentComicClick: (RecentComic) -> Unit,
     onEntryClick: (BrowserEntry) -> Unit,
+    onClearSearch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val entries = filterBrowserEntries(directory.entries, searchQuery)
     val showRecentComics = !isAddingToLibrary && searchQuery.isBlank() && recentComics.isNotEmpty()
+    val recentsCount = if (showRecentComics) recentComics.size else 0
+
+    var revealed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { revealed = true }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val tabletLayout = isTabletWidth(maxWidth.value.roundToInt())
@@ -378,14 +458,19 @@ fun FileBrowserContent(
             modifier = Modifier.fillMaxSize(),
         ) { isEmpty ->
             if (isEmpty) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = if (searchQuery.isBlank()) stringResource(R.string.empty_folder) else stringResource(R.string.no_results),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                if (searchQuery.isBlank()) {
+                    StatusContent(
+                        icon = Icons.Filled.FolderOff,
+                        title = stringResource(R.string.browser_empty_folder_title),
+                        message = stringResource(R.string.empty_folder),
+                    )
+                } else {
+                    StatusContent(
+                        icon = Icons.Filled.SearchOff,
+                        title = stringResource(R.string.browser_no_results_title),
+                        message = stringResource(R.string.no_results),
+                        actionLabel = stringResource(R.string.browser_clear_search),
+                        onAction = onClearSearch,
                     )
                 }
             } else {
@@ -396,23 +481,25 @@ fun FileBrowserContent(
                     LazyColumn(
                         modifier = listModifier,
                         contentPadding = PaddingValues(bottom = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         if (showRecentComics) {
                             item(key = "recent_comics_header") {
                                 FileBrowserSectionHeader(title = stringResource(R.string.recent_section))
                             }
-                            items(
+                            itemsIndexed(
                                 items = recentComics,
-                                key = { recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
-                            ) { recentComic ->
-                                RecentComicRow(
-                                    recentComic = recentComic,
-                                    onClick = { onRecentComicClick(recentComic) },
-                                )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 88.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-                                )
+                                key = { _, recentComic -> "recent:${recentComic.sourceType.storageName}:${recentComic.path}" },
+                            ) { index, recentComic ->
+                                StaggeredReveal(
+                                    visible = revealed,
+                                    delayMillis = min(index, MAX_STAGGER_STEPS) * STAGGER_STEP_MS,
+                                ) {
+                                    RecentComicRow(
+                                        recentComic = recentComic,
+                                        onClick = { onRecentComicClick(recentComic) },
+                                    )
+                                }
                             }
                             if (entries.isNotEmpty()) {
                                 item(key = "browser_entries_header") {
@@ -420,20 +507,21 @@ fun FileBrowserContent(
                                 }
                             }
                         }
-                        items(
+                        itemsIndexed(
                             items = entries,
-                            key = { entry -> entry.path },
-                        ) { entry ->
-                            FileBrowserRow(
-                                entry = entry,
-                                isAddingToLibrary = isAddingToLibrary,
-                                isSelected = entry.path in selectedArchivePaths,
-                                onClick = { onEntryClick(entry) },
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.padding(start = 88.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.48f),
-                            )
+                            key = { _, entry -> entry.path },
+                        ) { index, entry ->
+                            StaggeredReveal(
+                                visible = revealed,
+                                delayMillis = min(recentsCount + index, MAX_STAGGER_STEPS) * STAGGER_STEP_MS,
+                            ) {
+                                FileBrowserRow(
+                                    entry = entry,
+                                    isAddingToLibrary = isAddingToLibrary,
+                                    isSelected = entry.path in selectedArchivePaths,
+                                    onClick = { onEntryClick(entry) },
+                                )
+                            }
                         }
                     }
                 }
@@ -516,23 +604,18 @@ fun RecentComicThumbnail(
     recentComic: RecentComic,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.size(58.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = recentComic.sourceType.icon(),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(28.dp),
-            )
-        }
+    val context = LocalContext.current
+    var thumbnailUri by remember(recentComic) { mutableStateOf<Uri?>(null) }
+
+    LaunchedEffect(recentComic) {
+        thumbnailUri = loadRecentComicThumbnailUri(context.applicationContext, recentComic)
     }
+
+    CoverThumbnail(
+        thumbnailUri = thumbnailUri,
+        fallbackIcon = recentComic.sourceType.icon(),
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -612,35 +695,11 @@ fun FileBrowserThumbnail(
     entry: BrowserEntry,
     modifier: Modifier = Modifier,
 ) {
-    Surface(
-        modifier = modifier.size(58.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    ) {
-        val thumbnailUri = entry.thumbnailUri
-        if (thumbnailUri != null) {
-            Image(
-                painter = rememberAsyncImagePainter(model = thumbnailUri),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp)),
-            )
-        } else {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = entry.type.icon(),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-        }
-    }
+    CoverThumbnail(
+        thumbnailUri = entry.thumbnailUri,
+        fallbackIcon = entry.type.icon(),
+        modifier = modifier,
+    )
 }
 
 

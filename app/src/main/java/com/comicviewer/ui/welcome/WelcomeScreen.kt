@@ -1,6 +1,5 @@
 package com.comicviewer.ui.welcome
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -9,9 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,6 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.comicviewer.R
+import com.comicviewer.ui.common.StaggeredReveal
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.sheen
 import com.comicviewer.ui.common.softPress
@@ -630,34 +627,6 @@ private fun WelcomeScanBeam(scanProgress: Float, modifier: Modifier = Modifier) 
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
     ) {}
-}
-
-@Composable
-private fun StaggeredReveal(
-    visible: Boolean,
-    delayMillis: Int,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    AnimatedVisibility(
-        visible = visible,
-        modifier = modifier,
-        enter = fadeIn(animationSpec = tween(durationMillis = 360, delayMillis = delayMillis)) +
-            slideInVertically(
-                animationSpec = tween(
-                    durationMillis = 460,
-                    delayMillis = delayMillis,
-                    easing = FastOutSlowInEasing,
-                ),
-                initialOffsetY = { height -> height / 5 },
-            ) +
-            scaleIn(
-                animationSpec = tween(durationMillis = 460, delayMillis = delayMillis),
-                initialScale = 0.98f,
-            ),
-    ) {
-        content()
-    }
 }
 
 @Preview(showBackground = true, name = "Welcome – Dark")

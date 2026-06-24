@@ -1044,6 +1044,146 @@ class ExampleUnitTest {
             ),
         )
     }
+
+    @Test
+    fun filterLibraryComicsByQuery_matchesTitleCaseInsensitively() {
+        val comics = listOf(
+            sampleLibraryComic(title = "Batman 001", path = "/storage/emulated/0/Batman 001.cbz"),
+            sampleLibraryComic(title = "Saga 002", path = "/storage/emulated/0/Saga 002.cbz"),
+        )
+
+        assertEquals(
+            listOf("Batman 001"),
+            filterLibraryComicsByQuery(comics, "batMAN").map { comic -> comic.title },
+        )
+    }
+
+    @Test
+    fun filterLibraryComicsByQuery_blankReturnsAll() {
+        val comics = listOf(
+            sampleLibraryComic(path = "/storage/emulated/0/A.cbz"),
+            sampleLibraryComic(path = "/storage/emulated/0/B.cbz"),
+        )
+
+        assertEquals(comics, filterLibraryComicsByQuery(comics, "   "))
+    }
+
+    @Test
+    fun filterLibraryComicsBySource_keepsOnlyMatchingSourceType() {
+        val archive = sampleLibraryComic(
+            path = "/storage/emulated/0/A.cbz",
+            sourceType = RecentComicSourceType.LocalArchive,
+        )
+        val folder = sampleLibraryComic(
+            path = "/storage/emulated/0/Folder",
+            sourceType = RecentComicSourceType.LocalFolder,
+        )
+        val comics = listOf(archive, folder)
+
+        assertEquals(listOf(archive), filterLibraryComicsBySource(comics, LibraryFilter.Archives))
+        assertEquals(listOf(folder), filterLibraryComicsBySource(comics, LibraryFilter.Folders))
+        assertEquals(comics, filterLibraryComicsBySource(comics, LibraryFilter.All))
+    }
+
+    @Test
+    fun sortLibraryComics_recentlyAddedOrdersByAddedAtDesc() {
+        val older = sampleLibraryComic(path = "/storage/emulated/0/Older.cbz", addedAt = 100L)
+        val newer = sampleLibraryComic(path = "/storage/emulated/0/Newer.cbz", addedAt = 200L)
+
+        assertEquals(
+            listOf(newer, older),
+            sortLibraryComics(listOf(older, newer), LibrarySortOrder.RecentlyAdded, emptyList()),
+        )
+    }
+
+    @Test
+    fun sortLibraryComics_titleSortsCaseInsensitively() {
+        val apple = sampleLibraryComic(title = "apple", path = "/storage/emulated/0/a.cbz")
+        val banana = sampleLibraryComic(title = "Banana", path = "/storage/emulated/0/b.cbz")
+        val cherry = sampleLibraryComic(title = "cherry", path = "/storage/emulated/0/c.cbz")
+
+        assertEquals(
+            listOf("apple", "Banana", "cherry"),
+            sortLibraryComics(listOf(cherry, banana, apple), LibrarySortOrder.TitleAtoZ, emptyList())
+                .map { comic -> comic.title },
+        )
+    }
+
+    @Test
+    fun sortLibraryComics_recentlyReadOrdersByLastOpenedAtWithUnreadLast() {
+        val read1 = sampleLibraryComic(path = "/storage/emulated/0/R1.cbz")
+        val read2 = sampleLibraryComic(path = "/storage/emulated/0/R2.cbz")
+        val unread = sampleLibraryComic(path = "/storage/emulated/0/U.cbz")
+        val recents = listOf(
+            sampleRecentComic(path = read1.path, lastOpenedAt = 100L),
+            sampleRecentComic(path = read2.path, lastOpenedAt = 300L),
+        )
+
+        val result = sortLibraryComics(
+            listOf(read1, unread, read2),
+            LibrarySortOrder.RecentlyRead,
+            recents,
+        )
+
+        assertEquals(listOf(read2.path, read1.path, unread.path), result.map { comic -> comic.path })
+    }
+
+    @Test
+    fun sortLibraryComics_isStableForEqualKeys() {
+        val first = sampleLibraryComic(path = "/storage/emulated/0/A.cbz", addedAt = 100L)
+        val second = sampleLibraryComic(path = "/storage/emulated/0/B.cbz", addedAt = 100L)
+
+        assertEquals(
+            listOf(first.path, second.path),
+            sortLibraryComics(listOf(second, first), LibrarySortOrder.RecentlyAdded, emptyList())
+                .map { comic -> comic.path },
+        )
+    }
+
+    @Test
+    fun libraryProgressFraction_computesOneBasedFractionClampedAndNullWhenUnread() {
+        val comic = sampleLibraryComic(path = "/storage/emulated/0/C.cbz")
+
+        assertNull(libraryProgressFraction(comic, emptyList()))
+
+        val recents = listOf(sampleRecentComic(path = comic.path, lastPageIndex = 4, pageCount = 10))
+        assertEquals(0.5f, libraryProgressFraction(comic, recents)!!, 0.0001f)
+
+        val zeroPages = listOf(sampleRecentComic(path = comic.path, lastPageIndex = 0, pageCount = 0))
+        assertNull(libraryProgressFraction(comic, zeroPages))
+    }
+
+    @Test
+    fun libraryView_appliesSourceThenQueryThenSort() {
+        val archiveMatch = sampleLibraryComic(
+            title = "Batman Begins",
+            path = "/storage/emulated/0/Batman Begins.cbz",
+            sourceType = RecentComicSourceType.LocalArchive,
+            addedAt = 100L,
+        )
+        val archiveOther = sampleLibraryComic(
+            title = "Saga",
+            path = "/storage/emulated/0/Saga.cbz",
+            sourceType = RecentComicSourceType.LocalArchive,
+            addedAt = 200L,
+        )
+        val folderMatch = sampleLibraryComic(
+            title = "Batman Folder",
+            path = "/storage/emulated/0/BatmanFolder",
+            sourceType = RecentComicSourceType.LocalFolder,
+            addedAt = 300L,
+        )
+
+        val result = libraryView(
+            comics = listOf(archiveMatch, archiveOther, folderMatch),
+            recentComics = emptyList(),
+            query = "batman",
+            filter = LibraryFilter.Archives,
+            order = LibrarySortOrder.RecentlyAdded,
+        )
+
+        assertEquals(listOf(archiveMatch.path), result.map { comic -> comic.path })
+    }
 }
 
 private data class BrowserSortCase(

@@ -1,12 +1,15 @@
 package com.comicviewer.ui.common
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -97,6 +100,38 @@ fun softContentTransform(): ContentTransform =
             animationSpec = tween(SOFT_ANIMATION_DURATION_MS),
         ),
     )
+
+/**
+ * One-shot entrance: content fades, slides up a touch, and scales in once [visible] flips true.
+ * [delayMillis] staggers siblings into a cascade. Shared by the Welcome and Library screens.
+ */
+@Composable
+fun StaggeredReveal(
+    visible: Boolean,
+    delayMillis: Int,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(durationMillis = 360, delayMillis = delayMillis)) +
+            slideInVertically(
+                animationSpec = tween(
+                    durationMillis = 460,
+                    delayMillis = delayMillis,
+                    easing = FastOutSlowInEasing,
+                ),
+                initialOffsetY = { height -> height / 5 },
+            ) +
+            scaleIn(
+                animationSpec = tween(durationMillis = 460, delayMillis = delayMillis),
+                initialScale = 0.98f,
+            ),
+    ) {
+        content()
+    }
+}
 
 /**
  * Draws a moving diagonal highlight band ("sheen") across the content, clipped to the

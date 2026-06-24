@@ -21,3 +21,5 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+.claude/settings.local.json
+.claude/worktrees/

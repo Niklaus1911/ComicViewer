@@ -90,14 +90,6 @@ fun LibraryComic.isReadableOnDisk(): Boolean {
     }
 }
 
-fun LibraryComic.progressLabel(recentComics: List<RecentComic>): String =
-    matchingRecentComic(recentComics)?.libraryProgressLabel() ?: displayName
-
-private fun RecentComic.libraryProgressLabel(): String {
-    if (pageCount <= 0) return "Page 1"
-    return "Page ${coercePageIndex(lastPageIndex, pageCount) + 1}/$pageCount"
-}
-
 private fun Context.libraryComicsPrefs() =
     getSharedPreferences(LIBRARY_COMICS_PREFS_NAME, Context.MODE_PRIVATE)
 

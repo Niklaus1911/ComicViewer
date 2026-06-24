@@ -1,7 +1,5 @@
 package com.comicviewer
 
-import java.util.Locale
-
 /**
  * Pure, UI-agnostic view logic for the Library tab: how the persisted [LibraryComic] list is
  * searched, filtered, sorted, and turned into per-comic reading progress. Kept free of Compose
@@ -52,7 +50,8 @@ fun sortLibraryComics(
 
     LibrarySortOrder.TitleAtoZ ->
         comics.sortedWith(
-            compareBy<LibraryComic> { comic -> comic.title.lowercase(Locale.getDefault()) }.thenBy { it.path },
+            Comparator<LibraryComic> { left, right -> compareComicPageNames(left.title, right.title) }
+                .thenBy { it.path },
         )
 
     LibrarySortOrder.RecentlyRead ->

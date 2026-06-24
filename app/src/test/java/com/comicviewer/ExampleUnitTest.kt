@@ -634,19 +634,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun libraryComic_progressLabelUsesMatchingRecentComic() {
-        val libraryComic = sampleLibraryComic(path = "/storage/emulated/0/Comic.cbz")
-        val recentComic = sampleRecentComic(
-            path = libraryComic.path,
-            lastPageIndex = 2,
-            pageCount = 9,
-        )
-
-        assertEquals("Page 3/9", libraryComic.progressLabel(listOf(recentComic)))
-        assertEquals(libraryComic.displayName, libraryComic.progressLabel(emptyList()))
-    }
-
-    @Test
     fun scanLibraryArchives_findsOnlyArchivesWithSupportedImages() {
         val root = temporaryFolder.newFolder("scan-root")
         val comicArchive = File(root, "Comic.cbz")
@@ -1105,6 +1092,19 @@ class ExampleUnitTest {
         assertEquals(
             listOf("apple", "Banana", "cherry"),
             sortLibraryComics(listOf(cherry, banana, apple), LibrarySortOrder.TitleAtoZ, emptyList())
+                .map { comic -> comic.title },
+        )
+    }
+
+    @Test
+    fun sortLibraryComics_titleSortsNumbersNaturally() {
+        val two = sampleLibraryComic(title = "Batman 2", path = "/storage/emulated/0/Batman 2.cbz")
+        val ten = sampleLibraryComic(title = "Batman 10", path = "/storage/emulated/0/Batman 10.cbz")
+        val one = sampleLibraryComic(title = "Batman 1", path = "/storage/emulated/0/Batman 1.cbz")
+
+        assertEquals(
+            listOf("Batman 1", "Batman 2", "Batman 10"),
+            sortLibraryComics(listOf(two, ten, one), LibrarySortOrder.TitleAtoZ, emptyList())
                 .map { comic -> comic.title },
         )
     }

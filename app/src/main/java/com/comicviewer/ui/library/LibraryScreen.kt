@@ -75,7 +75,6 @@ import com.comicviewer.LibrarySortOrder
 import com.comicviewer.RecentComic
 import com.comicviewer.RecentComicSourceType
 import com.comicviewer.TABLET_LIBRARY_CARD_MIN_WIDTH_DP
-import com.comicviewer.coercePageIndex
 import com.comicviewer.isTabletWidth
 import com.comicviewer.libraryProgressFraction
 import com.comicviewer.libraryView
@@ -85,6 +84,7 @@ import com.comicviewer.billing.ProBillingState
 import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.StaggeredReveal
 import com.comicviewer.ui.common.icon
+import com.comicviewer.ui.common.progressText
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
@@ -810,12 +810,5 @@ private fun RecentComicSourceType.badgeDescriptionRes(): Int = when (this) {
 }
 
 @Composable
-private fun LibraryComic.progressText(recentComics: List<RecentComic>): String {
-    val recentComic = matchingRecentComic(recentComics) ?: return displayName
-    if (recentComic.pageCount <= 0) return stringResource(R.string.page_one)
-    return stringResource(
-        R.string.page_progress,
-        coercePageIndex(recentComic.lastPageIndex, recentComic.pageCount) + 1,
-        recentComic.pageCount,
-    )
-}
+private fun LibraryComic.progressText(recentComics: List<RecentComic>): String =
+    matchingRecentComic(recentComics)?.progressText() ?: displayName

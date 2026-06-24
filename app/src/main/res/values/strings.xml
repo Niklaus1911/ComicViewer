@@ -6,6 +6,15 @@
     <string name="file_access_title">Allow file access</string>
     <string name="file_access_message">Comic Viewer needs permission to read archives and folders on this device.</string>
     <string name="open_settings">Open settings</string>
+    <string name="welcome_archive_only">Archive comics only</string>
+    <string name="welcome_title">Comic Viewer</string>
+    <string name="welcome_message">Build your library from ZIP and CBZ comic archives on this device.</string>
+    <string name="welcome_local_files">Files stay on this device.</string>
+    <string name="welcome_format_zip">ZIP</string>
+    <string name="welcome_format_cbz">CBZ</string>
+    <string name="welcome_auto_scan">Auto scan now</string>
+    <string name="welcome_browse_manually">Browse manually</string>
+    <string name="welcome_skip">Skip for now</string>
     <string name="folder_not_readable">Folder not readable.</string>
     <string name="folder_read_permission_unavailable">Folder read permission is not available.</string>
     <string name="archive_not_readable">Archive not readable.</string>

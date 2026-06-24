@@ -201,6 +201,39 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun shouldShowWelcome_onlyForFreshUnseenInstalls() {
+        assertTrue(
+            shouldShowWelcome(
+                welcomeSeen = false,
+                hasLibraryComics = false,
+                hasRecentComics = false,
+            ),
+        )
+
+        assertFalse(
+            shouldShowWelcome(
+                welcomeSeen = true,
+                hasLibraryComics = false,
+                hasRecentComics = false,
+            ),
+        )
+        assertFalse(
+            shouldShowWelcome(
+                welcomeSeen = false,
+                hasLibraryComics = true,
+                hasRecentComics = false,
+            ),
+        )
+        assertFalse(
+            shouldShowWelcome(
+                welcomeSeen = false,
+                hasLibraryComics = false,
+                hasRecentComics = true,
+            ),
+        )
+    }
+
+    @Test
     fun comicLoadErrorForPageCount_reportsEmptyComic() {
         assertEquals(ComicLoadError.NoSupportedImagesFound, comicLoadErrorForPageCount(0))
         assertNull(comicLoadErrorForPageCount(1))

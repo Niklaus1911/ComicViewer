@@ -68,6 +68,7 @@ import com.comicviewer.ui.reader.ErrorComicScreen
 import com.comicviewer.ui.reader.LoadingComicScreen
 import com.comicviewer.ui.settings.SettingsScreen
 import com.comicviewer.ui.theme.ComicViewerTheme
+import com.comicviewer.ui.welcome.WelcomeScreen
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -126,12 +127,22 @@ fun ComicViewerApp(
         }
     }
 
-    BackHandler(enabled = appState.shouldHandleBack) {
+    BackHandler(enabled = appState.showWelcome && appState.hasFileAccess) {
+        appState.dismissWelcome()
+    }
+
+    BackHandler(enabled = appState.shouldHandleBack && !appState.showWelcome) {
         appState.handleBack()
     }
 
     if (!appState.hasFileAccess) {
         FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
+    } else if (appState.showWelcome) {
+        WelcomeScreen(
+            onAutoScan = appState::startWelcomeAutoScan,
+            onBrowseManually = appState::startWelcomeManualBrowse,
+            onSkip = appState::dismissWelcome,
+        )
     } else {
         ComicViewerScreen(
             state = appState.uiState,

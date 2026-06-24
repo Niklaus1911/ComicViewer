@@ -6,6 +6,15 @@
     <string name="file_access_title">Consenti accesso ai file</string>
     <string name="file_access_message">Comic Viewer ha bisogno del permesso per leggere archivi e cartelle sul dispositivo.</string>
     <string name="open_settings">Apri impostazioni</string>
+    <string name="welcome_archive_only">Solo archivi comic</string>
+    <string name="welcome_title">Comic Viewer</string>
+    <string name="welcome_message">Crea la tua libreria da archivi comic ZIP e CBZ su questo dispositivo.</string>
+    <string name="welcome_local_files">I file restano su questo dispositivo.</string>
+    <string name="welcome_format_zip">ZIP</string>
+    <string name="welcome_format_cbz">CBZ</string>
+    <string name="welcome_auto_scan">Scansiona ora</string>
+    <string name="welcome_browse_manually">Sfoglia manualmente</string>
+    <string name="welcome_skip">Salta per ora</string>
     <string name="folder_not_readable">Cartella non leggibile.</string>
     <string name="folder_read_permission_unavailable">Permesso di lettura della cartella non disponibile.</string>
     <string name="archive_not_readable">Archivio non leggibile.</string>

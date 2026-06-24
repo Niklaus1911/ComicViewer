@@ -15,6 +15,7 @@ enum class AppLanguage(val preferenceValue: String) {
 private const val APP_PREFERENCES_NAME = "comic_viewer_app_preferences"
 private const val LANGUAGE_KEY = "language"
 private const val AMOLED_THEME_KEY = "amoled_theme"
+private const val WELCOME_SEEN_KEY = "welcome_seen"
 
 fun loadAppLanguage(context: Context): AppLanguage {
     val value = appPreferences(context).getString(LANGUAGE_KEY, AppLanguage.System.preferenceValue)
@@ -37,6 +38,23 @@ fun saveAmoledThemeEnabled(context: Context, enabled: Boolean) {
         .putBoolean(AMOLED_THEME_KEY, enabled)
         .apply()
 }
+
+fun loadWelcomeSeen(context: Context): Boolean =
+    appPreferences(context).getBoolean(WELCOME_SEEN_KEY, false)
+
+fun saveWelcomeSeen(context: Context, seen: Boolean) {
+    appPreferences(context)
+        .edit()
+        .putBoolean(WELCOME_SEEN_KEY, seen)
+        .apply()
+}
+
+internal fun shouldShowWelcome(
+    welcomeSeen: Boolean,
+    hasLibraryComics: Boolean,
+    hasRecentComics: Boolean,
+): Boolean =
+    !welcomeSeen && !hasLibraryComics && !hasRecentComics
 
 fun localizedAppContext(context: Context): Context {
     val language = loadAppLanguage(context)

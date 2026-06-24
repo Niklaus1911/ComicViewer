@@ -27,6 +27,7 @@ import com.comicviewer.loadLibraryComics
 import com.comicviewer.loadLocalArchiveComic
 import com.comicviewer.loadLocalFolderComic
 import com.comicviewer.loadRecentComics
+import com.comicviewer.loadWelcomeSeen
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.newLibraryComicsForArchiveScan
 import com.comicviewer.recentComicFor
@@ -34,7 +35,9 @@ import com.comicviewer.removeLibraryComic
 import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
 import com.comicviewer.saveRecentComics
+import com.comicviewer.saveWelcomeSeen
 import com.comicviewer.scanLibraryArchives
+import com.comicviewer.shouldShowWelcome
 import com.comicviewer.upsertLibraryComic
 import com.comicviewer.upsertLibraryComics
 import com.comicviewer.upsertRecentComic
@@ -53,6 +56,7 @@ class ComicViewerAppState(
     uiState: ReaderUiState,
     selectedTabName: String,
     isAddingToLibrary: Boolean,
+    showWelcome: Boolean,
     recentComics: List<RecentComic>,
     libraryComics: List<LibraryComic>,
     val browserRootPath: String,
@@ -66,6 +70,8 @@ class ComicViewerAppState(
     var selectedTabName by mutableStateOf(selectedTabName)
         private set
     var isAddingToLibrary by mutableStateOf(isAddingToLibrary)
+        private set
+    var showWelcome by mutableStateOf(showWelcome)
         private set
     var recentComics by mutableStateOf(recentComics)
         private set
@@ -101,6 +107,23 @@ class ComicViewerAppState(
     fun startAddToLibrary() {
         selectedTabName = AppTab.Browse.name
         isAddingToLibrary = true
+    }
+
+    fun dismissWelcome() {
+        if (!showWelcome) return
+        saveWelcomeSeen(appContext, true)
+        showWelcome = false
+    }
+
+    fun startWelcomeAutoScan() {
+        dismissWelcome()
+        selectedTabName = AppTab.Library.name
+        autoScanLibraryArchives()
+    }
+
+    fun startWelcomeManualBrowse() {
+        dismissWelcome()
+        startAddToLibrary()
     }
 
     fun changeDirectory(path: String) {
@@ -403,6 +426,13 @@ fun rememberComicViewerAppState(
     val isAddingToLibrary = rememberSaveable { mutableStateOf(false) }
     val recentComics = remember { loadRecentComics(appContext) }
     val libraryComics = remember { loadLibraryComics(appContext) }
+    val showWelcome = remember {
+        shouldShowWelcome(
+            welcomeSeen = loadWelcomeSeen(appContext),
+            hasLibraryComics = libraryComics.isNotEmpty(),
+            hasRecentComics = recentComics.isNotEmpty(),
+        )
+    }
     val browserRootPath = remember { defaultBrowserRootPath() }
 
     val appState = remember(appContext, scope, browserRootPath) {
@@ -414,6 +444,7 @@ fun rememberComicViewerAppState(
             uiState = uiState.value,
             selectedTabName = selectedTab.value,
             isAddingToLibrary = isAddingToLibrary.value,
+            showWelcome = showWelcome,
             recentComics = recentComics,
             libraryComics = libraryComics,
             browserRootPath = browserRootPath,

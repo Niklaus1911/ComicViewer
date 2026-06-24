@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -63,7 +62,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
@@ -83,6 +81,7 @@ import com.comicviewer.matchingRecentComic
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.StaggeredReveal
+import com.comicviewer.ui.common.StatusContent
 import com.comicviewer.ui.common.icon
 import com.comicviewer.ui.common.progressText
 import com.comicviewer.ui.common.rememberThrottledAction
@@ -575,38 +574,14 @@ fun LibraryEmptyContent(
     onStartAddToLibrary: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.LibraryBooks,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(52.dp),
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = stringResource(R.string.library_empty_title),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.library_empty_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(onClick = onStartAddToLibrary) {
-            Text(stringResource(R.string.add_comic))
-        }
-    }
+    StatusContent(
+        icon = Icons.AutoMirrored.Filled.LibraryBooks,
+        title = stringResource(R.string.library_empty_title),
+        message = stringResource(R.string.library_empty_message),
+        modifier = modifier,
+        actionLabel = stringResource(R.string.add_comic),
+        onAction = onStartAddToLibrary,
+    )
 }
 
 @Composable
@@ -614,38 +589,14 @@ private fun LibraryNoResultsContent(
     onClearFilters: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(
-            imageVector = Icons.Filled.SearchOff,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(52.dp),
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = stringResource(R.string.library_no_results_title),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = stringResource(R.string.library_no_results_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        TextButton(onClick = onClearFilters) {
-            Text(stringResource(R.string.library_clear_filters))
-        }
-    }
+    StatusContent(
+        icon = Icons.Filled.SearchOff,
+        title = stringResource(R.string.library_no_results_title),
+        message = stringResource(R.string.library_no_results_message),
+        modifier = modifier,
+        actionLabel = stringResource(R.string.library_clear_filters),
+        onAction = onClearFilters,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

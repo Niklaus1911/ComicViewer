@@ -51,6 +51,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.comicviewer.R
 import com.comicviewer.AppLanguage
+import com.comicviewer.AppThemeMode
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.ReaderUiState
@@ -67,16 +68,28 @@ import com.comicviewer.ui.reader.ComicReaderScreen
 import com.comicviewer.ui.reader.ErrorComicScreen
 import com.comicviewer.ui.reader.LoadingComicScreen
 import com.comicviewer.ui.settings.SettingsScreen
+import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.ComicViewerTheme
 import com.comicviewer.ui.welcome.WelcomeScreen
 import java.io.File
 import kotlin.math.roundToInt
 
+/** Current theme selections surfaced in Settings, threaded down from [MainActivity]. */
+data class ThemeUiState(
+    val themeMode: AppThemeMode,
+    val dynamicColorEnabled: Boolean,
+    val accentColor: AppColor,
+    val amoledEnabled: Boolean,
+)
+
 @Composable
 fun ComicViewerApp(
     selectedLanguage: AppLanguage,
-    amoledThemeEnabled: Boolean,
+    themeUiState: ThemeUiState,
     onLanguageSelected: (AppLanguage) -> Unit,
+    onThemeModeSelected: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
+    onAccentColorSelected: (AppColor) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -155,12 +168,15 @@ fun ComicViewerApp(
             isAddingToLibrary = appState.isAddingToLibrary,
             proBillingState = proBillingState,
             selectedLanguage = selectedLanguage,
-            amoledThemeEnabled = amoledThemeEnabled,
+            themeUiState = themeUiState,
             onBuyPro = {
                 (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
             },
             onRestorePro = billingRepository::restorePurchases,
             onLanguageSelected = onLanguageSelected,
+            onThemeModeSelected = onThemeModeSelected,
+            onDynamicColorChanged = onDynamicColorChanged,
+            onAccentColorSelected = onAccentColorSelected,
             onAmoledThemeChanged = onAmoledThemeChanged,
             onTabSelected = appState::selectTab,
             onStartAddToLibrary = appState::startAddToLibrary,
@@ -194,10 +210,13 @@ fun ComicViewerScreen(
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
     selectedLanguage: AppLanguage,
-    amoledThemeEnabled: Boolean,
+    themeUiState: ThemeUiState,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
+    onThemeModeSelected: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
+    onAccentColorSelected: (AppColor) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
@@ -245,10 +264,13 @@ fun ComicViewerScreen(
                     isAddingToLibrary = isAddingToLibrary,
                     proBillingState = proBillingState,
                     selectedLanguage = selectedLanguage,
-                    amoledThemeEnabled = amoledThemeEnabled,
+                    themeUiState = themeUiState,
                     onBuyPro = onBuyPro,
                     onRestorePro = onRestorePro,
                     onLanguageSelected = onLanguageSelected,
+                    onThemeModeSelected = onThemeModeSelected,
+                    onDynamicColorChanged = onDynamicColorChanged,
+                    onAccentColorSelected = onAccentColorSelected,
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
                     onStartAddToLibrary = onStartAddToLibrary,
@@ -288,10 +310,13 @@ fun HomeScreen(
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
     selectedLanguage: AppLanguage,
-    amoledThemeEnabled: Boolean,
+    themeUiState: ThemeUiState,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
+    onThemeModeSelected: (AppThemeMode) -> Unit,
+    onDynamicColorChanged: (Boolean) -> Unit,
+    onAccentColorSelected: (AppColor) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
@@ -353,9 +378,12 @@ fun HomeScreen(
 
                             AppTab.Settings -> SettingsScreen(
                                 selectedLanguage = selectedLanguage,
-                                amoledThemeEnabled = amoledThemeEnabled,
+                                themeUiState = themeUiState,
                                 buildInfo = currentAppBuildInfo(),
                                 onLanguageSelected = onLanguageSelected,
+                                onThemeModeSelected = onThemeModeSelected,
+                                onDynamicColorChanged = onDynamicColorChanged,
+                                onAccentColorSelected = onAccentColorSelected,
                                 onAmoledThemeChanged = onAmoledThemeChanged,
                                 modifier = Modifier.fillMaxSize(),
                             )

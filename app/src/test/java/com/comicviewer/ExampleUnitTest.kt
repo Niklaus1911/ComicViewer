@@ -1253,6 +1253,20 @@ class ExampleUnitTest {
 
         assertEquals(listOf(archiveMatch.path), result.map { comic -> comic.path })
     }
+
+    @Test
+    fun resolveDarkTheme_followsSystemForSystemMode() {
+        assertTrue(resolveDarkTheme(AppThemeMode.System, systemInDark = true))
+        assertFalse(resolveDarkTheme(AppThemeMode.System, systemInDark = false))
+    }
+
+    @Test
+    fun resolveDarkTheme_forcesLightAndDarkRegardlessOfSystem() {
+        assertFalse(resolveDarkTheme(AppThemeMode.Light, systemInDark = true))
+        assertFalse(resolveDarkTheme(AppThemeMode.Light, systemInDark = false))
+        assertTrue(resolveDarkTheme(AppThemeMode.Dark, systemInDark = false))
+        assertTrue(resolveDarkTheme(AppThemeMode.Dark, systemInDark = true))
+    }
 }
 
 private data class BrowserSortCase(

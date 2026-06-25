@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -62,22 +63,38 @@ import com.comicviewer.AppBuildInfo
 import com.comicviewer.AppLanguage
 import com.comicviewer.AppThemeMode
 import com.comicviewer.R
+import com.comicviewer.billing.ProBillingState
+import com.comicviewer.resolvedThemePreset
+import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.app.ThemeUiState
 import com.comicviewer.ui.theme.AppColor
+import com.comicviewer.ui.theme.AppThemePreset
 
 @Composable
 fun SettingsScreen(
     selectedLanguage: AppLanguage,
     themeUiState: ThemeUiState,
+    proBillingState: ProBillingState,
+    isDebugBuild: Boolean,
+    debugProUnlocked: Boolean,
     buildInfo: AppBuildInfo,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
+    onDebugProUnlockedChanged: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
     onThemeModeSelected: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
     onAccentColorSelected: (AppColor) -> Unit,
+    onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var aboutExpanded by rememberSaveable { mutableStateOf(false) }
+    var showProDialog by rememberSaveable { mutableStateOf(false) }
+    val effectiveThemePreset = resolvedThemePreset(
+        themePreset = themeUiState.themePreset,
+        isProUnlocked = proBillingState.isProUnlocked,
+    )
 
     Column(
         modifier = modifier
@@ -102,11 +119,19 @@ fun SettingsScreen(
         }
 
         AppearanceCard(
-            themeUiState = themeUiState,
+            themeUiState = themeUiState.copy(themePreset = effectiveThemePreset),
             onThemeModeSelected = onThemeModeSelected,
             onDynamicColorChanged = onDynamicColorChanged,
             onAccentColorSelected = onAccentColorSelected,
             onAmoledThemeChanged = onAmoledThemeChanged,
+        )
+
+        ThemePresetCard(
+            selectedPreset = effectiveThemePreset,
+            defaultAccentColor = themeUiState.accentColor,
+            isProUnlocked = proBillingState.isProUnlocked,
+            onThemePresetSelected = onThemePresetSelected,
+            onRequestPro = { showProDialog = true },
         )
 
         LanguageCard(
@@ -118,6 +143,18 @@ fun SettingsScreen(
             buildInfo = buildInfo,
             expanded = aboutExpanded,
             onToggle = { aboutExpanded = !aboutExpanded },
+        )
+    }
+
+    if (showProDialog) {
+        ProUpgradeDialog(
+            billingState = proBillingState,
+            onBuyPro = onBuyPro,
+            onRestorePro = onRestorePro,
+            isDebugBuild = isDebugBuild,
+            debugProUnlocked = debugProUnlocked,
+            onDebugProUnlockedChanged = onDebugProUnlockedChanged,
+            onDismiss = { showProDialog = false },
         )
     }
 }
@@ -134,7 +171,7 @@ private fun AppearanceCard(
     // accent picker is always the source of truth.
     val supportsDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val dynamicColorActive = supportsDynamicColor && themeUiState.dynamicColorEnabled
-    val accentEnabled = !dynamicColorActive
+    val accentEnabled = !dynamicColorActive && themeUiState.themePreset == AppThemePreset.Default
 
     SettingsCard(
         title = stringResource(R.string.settings_appearance_title),
@@ -173,6 +210,148 @@ private fun AppearanceCard(
             checked = themeUiState.amoledEnabled,
             onCheckedChange = onAmoledThemeChanged,
         )
+    }
+}
+
+@Composable
+private fun ThemePresetCard(
+    selectedPreset: AppThemePreset,
+    defaultAccentColor: AppColor,
+    isProUnlocked: Boolean,
+    onThemePresetSelected: (AppThemePreset) -> Unit,
+    onRequestPro: () -> Unit,
+) {
+    SettingsCard(
+        title = stringResource(R.string.settings_pro_themes_title),
+        icon = Icons.Filled.Palette,
+    ) {
+        SettingsLabel(text = stringResource(R.string.settings_theme_preset_title))
+        Spacer(modifier = Modifier.height(8.dp))
+        AppThemePreset.entries.forEach { preset ->
+            val locked = preset.proOnly && !isProUnlocked
+            ThemePresetRow(
+                preset = preset,
+                defaultAccentColor = defaultAccentColor,
+                selected = selectedPreset == preset,
+                locked = locked,
+                onClick = {
+                    if (locked) onRequestPro() else onThemePresetSelected(preset)
+                },
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetRow(
+    preset: AppThemePreset,
+    defaultAccentColor: AppColor,
+    selected: Boolean,
+    locked: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ThemePresetPreview(
+            preset = preset,
+            defaultAccentColor = defaultAccentColor,
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = stringResource(preset.labelRes()),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (locked) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    ProBadge()
+                }
+            }
+            Text(
+                text = stringResource(preset.descriptionRes()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemePresetPreview(
+    preset: AppThemePreset,
+    defaultAccentColor: AppColor,
+) {
+    val colors = if (preset == AppThemePreset.Default) {
+        listOf(defaultAccentColor.swatch, MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.tertiary)
+    } else {
+        listOf(preset.primarySwatch, preset.secondarySwatch, preset.tertiarySwatch)
+    }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            colors.forEach { color ->
+                Box(
+                    modifier = Modifier
+                        .size(14.dp, 28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(color),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProBadge() {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.WorkspacePremium,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = stringResource(R.string.pro_badge),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }
 
@@ -552,6 +731,22 @@ private fun AppThemeMode.icon(): ImageVector = when (this) {
     AppThemeMode.System -> Icons.Filled.BrightnessAuto
     AppThemeMode.Light -> Icons.Filled.LightMode
     AppThemeMode.Dark -> Icons.Filled.DarkMode
+}
+
+private fun AppThemePreset.labelRes(): Int = when (this) {
+    AppThemePreset.Default -> R.string.settings_theme_preset_default
+    AppThemePreset.Ink -> R.string.settings_theme_preset_ink
+    AppThemePreset.Paper -> R.string.settings_theme_preset_paper
+    AppThemePreset.Neon -> R.string.settings_theme_preset_neon
+    AppThemePreset.Aurora -> R.string.settings_theme_preset_aurora
+}
+
+private fun AppThemePreset.descriptionRes(): Int = when (this) {
+    AppThemePreset.Default -> R.string.settings_theme_preset_default_description
+    AppThemePreset.Ink -> R.string.settings_theme_preset_ink_description
+    AppThemePreset.Paper -> R.string.settings_theme_preset_paper_description
+    AppThemePreset.Neon -> R.string.settings_theme_preset_neon_description
+    AppThemePreset.Aurora -> R.string.settings_theme_preset_aurora_description
 }
 
 private fun AppColor.nameRes(): Int = when (this) {

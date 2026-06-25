@@ -21,13 +21,15 @@ enum class LibraryFilter {
 fun filterLibraryComicsByQuery(
     comics: List<LibraryComic>,
     query: String,
+    metadata: List<LibraryComicMetadata> = emptyList(),
 ): List<LibraryComic> {
     val normalizedQuery = query.trim()
     if (normalizedQuery.isEmpty()) return comics
 
     return comics.filter { comic ->
         comic.title.contains(normalizedQuery, ignoreCase = true) ||
-            comic.displayName.contains(normalizedQuery, ignoreCase = true)
+            comic.displayName.contains(normalizedQuery, ignoreCase = true) ||
+            metadataFor(comic, metadata).tags.any { tag -> tag.contains(normalizedQuery, ignoreCase = true) }
     }
 }
 
@@ -38,6 +40,35 @@ fun filterLibraryComicsBySource(
     LibraryFilter.All -> comics
     LibraryFilter.Archives -> comics.filter { comic -> comic.sourceType == RecentComicSourceType.LocalArchive }
     LibraryFilter.Folders -> comics.filter { comic -> comic.sourceType == RecentComicSourceType.LocalFolder }
+}
+
+fun filterLibraryComicsByProgress(
+    comics: List<LibraryComic>,
+    recentComics: List<RecentComic>,
+    metadata: List<LibraryComicMetadata>,
+    filter: LibraryProgressFilter,
+): List<LibraryComic> = when (filter) {
+    LibraryProgressFilter.All -> comics
+    LibraryProgressFilter.Favorites -> comics.filter { comic -> metadataFor(comic, metadata).favorite }
+    LibraryProgressFilter.Unread -> comics.filter { comic -> comic.matchingRecentComic(recentComics) == null }
+    LibraryProgressFilter.InProgress -> comics.filter { comic ->
+        val progress = libraryProgressFraction(comic, recentComics)
+        progress != null && progress > 0f && progress < 1f
+    }
+    LibraryProgressFilter.Completed -> comics.filter { comic ->
+        libraryProgressFraction(comic, recentComics) == 1f
+    }
+}
+
+fun filterLibraryComicsByTag(
+    comics: List<LibraryComic>,
+    metadata: List<LibraryComicMetadata>,
+    tag: String?,
+): List<LibraryComic> {
+    val normalizedTag = tag?.trim()?.takeIf { value -> value.isNotEmpty() } ?: return comics
+    return comics.filter { comic ->
+        metadataFor(comic, metadata).tags.any { existingTag -> existingTag.equals(normalizedTag, ignoreCase = true) }
+    }
 }
 
 fun sortLibraryComics(
@@ -87,8 +118,13 @@ fun libraryView(
     query: String,
     filter: LibraryFilter,
     order: LibrarySortOrder,
+    metadata: List<LibraryComicMetadata> = emptyList(),
+    progressFilter: LibraryProgressFilter = LibraryProgressFilter.All,
+    tagFilter: String? = null,
 ): List<LibraryComic> {
     val bySource = filterLibraryComicsBySource(comics, filter)
-    val byQuery = filterLibraryComicsByQuery(bySource, query)
+    val byProgress = filterLibraryComicsByProgress(bySource, recentComics, metadata, progressFilter)
+    val byTag = filterLibraryComicsByTag(byProgress, metadata, tagFilter)
+    val byQuery = filterLibraryComicsByQuery(byTag, query, metadata)
     return sortLibraryComics(byQuery, order, recentComics)
 }

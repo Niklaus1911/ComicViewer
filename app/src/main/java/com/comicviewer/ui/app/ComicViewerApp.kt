@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,7 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,12 +55,22 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.comicviewer.R
 import com.comicviewer.AppLanguage
 import com.comicviewer.AppThemeMode
+import com.comicviewer.BuildConfig
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryAutoScanState
+import com.comicviewer.LibraryComicMetadata
+import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
 import com.comicviewer.currentAppBuildInfo
+import com.comicviewer.effectiveProUnlocked
 import com.comicviewer.isTabletWidth
+import com.comicviewer.loadDebugProUnlocked
+import com.comicviewer.loadReaderPreferences
+import com.comicviewer.resolveDarkTheme
+import com.comicviewer.resolvedThemePreset
+import com.comicviewer.saveDebugProUnlocked
+import com.comicviewer.saveReaderPreferences
 import com.comicviewer.billing.ProBillingRepository
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.ui.browser.FileBrowserScreen
@@ -69,6 +82,7 @@ import com.comicviewer.ui.reader.ErrorComicScreen
 import com.comicviewer.ui.reader.LoadingComicScreen
 import com.comicviewer.ui.settings.SettingsScreen
 import com.comicviewer.ui.theme.AppColor
+import com.comicviewer.ui.theme.AppThemePreset
 import com.comicviewer.ui.theme.ComicViewerTheme
 import com.comicviewer.ui.welcome.WelcomeScreen
 import java.io.File
@@ -79,6 +93,7 @@ data class ThemeUiState(
     val themeMode: AppThemeMode,
     val dynamicColorEnabled: Boolean,
     val accentColor: AppColor,
+    val themePreset: AppThemePreset,
     val amoledEnabled: Boolean,
 )
 
@@ -90,6 +105,7 @@ fun ComicViewerApp(
     onThemeModeSelected: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
     onAccentColorSelected: (AppColor) -> Unit,
+    onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -99,6 +115,18 @@ fun ComicViewerApp(
     )
     val billingRepository = remember(context) { ProBillingRepository(context.applicationContext) }
     val proBillingState by billingRepository.state.collectAsState()
+    var readerPreferences by remember { mutableStateOf(loadReaderPreferences(context)) }
+    var debugProUnlocked by remember { mutableStateOf(loadDebugProUnlocked(context)) }
+    val effectiveProUnlockedValue = effectiveProUnlocked(
+        billingUnlocked = proBillingState.isProUnlocked,
+        debugOverrideUnlocked = debugProUnlocked,
+        isDebugBuild = BuildConfig.DEBUG,
+    )
+    val effectiveProBillingState = proBillingState.copy(isProUnlocked = effectiveProUnlockedValue)
+    val effectiveThemePreset = resolvedThemePreset(
+        themePreset = themeUiState.themePreset,
+        isProUnlocked = effectiveProUnlockedValue,
+    )
 
     val fileAccessLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -148,53 +176,92 @@ fun ComicViewerApp(
         appState.handleBack()
     }
 
-    if (!appState.hasFileAccess) {
-        FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
-    } else if (appState.showWelcome) {
-        WelcomeScreen(
-            onAutoScan = appState::startWelcomeAutoScan,
-            onBrowseManually = appState::startWelcomeManualBrowse,
-            onSkip = appState::dismissWelcome,
-        )
-    } else {
-        ComicViewerScreen(
-            state = appState.uiState,
-            selectedTab = appState.currentTab,
-            currentDirectoryPath = appState.currentDirectoryPath,
-            browserRootPath = appState.browserRootPath,
-            libraryComics = appState.libraryComics,
-            libraryAutoScanState = appState.libraryAutoScanState,
-            recentComics = appState.recentComics,
-            isAddingToLibrary = appState.isAddingToLibrary,
-            proBillingState = proBillingState,
-            selectedLanguage = selectedLanguage,
-            themeUiState = themeUiState,
-            onBuyPro = {
-                (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
-            },
-            onRestorePro = billingRepository::restorePurchases,
-            onLanguageSelected = onLanguageSelected,
-            onThemeModeSelected = onThemeModeSelected,
-            onDynamicColorChanged = onDynamicColorChanged,
-            onAccentColorSelected = onAccentColorSelected,
-            onAmoledThemeChanged = onAmoledThemeChanged,
-            onTabSelected = appState::selectTab,
-            onStartAddToLibrary = appState::startAddToLibrary,
-            onAutoScanLibrary = appState::autoScanLibraryArchives,
-            onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
-            onDirectoryChange = appState::changeDirectory,
-            onOpenLocalArchive = appState::openLocalArchive,
-            onOpenLocalFolder = appState::openLocalFolder,
-            onOpenRecentComic = appState::openRecentComic,
-            onOpenLibraryComic = appState::openLibraryComic,
-            onAddLocalArchivesToLibrary = appState::addArchivesToLibrary,
-            onAddLocalFolderToLibrary = appState::addFolderToLibrary,
-            onRemoveLibraryComic = appState::removeFromLibrary,
-            onPrevious = appState::previousPage,
-            onNext = appState::nextPage,
-            onPageSelected = appState::selectPage,
-            onCloseComic = appState::closeComic,
-        )
+    val darkTheme = resolveDarkTheme(themeUiState.themeMode, isSystemInDarkTheme())
+    ComicViewerTheme(
+        darkTheme = darkTheme,
+        dynamicColor = themeUiState.dynamicColorEnabled,
+        appColor = themeUiState.accentColor,
+        themePreset = effectiveThemePreset,
+        amoledTheme = themeUiState.amoledEnabled,
+    ) {
+        if (!appState.hasFileAccess) {
+            FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
+        } else if (appState.showWelcome) {
+            WelcomeScreen(
+                proBillingState = effectiveProBillingState,
+                isDebugBuild = BuildConfig.DEBUG,
+                debugProUnlocked = debugProUnlocked,
+                onAutoScan = appState::startWelcomeAutoScan,
+                onBrowseManually = appState::startWelcomeManualBrowse,
+                onSkip = appState::dismissWelcome,
+                onBuyPro = {
+                    (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
+                },
+                onRestorePro = billingRepository::restorePurchases,
+                onDebugProUnlockedChanged = { unlocked ->
+                    if (BuildConfig.DEBUG) {
+                        saveDebugProUnlocked(context, unlocked)
+                        debugProUnlocked = unlocked
+                    }
+                },
+            )
+        } else {
+            ComicViewerScreen(
+                state = appState.uiState,
+                selectedTab = appState.currentTab,
+                currentDirectoryPath = appState.currentDirectoryPath,
+                browserRootPath = appState.browserRootPath,
+                libraryComics = appState.libraryComics,
+                libraryMetadata = appState.libraryMetadata,
+                libraryAutoScanState = appState.libraryAutoScanState,
+                recentComics = appState.recentComics,
+                isAddingToLibrary = appState.isAddingToLibrary,
+                proBillingState = effectiveProBillingState,
+                readerPreferences = readerPreferences,
+                isDebugBuild = BuildConfig.DEBUG,
+                debugProUnlocked = debugProUnlocked,
+                selectedLanguage = selectedLanguage,
+                themeUiState = themeUiState,
+                onBuyPro = {
+                    (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
+                },
+                onRestorePro = billingRepository::restorePurchases,
+                onReaderPreferencesChanged = { nextPreferences ->
+                    saveReaderPreferences(context, nextPreferences)
+                    readerPreferences = nextPreferences
+                },
+                onDebugProUnlockedChanged = { unlocked ->
+                    if (BuildConfig.DEBUG) {
+                        saveDebugProUnlocked(context, unlocked)
+                        debugProUnlocked = unlocked
+                    }
+                },
+                onLanguageSelected = onLanguageSelected,
+                onThemeModeSelected = onThemeModeSelected,
+                onDynamicColorChanged = onDynamicColorChanged,
+                onAccentColorSelected = onAccentColorSelected,
+                onThemePresetSelected = onThemePresetSelected,
+                onAmoledThemeChanged = onAmoledThemeChanged,
+                onTabSelected = appState::selectTab,
+                onStartAddToLibrary = appState::startAddToLibrary,
+                onAutoScanLibrary = appState::autoScanLibraryArchives,
+                onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
+                onDirectoryChange = appState::changeDirectory,
+                onOpenLocalArchive = appState::openLocalArchive,
+                onOpenLocalFolder = appState::openLocalFolder,
+                onOpenRecentComic = appState::openRecentComic,
+                onOpenLibraryComic = appState::openLibraryComic,
+                onAddLocalArchivesToLibrary = appState::addArchivesToLibrary,
+                onAddLocalFolderToLibrary = appState::addFolderToLibrary,
+                onRemoveLibraryComic = appState::removeFromLibrary,
+                onToggleLibraryFavorite = appState::toggleFavorite,
+                onSetLibraryTags = appState::setTags,
+                onPrevious = appState::previousPage,
+                onNext = appState::nextPage,
+                onPageSelected = appState::selectPage,
+                onCloseComic = appState::closeComic,
+            )
+        }
     }
 }
 
@@ -205,18 +272,25 @@ fun ComicViewerScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
     libraryComics: List<LibraryComic>,
+    libraryMetadata: List<LibraryComicMetadata>,
     libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
+    readerPreferences: ReaderPreferences,
+    isDebugBuild: Boolean,
+    debugProUnlocked: Boolean,
     selectedLanguage: AppLanguage,
     themeUiState: ThemeUiState,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
+    onReaderPreferencesChanged: (ReaderPreferences) -> Unit,
+    onDebugProUnlockedChanged: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
     onThemeModeSelected: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
     onAccentColorSelected: (AppColor) -> Unit,
+    onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
@@ -230,6 +304,8 @@ fun ComicViewerScreen(
     onAddLocalArchivesToLibrary: (List<File>) -> Unit,
     onAddLocalFolderToLibrary: (File) -> Unit,
     onRemoveLibraryComic: (LibraryComic) -> Unit,
+    onToggleLibraryFavorite: (LibraryComic) -> Unit,
+    onSetLibraryTags: (LibraryComic, List<String>) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onPageSelected: (Int) -> Unit,
@@ -240,6 +316,15 @@ fun ComicViewerScreen(
         ComicReaderScreen(
             book = state.book,
             pageIndex = state.pageIndex,
+            readerPreferences = readerPreferences,
+            isProUnlocked = proBillingState.isProUnlocked,
+            proBillingState = proBillingState,
+            isDebugBuild = isDebugBuild,
+            debugProUnlocked = debugProUnlocked,
+            onReaderPreferencesChanged = onReaderPreferencesChanged,
+            onBuyPro = onBuyPro,
+            onRestorePro = onRestorePro,
+            onDebugProUnlockedChanged = onDebugProUnlockedChanged,
             onPrevious = onPrevious,
             onNext = onNext,
             onPageSelected = onPageSelected,
@@ -259,18 +344,23 @@ fun ComicViewerScreen(
                     currentDirectoryPath = currentDirectoryPath,
                     browserRootPath = browserRootPath,
                     libraryComics = libraryComics,
+                    libraryMetadata = libraryMetadata,
                     libraryAutoScanState = libraryAutoScanState,
                     recentComics = recentComics,
                     isAddingToLibrary = isAddingToLibrary,
                     proBillingState = proBillingState,
+                    isDebugBuild = isDebugBuild,
+                    debugProUnlocked = debugProUnlocked,
                     selectedLanguage = selectedLanguage,
                     themeUiState = themeUiState,
                     onBuyPro = onBuyPro,
                     onRestorePro = onRestorePro,
+                    onDebugProUnlockedChanged = onDebugProUnlockedChanged,
                     onLanguageSelected = onLanguageSelected,
                     onThemeModeSelected = onThemeModeSelected,
                     onDynamicColorChanged = onDynamicColorChanged,
                     onAccentColorSelected = onAccentColorSelected,
+                    onThemePresetSelected = onThemePresetSelected,
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
                     onStartAddToLibrary = onStartAddToLibrary,
@@ -284,6 +374,8 @@ fun ComicViewerScreen(
                     onAddLocalArchivesToLibrary = onAddLocalArchivesToLibrary,
                     onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
                     onRemoveLibraryComic = onRemoveLibraryComic,
+                    onToggleLibraryFavorite = onToggleLibraryFavorite,
+                    onSetLibraryTags = onSetLibraryTags,
                 )
 
                 ReaderUiState.Loading -> LoadingComicScreen()
@@ -305,18 +397,23 @@ fun HomeScreen(
     currentDirectoryPath: String,
     browserRootPath: String,
     libraryComics: List<LibraryComic>,
+    libraryMetadata: List<LibraryComicMetadata>,
     libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
+    isDebugBuild: Boolean,
+    debugProUnlocked: Boolean,
     selectedLanguage: AppLanguage,
     themeUiState: ThemeUiState,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
+    onDebugProUnlockedChanged: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguage) -> Unit,
     onThemeModeSelected: (AppThemeMode) -> Unit,
     onDynamicColorChanged: (Boolean) -> Unit,
     onAccentColorSelected: (AppColor) -> Unit,
+    onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
@@ -330,6 +427,8 @@ fun HomeScreen(
     onAddLocalArchivesToLibrary: (List<File>) -> Unit,
     onAddLocalFolderToLibrary: (File) -> Unit,
     onRemoveLibraryComic: (LibraryComic) -> Unit,
+    onToggleLibraryFavorite: (LibraryComic) -> Unit,
+    onSetLibraryTags: (LibraryComic, List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -349,6 +448,7 @@ fun HomeScreen(
                         when (targetTab) {
                             AppTab.Library -> LibraryScreen(
                                 libraryComics = libraryComics,
+                                libraryMetadata = libraryMetadata,
                                 libraryAutoScanState = libraryAutoScanState,
                                 recentComics = recentComics,
                                 proBillingState = proBillingState,
@@ -357,8 +457,13 @@ fun HomeScreen(
                                 onClearAutoScanResult = onClearLibraryAutoScanResult,
                                 onBuyPro = onBuyPro,
                                 onRestorePro = onRestorePro,
+                                isDebugBuild = isDebugBuild,
+                                debugProUnlocked = debugProUnlocked,
+                                onDebugProUnlockedChanged = onDebugProUnlockedChanged,
                                 onOpenLibraryComic = onOpenLibraryComic,
                                 onRemoveLibraryComic = onRemoveLibraryComic,
+                                onToggleFavorite = onToggleLibraryFavorite,
+                                onSetTags = onSetLibraryTags,
                                 modifier = Modifier.fillMaxSize(),
                             )
 
@@ -379,11 +484,18 @@ fun HomeScreen(
                             AppTab.Settings -> SettingsScreen(
                                 selectedLanguage = selectedLanguage,
                                 themeUiState = themeUiState,
+                                proBillingState = proBillingState,
+                                isDebugBuild = isDebugBuild,
+                                debugProUnlocked = debugProUnlocked,
                                 buildInfo = currentAppBuildInfo(),
+                                onBuyPro = onBuyPro,
+                                onRestorePro = onRestorePro,
+                                onDebugProUnlockedChanged = onDebugProUnlockedChanged,
                                 onLanguageSelected = onLanguageSelected,
                                 onThemeModeSelected = onThemeModeSelected,
                                 onDynamicColorChanged = onDynamicColorChanged,
                                 onAccentColorSelected = onAccentColorSelected,
+                                onThemePresetSelected = onThemePresetSelected,
                                 onAmoledThemeChanged = onAmoledThemeChanged,
                                 modifier = Modifier.fillMaxSize(),
                             )

@@ -52,3 +52,17 @@ enum class AppColor(
     PURPLE("Viola", Purple40),
     ORANGE("Arancione", Orange40),
 }
+
+enum class AppThemePreset(
+    val preferenceValue: String,
+    val primarySwatch: Color,
+    val secondarySwatch: Color,
+    val tertiarySwatch: Color,
+    val proOnly: Boolean,
+) {
+    Default("default", Sky40, Mint40, Coral40, proOnly = false),
+    Ink("ink", Color(0xFF8FB6FF), Color(0xFF81D8C7), Color(0xFFFFB56B), proOnly = true),
+    Paper("paper", Color(0xFF7A6400), Color(0xFF3F6E63), Color(0xFF9B4D45), proOnly = true),
+    Neon("neon", Color(0xFF00D8FF), Color(0xFFFF5EC4), Color(0xFFD7F75B), proOnly = true),
+    Aurora("aurora", Color(0xFF00A891), Color(0xFF7F6CE0), Color(0xFFC15B83), proOnly = true),
+}

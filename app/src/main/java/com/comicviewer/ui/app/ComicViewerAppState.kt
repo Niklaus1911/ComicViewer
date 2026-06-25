@@ -15,6 +15,7 @@ import com.comicviewer.ComicLoadException
 import com.comicviewer.R
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryAutoScanState
+import com.comicviewer.LibraryComicMetadata
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
 import com.comicviewer.RecentComicSourceType
@@ -24,6 +25,7 @@ import com.comicviewer.coercePageIndex
 import com.comicviewer.libraryComicForArchive
 import com.comicviewer.libraryComicForFolder
 import com.comicviewer.loadLibraryComics
+import com.comicviewer.loadLibraryMetadata
 import com.comicviewer.loadLocalArchiveComic
 import com.comicviewer.loadLocalFolderComic
 import com.comicviewer.loadRecentComics
@@ -34,6 +36,7 @@ import com.comicviewer.recentComicFor
 import com.comicviewer.removeLibraryComic
 import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
+import com.comicviewer.saveLibraryMetadata
 import com.comicviewer.saveRecentComics
 import com.comicviewer.saveWelcomeSeen
 import com.comicviewer.scanLibraryArchives
@@ -41,6 +44,9 @@ import com.comicviewer.shouldShowWelcome
 import com.comicviewer.upsertLibraryComic
 import com.comicviewer.upsertLibraryComics
 import com.comicviewer.upsertRecentComic
+import com.comicviewer.toggleLibraryFavorite
+import com.comicviewer.setLibraryTags
+import com.comicviewer.pruneLibraryMetadata
 import com.comicviewer.updateRecentComicPage
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -59,6 +65,7 @@ class ComicViewerAppState(
     showWelcome: Boolean,
     recentComics: List<RecentComic>,
     libraryComics: List<LibraryComic>,
+    libraryMetadata: List<LibraryComicMetadata>,
     val browserRootPath: String,
 ) {
     var hasFileAccess by mutableStateOf(hasFileAccess)
@@ -76,6 +83,8 @@ class ComicViewerAppState(
     var recentComics by mutableStateOf(recentComics)
         private set
     var libraryComics by mutableStateOf(libraryComics)
+        private set
+    var libraryMetadata by mutableStateOf(libraryMetadata)
         private set
     var libraryAutoScanState by mutableStateOf<LibraryAutoScanState>(LibraryAutoScanState.Idle)
         private set
@@ -241,11 +250,32 @@ class ComicViewerAppState(
     }
 
     fun removeFromLibrary(libraryComic: LibraryComic) {
-        persistLibraryComics(
-            removeLibraryComic(
-                libraryComics = libraryComics,
-                sourceType = libraryComic.sourceType,
-                path = libraryComic.path,
+        val nextLibraryComics = removeLibraryComic(
+            libraryComics = libraryComics,
+            sourceType = libraryComic.sourceType,
+            path = libraryComic.path,
+        )
+        persistLibraryComics(nextLibraryComics)
+        persistLibraryMetadata(pruneLibraryMetadata(libraryMetadata, nextLibraryComics))
+    }
+
+    fun toggleFavorite(libraryComic: LibraryComic) {
+        persistLibraryMetadata(
+            toggleLibraryFavorite(
+                libraryComic = libraryComic,
+                metadata = libraryMetadata,
+                nowMs = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun setTags(libraryComic: LibraryComic, tags: List<String>) {
+        persistLibraryMetadata(
+            setLibraryTags(
+                libraryComic = libraryComic,
+                metadata = libraryMetadata,
+                tags = tags,
+                nowMs = System.currentTimeMillis(),
             ),
         )
     }
@@ -379,6 +409,11 @@ class ComicViewerAppState(
         saveLibraryComics(appContext, nextLibraryComics)
     }
 
+    private fun persistLibraryMetadata(nextLibraryMetadata: List<LibraryComicMetadata>) {
+        libraryMetadata = nextLibraryMetadata
+        saveLibraryMetadata(appContext, nextLibraryMetadata)
+    }
+
     private fun rememberOpenedComic(book: ComicBook, pageIndex: Int) {
         val recentComic = recentComicFor(
             book = book,
@@ -426,6 +461,7 @@ fun rememberComicViewerAppState(
     val isAddingToLibrary = rememberSaveable { mutableStateOf(false) }
     val recentComics = remember { loadRecentComics(appContext) }
     val libraryComics = remember { loadLibraryComics(appContext) }
+    val libraryMetadata = remember { loadLibraryMetadata(appContext) }
     val showWelcome = remember {
         shouldShowWelcome(
             welcomeSeen = loadWelcomeSeen(appContext),
@@ -447,6 +483,7 @@ fun rememberComicViewerAppState(
             showWelcome = showWelcome,
             recentComics = recentComics,
             libraryComics = libraryComics,
+            libraryMetadata = libraryMetadata,
             browserRootPath = browserRootPath,
         )
     }

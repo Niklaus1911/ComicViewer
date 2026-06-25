@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -58,10 +59,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.comicviewer.R
+import com.comicviewer.billing.ProBillingState
+import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.StaggeredReveal
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.sheen
 import com.comicviewer.ui.common.softPress
+import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.theme.ComicViewerTheme
 import kotlin.math.PI
 import kotlin.math.cos
@@ -69,15 +73,22 @@ import kotlin.math.sin
 
 @Composable
 fun WelcomeScreen(
+    proBillingState: ProBillingState,
+    isDebugBuild: Boolean,
+    debugProUnlocked: Boolean,
     onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
+    onBuyPro: () -> Unit,
+    onRestorePro: () -> Unit,
+    onDebugProUnlockedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val throttledAutoScan = rememberThrottledAction(action = onAutoScan)
     val throttledBrowseManually = rememberThrottledAction(action = onBrowseManually)
     val throttledSkip = rememberThrottledAction(action = onSkip)
     var visible by remember { mutableStateOf(false) }
+    var showProDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         visible = true
@@ -132,6 +143,8 @@ fun WelcomeScreen(
                         }
                         WelcomeContent(
                             visible = visible,
+                            proBillingState = proBillingState,
+                            onShowPro = { showProDialog = true },
                             onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
@@ -156,6 +169,8 @@ fun WelcomeScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         WelcomeContent(
                             visible = visible,
+                            proBillingState = proBillingState,
+                            onShowPro = { showProDialog = true },
                             onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
@@ -164,6 +179,18 @@ fun WelcomeScreen(
                 }
             }
         }
+    }
+
+    if (showProDialog) {
+        ProUpgradeDialog(
+            billingState = proBillingState,
+            onBuyPro = onBuyPro,
+            onRestorePro = onRestorePro,
+            isDebugBuild = isDebugBuild,
+            debugProUnlocked = debugProUnlocked,
+            onDebugProUnlockedChanged = onDebugProUnlockedChanged,
+            onDismiss = { showProDialog = false },
+        )
     }
 }
 
@@ -244,6 +271,8 @@ private fun WelcomeBackground(
 @Composable
 private fun WelcomeContent(
     visible: Boolean,
+    proBillingState: ProBillingState,
+    onShowPro: () -> Unit,
     onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
@@ -298,10 +327,21 @@ private fun WelcomeContent(
         StaggeredReveal(visible = visible, delayMillis = 420) {
             WelcomeFormatRow()
         }
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(18.dp))
         StaggeredReveal(
             visible = visible,
-            delayMillis = 500,
+            delayMillis = 490,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            WelcomeProTeaser(
+                billingState = proBillingState,
+                onShowPro = onShowPro,
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
+        StaggeredReveal(
+            visible = visible,
+            delayMillis = 570,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Button(
@@ -324,7 +364,7 @@ private fun WelcomeContent(
         Spacer(modifier = Modifier.height(10.dp))
         StaggeredReveal(
             visible = visible,
-            delayMillis = 570,
+            delayMillis = 640,
             modifier = Modifier.fillMaxWidth(),
         ) {
             FilledTonalButton(
@@ -344,13 +384,85 @@ private fun WelcomeContent(
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        StaggeredReveal(visible = visible, delayMillis = 640) {
+        StaggeredReveal(visible = visible, delayMillis = 710) {
             TextButton(
                 onClick = onSkip,
                 interactionSource = skipInteraction,
                 modifier = Modifier.softPress(skipInteraction),
             ) {
                 Text(stringResource(R.string.welcome_skip))
+            }
+        }
+    }
+}
+
+@Composable
+private fun WelcomeProTeaser(
+    billingState: ProBillingState,
+    onShowPro: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.WorkspacePremium,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(20.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(
+                        if (billingState.isProUnlocked) {
+                            R.string.welcome_pro_unlocked_title
+                        } else {
+                            R.string.welcome_pro_title
+                        },
+                    ),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(
+                        if (billingState.isProUnlocked) {
+                            R.string.welcome_pro_unlocked_message
+                        } else {
+                            R.string.welcome_pro_message
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!billingState.isProUnlocked) {
+                    billingState.formattedPrice?.let { price ->
+                        Text(
+                            text = stringResource(R.string.welcome_pro_price, price),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+            if (!billingState.isProUnlocked) {
+                TextButton(onClick = onShowPro) {
+                    Text(stringResource(R.string.welcome_pro_cta))
+                }
             }
         }
     }
@@ -634,9 +746,15 @@ private fun WelcomeScanBeam(scanProgress: Float, modifier: Modifier = Modifier) 
 private fun WelcomeScreenPreview() {
     ComicViewerTheme(dynamicColor = false) {
         WelcomeScreen(
+            proBillingState = previewProBillingState(),
+            isDebugBuild = false,
+            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
+            onBuyPro = {},
+            onRestorePro = {},
+            onDebugProUnlockedChanged = {},
         )
     }
 }
@@ -646,9 +764,15 @@ private fun WelcomeScreenPreview() {
 private fun WelcomeScreenLightPreview() {
     ComicViewerTheme(darkTheme = false, dynamicColor = false) {
         WelcomeScreen(
+            proBillingState = previewProBillingState(),
+            isDebugBuild = false,
+            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
+            onBuyPro = {},
+            onRestorePro = {},
+            onDebugProUnlockedChanged = {},
         )
     }
 }
@@ -658,9 +782,20 @@ private fun WelcomeScreenLightPreview() {
 private fun WelcomeScreenAmoledPreview() {
     ComicViewerTheme(darkTheme = true, dynamicColor = false, amoledTheme = true) {
         WelcomeScreen(
+            proBillingState = previewProBillingState(),
+            isDebugBuild = false,
+            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
+            onBuyPro = {},
+            onRestorePro = {},
+            onDebugProUnlockedChanged = {},
         )
     }
 }
+
+private fun previewProBillingState() = ProBillingState(
+    status = ProBillingStatus.Available,
+    formattedPrice = "$2.99",
+)

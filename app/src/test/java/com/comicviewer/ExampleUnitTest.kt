@@ -6,6 +6,11 @@ import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import com.comicviewer.ui.reader.ReaderSwipeDirection
+import com.comicviewer.ui.reader.readerEffectivePageScale
+import com.comicviewer.ui.reader.readerFitWidthScaleMultiplier
+import com.comicviewer.ui.reader.readerLogicalDirectionForPhysicalDirection
+import com.comicviewer.ui.reader.readerNavigationDirectionForTap
+import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
 import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
@@ -13,6 +18,7 @@ import com.comicviewer.ui.reader.readerSwipeCommitDirection
 import com.comicviewer.ui.reader.readerSwipeStartOffset
 import com.comicviewer.ui.reader.readerSwipeTargetIndex
 import com.comicviewer.ui.reader.resistedReaderSwipeOffset
+import com.comicviewer.ui.theme.AppThemePreset
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
@@ -1030,6 +1036,206 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun readerLogicalDirectionForPhysicalDirection_reversesOnlyForRtl() {
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerLogicalDirectionForPhysicalDirection(
+                physicalDirection = ReaderSwipeDirection.Previous,
+                readingDirection = ReaderReadingDirection.LeftToRight,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerLogicalDirectionForPhysicalDirection(
+                physicalDirection = ReaderSwipeDirection.Previous,
+                readingDirection = ReaderReadingDirection.RightToLeft,
+            ),
+        )
+    }
+
+    @Test
+    fun readerNavigationDirectionForTap_usesReadingDirectionForOuterZones() {
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerNavigationDirectionForTap(
+                tapX = 100f,
+                viewportWidth = 900f,
+                readingDirection = ReaderReadingDirection.LeftToRight,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerNavigationDirectionForTap(
+                tapX = 100f,
+                viewportWidth = 900f,
+                readingDirection = ReaderReadingDirection.RightToLeft,
+            ),
+        )
+        assertNull(
+            readerNavigationDirectionForTap(
+                tapX = 450f,
+                viewportWidth = 900f,
+                readingDirection = ReaderReadingDirection.RightToLeft,
+            ),
+        )
+    }
+
+    @Test
+    fun readerSwipeCommitDirection_usesRtlReadingDirectionForPhysicalSwipes() {
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerSwipeCommitDirection(
+                offsetX = 150f,
+                velocityX = 0f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+                readingDirection = ReaderReadingDirection.RightToLeft,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerSwipeCommitDirection(
+                offsetX = -150f,
+                velocityX = 0f,
+                viewportWidth = 1000f,
+                currentPageIndex = 2,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+                readingDirection = ReaderReadingDirection.RightToLeft,
+            ),
+        )
+    }
+
+    @Test
+    fun readerPhysicalSwipeCommitDirection_prefersVelocityOverOffsetForAnimationSide() {
+        assertEquals(
+            ReaderSwipeDirection.Next,
+            readerPhysicalSwipeCommitDirection(
+                offsetX = 80f,
+                velocityX = -900f,
+                velocityThresholdPx = 700f,
+            ),
+        )
+        assertEquals(
+            ReaderSwipeDirection.Previous,
+            readerPhysicalSwipeCommitDirection(
+                offsetX = -80f,
+                velocityX = 900f,
+                velocityThresholdPx = 700f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerIncomingPageOffsetAfterCommit_usesVelocityResolvedPhysicalDirection() {
+        val physicalCommitDirection = readerPhysicalSwipeCommitDirection(
+            offsetX = 80f,
+            velocityX = -900f,
+            velocityThresholdPx = 700f,
+        )
+
+        assertEquals(
+            1000f,
+            readerIncomingPageOffsetAfterCommit(
+                direction = physicalCommitDirection!!,
+                currentOffsetX = 80f,
+                viewportWidth = 1000f,
+            ),
+        )
+    }
+
+    @Test
+    fun readerFitWidthScaleMultiplier_scalesTallPagesToViewportWidth() {
+        assertEquals(
+            2f,
+            readerFitWidthScaleMultiplier(
+                pageWidth = 1000,
+                pageHeight = 2000,
+                viewportWidth = 1000,
+                viewportHeight = 1000,
+            ),
+            0.0001f,
+        )
+        assertEquals(
+            1f,
+            readerFitWidthScaleMultiplier(
+                pageWidth = 0,
+                pageHeight = 0,
+                viewportWidth = 1000,
+                viewportHeight = 1000,
+            ),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun readerEffectivePageScale_combinesFitWidthBaseScaleAndUserScale() {
+        assertEquals(
+            1f,
+            readerEffectivePageScale(
+                pageFitMode = ReaderPageFitMode.FitScreen,
+                pageWidth = 1000,
+                pageHeight = 2000,
+                viewportWidth = 1000,
+                viewportHeight = 1000,
+                userScale = 1f,
+            ),
+            0.0001f,
+        )
+        assertEquals(
+            3f,
+            readerEffectivePageScale(
+                pageFitMode = ReaderPageFitMode.FitWidth,
+                pageWidth = 1000,
+                pageHeight = 2000,
+                viewportWidth = 1000,
+                viewportHeight = 1000,
+                userScale = 1.5f,
+            ),
+            0.0001f,
+        )
+    }
+
+    @Test
+    fun resolvedReaderPreferences_returnsDefaultsUntilProUnlocked() {
+        val proPreferences = ReaderPreferences(
+            readingDirection = ReaderReadingDirection.RightToLeft,
+            pageFitMode = ReaderPageFitMode.FitWidth,
+            background = ReaderBackground.Sepia,
+        )
+
+        assertEquals(ReaderPreferences(), resolvedReaderPreferences(proPreferences, isProUnlocked = false))
+        assertEquals(proPreferences, resolvedReaderPreferences(proPreferences, isProUnlocked = true))
+    }
+
+    @Test
+    fun effectiveProUnlocked_usesDebugOverrideOnlyForDebugBuilds() {
+        assertTrue(
+            effectiveProUnlocked(
+                billingUnlocked = false,
+                debugOverrideUnlocked = true,
+                isDebugBuild = true,
+            ),
+        )
+        assertFalse(
+            effectiveProUnlocked(
+                billingUnlocked = false,
+                debugOverrideUnlocked = true,
+                isDebugBuild = false,
+            ),
+        )
+        assertTrue(
+            effectiveProUnlocked(
+                billingUnlocked = true,
+                debugOverrideUnlocked = false,
+                isDebugBuild = false,
+            ),
+        )
+    }
+
+    @Test
     fun readerSwipeStartOffset_preservesCompatibleInterruptedSettleOffset() {
         assertEquals(
             320f,
@@ -1252,6 +1458,193 @@ class ExampleUnitTest {
         )
 
         assertEquals(listOf(archiveMatch.path), result.map { comic -> comic.path })
+    }
+
+    @Test
+    fun encodeAndDecodeLibraryMetadata_roundTripsAndNormalizesTags() {
+        val metadata = LibraryComicMetadata(
+            sourceType = RecentComicSourceType.LocalArchive,
+            path = "/storage/emulated/0/Batman.cbz",
+            favorite = true,
+            tags = listOf("  Manga ", "manga", "DC"),
+            updatedAt = 300L,
+        )
+
+        val result = decodeLibraryMetadata(encodeLibraryMetadata(listOf(metadata)))
+
+        assertEquals(
+            listOf(
+                metadata.copy(tags = listOf("DC", "Manga")),
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun toggleLibraryFavorite_togglesAndRemovesEmptyMetadataWhenCleared() {
+        val comic = sampleLibraryComic(path = "/storage/emulated/0/Batman.cbz")
+
+        val favorited = toggleLibraryFavorite(
+            libraryComic = comic,
+            metadata = emptyList(),
+            nowMs = 100L,
+        )
+        assertTrue(favorited.single().favorite)
+
+        val cleared = toggleLibraryFavorite(
+            libraryComic = comic,
+            metadata = favorited,
+            nowMs = 200L,
+        )
+        assertTrue(cleared.isEmpty())
+    }
+
+    @Test
+    fun setLibraryTags_normalizesAndAvailableTagsSortsNaturally() {
+        val comic = sampleLibraryComic(path = "/storage/emulated/0/Batman.cbz")
+        val result = setLibraryTags(
+            libraryComic = comic,
+            metadata = emptyList(),
+            tags = listOf("Series 10", "Series 2", "series 2", "  "),
+            nowMs = 100L,
+        )
+
+        assertEquals(listOf("Series 2", "Series 10"), result.single().tags)
+        assertEquals(listOf("Series 2", "Series 10"), availableLibraryTags(result))
+    }
+
+    @Test
+    fun libraryView_filtersFavoritesProgressAndTags() {
+        val favorite = sampleLibraryComic(path = "/storage/emulated/0/Favorite.cbz")
+        val unread = sampleLibraryComic(path = "/storage/emulated/0/Unread.cbz")
+        val completed = sampleLibraryComic(path = "/storage/emulated/0/Completed.cbz")
+        val metadata = listOf(
+            LibraryComicMetadata(
+                sourceType = favorite.sourceType,
+                path = favorite.path,
+                favorite = true,
+                tags = listOf("Manga"),
+                updatedAt = 100L,
+            ),
+        )
+        val recents = listOf(
+            sampleRecentComic(path = favorite.path, lastPageIndex = 4, pageCount = 10),
+            sampleRecentComic(path = completed.path, lastPageIndex = 9, pageCount = 10),
+        )
+        val comics = listOf(favorite, unread, completed)
+
+        assertEquals(
+            listOf(favorite.path),
+            libraryView(
+                comics = comics,
+                recentComics = recents,
+                query = "",
+                filter = LibraryFilter.All,
+                order = LibrarySortOrder.RecentlyAdded,
+                metadata = metadata,
+                progressFilter = LibraryProgressFilter.Favorites,
+            ).map { comic -> comic.path },
+        )
+        assertEquals(
+            listOf(unread.path),
+            libraryView(
+                comics = comics,
+                recentComics = recents,
+                query = "",
+                filter = LibraryFilter.All,
+                order = LibrarySortOrder.RecentlyAdded,
+                metadata = metadata,
+                progressFilter = LibraryProgressFilter.Unread,
+            ).map { comic -> comic.path },
+        )
+        assertEquals(
+            listOf(completed.path),
+            libraryView(
+                comics = comics,
+                recentComics = recents,
+                query = "",
+                filter = LibraryFilter.All,
+                order = LibrarySortOrder.RecentlyAdded,
+                metadata = metadata,
+                progressFilter = LibraryProgressFilter.Completed,
+            ).map { comic -> comic.path },
+        )
+        assertEquals(
+            listOf(favorite.path),
+            libraryView(
+                comics = comics,
+                recentComics = recents,
+                query = "",
+                filter = LibraryFilter.All,
+                order = LibrarySortOrder.RecentlyAdded,
+                metadata = metadata,
+                tagFilter = "manga",
+            ).map { comic -> comic.path },
+        )
+    }
+
+    @Test
+    fun resolvedLibraryMetadata_hidesMetadataUntilProUnlocked() {
+        val metadata = listOf(
+            LibraryComicMetadata(
+                sourceType = RecentComicSourceType.LocalArchive,
+                path = "/storage/emulated/0/Favorite.cbz",
+                favorite = true,
+                tags = listOf("Manga"),
+                updatedAt = 100L,
+            ),
+        )
+
+        assertTrue(resolvedLibraryMetadata(metadata, isProUnlocked = false).isEmpty())
+        assertEquals(metadata, resolvedLibraryMetadata(metadata, isProUnlocked = true))
+    }
+
+    @Test
+    fun resolvedLibraryFilters_defaultLockedProFiltersUntilProUnlocked() {
+        assertEquals(
+            LibraryProgressFilter.All,
+            resolvedLibraryProgressFilter(LibraryProgressFilter.Favorites, isProUnlocked = false),
+        )
+        assertEquals(
+            LibraryProgressFilter.Favorites,
+            resolvedLibraryProgressFilter(LibraryProgressFilter.Favorites, isProUnlocked = true),
+        )
+        assertNull(resolvedLibraryTagFilter("Manga", isProUnlocked = false))
+        assertEquals("Manga", resolvedLibraryTagFilter("Manga", isProUnlocked = true))
+    }
+
+    @Test
+    fun resolvedThemePreset_defaultsLockedProPresetsUntilProUnlocked() {
+        assertEquals(
+            AppThemePreset.Default,
+            resolvedThemePreset(AppThemePreset.Ink, isProUnlocked = false),
+        )
+        assertEquals(
+            AppThemePreset.Ink,
+            resolvedThemePreset(AppThemePreset.Ink, isProUnlocked = true),
+        )
+        assertEquals(
+            AppThemePreset.Default,
+            resolvedThemePreset(AppThemePreset.Default, isProUnlocked = false),
+        )
+    }
+
+    @Test
+    fun themePresetForDynamicColorSelection_resetsPresetWhenDynamicColorIsEnabled() {
+        assertEquals(
+            AppThemePreset.Default,
+            themePresetForDynamicColorSelection(
+                dynamicColorEnabled = true,
+                currentThemePreset = AppThemePreset.Ink,
+            ),
+        )
+        assertEquals(
+            AppThemePreset.Ink,
+            themePresetForDynamicColorSelection(
+                dynamicColorEnabled = false,
+                currentThemePreset = AppThemePreset.Ink,
+            ),
+        )
     }
 
     @Test

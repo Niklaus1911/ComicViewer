@@ -39,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ import com.comicviewer.saveReaderPreferences
 import com.comicviewer.billing.ProBillingRepository
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.ui.browser.FileBrowserScreen
+import com.comicviewer.ui.common.ProPurchaseSuccessOverlay
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.library.LibraryScreen
@@ -117,6 +119,8 @@ fun ComicViewerApp(
     val proBillingState by billingRepository.state.collectAsState()
     var readerPreferences by remember { mutableStateOf(loadReaderPreferences(context)) }
     var debugProUnlocked by remember { mutableStateOf(loadDebugProUnlocked(context)) }
+    var visibleProSuccessEventId by remember { mutableStateOf(0L) }
+    var consumedProSuccessEventId by remember { mutableStateOf(0L) }
     val effectiveProUnlockedValue = effectiveProUnlocked(
         billingUnlocked = proBillingState.isProUnlocked,
         debugOverrideUnlocked = debugProUnlocked,
@@ -176,6 +180,14 @@ fun ComicViewerApp(
         appState.handleBack()
     }
 
+    LaunchedEffect(proBillingState.purchaseSuccessEventId) {
+        val eventId = proBillingState.purchaseSuccessEventId
+        if (eventId > 0L && eventId != consumedProSuccessEventId) {
+            consumedProSuccessEventId = eventId
+            visibleProSuccessEventId = eventId
+        }
+    }
+
     val darkTheme = resolveDarkTheme(themeUiState.themeMode, isSystemInDarkTheme())
     ComicViewerTheme(
         darkTheme = darkTheme,
@@ -184,83 +196,92 @@ fun ComicViewerApp(
         themePreset = effectiveThemePreset,
         amoledTheme = themeUiState.amoledEnabled,
     ) {
-        if (!appState.hasFileAccess) {
-            FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
-        } else if (appState.showWelcome) {
-            WelcomeScreen(
-                proBillingState = effectiveProBillingState,
-                isDebugBuild = BuildConfig.DEBUG,
-                debugProUnlocked = debugProUnlocked,
-                onAutoScan = appState::startWelcomeAutoScan,
-                onBrowseManually = appState::startWelcomeManualBrowse,
-                onSkip = appState::dismissWelcome,
-                onBuyPro = {
-                    (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
-                },
-                onRestorePro = billingRepository::restorePurchases,
-                onDebugProUnlockedChanged = { unlocked ->
-                    if (BuildConfig.DEBUG) {
-                        saveDebugProUnlocked(context, unlocked)
-                        debugProUnlocked = unlocked
-                    }
-                },
-            )
-        } else {
-            ComicViewerScreen(
-                state = appState.uiState,
-                selectedTab = appState.currentTab,
-                currentDirectoryPath = appState.currentDirectoryPath,
-                browserRootPath = appState.browserRootPath,
-                libraryComics = appState.libraryComics,
-                libraryMetadata = appState.libraryMetadata,
-                libraryAutoScanState = appState.libraryAutoScanState,
-                recentComics = appState.recentComics,
-                isAddingToLibrary = appState.isAddingToLibrary,
-                proBillingState = effectiveProBillingState,
-                readerPreferences = readerPreferences,
-                isDebugBuild = BuildConfig.DEBUG,
-                debugProUnlocked = debugProUnlocked,
-                selectedLanguage = selectedLanguage,
-                themeUiState = themeUiState,
-                onBuyPro = {
-                    (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
-                },
-                onRestorePro = billingRepository::restorePurchases,
-                onReaderPreferencesChanged = { nextPreferences ->
-                    saveReaderPreferences(context, nextPreferences)
-                    readerPreferences = nextPreferences
-                },
-                onDebugProUnlockedChanged = { unlocked ->
-                    if (BuildConfig.DEBUG) {
-                        saveDebugProUnlocked(context, unlocked)
-                        debugProUnlocked = unlocked
-                    }
-                },
-                onLanguageSelected = onLanguageSelected,
-                onThemeModeSelected = onThemeModeSelected,
-                onDynamicColorChanged = onDynamicColorChanged,
-                onAccentColorSelected = onAccentColorSelected,
-                onThemePresetSelected = onThemePresetSelected,
-                onAmoledThemeChanged = onAmoledThemeChanged,
-                onTabSelected = appState::selectTab,
-                onStartAddToLibrary = appState::startAddToLibrary,
-                onAutoScanLibrary = appState::autoScanLibraryArchives,
-                onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
-                onDirectoryChange = appState::changeDirectory,
-                onOpenLocalArchive = appState::openLocalArchive,
-                onOpenLocalFolder = appState::openLocalFolder,
-                onOpenRecentComic = appState::openRecentComic,
-                onOpenLibraryComic = appState::openLibraryComic,
-                onAddLocalArchivesToLibrary = appState::addArchivesToLibrary,
-                onAddLocalFolderToLibrary = appState::addFolderToLibrary,
-                onRemoveLibraryComic = appState::removeFromLibrary,
-                onToggleLibraryFavorite = appState::toggleFavorite,
-                onSetLibraryTags = appState::setTags,
-                onPrevious = appState::previousPage,
-                onNext = appState::nextPage,
-                onPageSelected = appState::selectPage,
-                onCloseComic = appState::closeComic,
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (!appState.hasFileAccess) {
+                FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
+            } else if (appState.showWelcome) {
+                WelcomeScreen(
+                    proBillingState = effectiveProBillingState,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugProUnlocked = debugProUnlocked,
+                    onAutoScan = appState::startWelcomeAutoScan,
+                    onBrowseManually = appState::startWelcomeManualBrowse,
+                    onSkip = appState::dismissWelcome,
+                    onBuyPro = {
+                        (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
+                    },
+                    onRestorePro = billingRepository::restorePurchases,
+                    onDebugProUnlockedChanged = { unlocked ->
+                        if (BuildConfig.DEBUG) {
+                            saveDebugProUnlocked(context, unlocked)
+                            debugProUnlocked = unlocked
+                        }
+                    },
+                )
+            } else {
+                ComicViewerScreen(
+                    state = appState.uiState,
+                    selectedTab = appState.currentTab,
+                    currentDirectoryPath = appState.currentDirectoryPath,
+                    browserRootPath = appState.browserRootPath,
+                    libraryComics = appState.libraryComics,
+                    libraryMetadata = appState.libraryMetadata,
+                    libraryAutoScanState = appState.libraryAutoScanState,
+                    recentComics = appState.recentComics,
+                    isAddingToLibrary = appState.isAddingToLibrary,
+                    proBillingState = effectiveProBillingState,
+                    readerPreferences = readerPreferences,
+                    isDebugBuild = BuildConfig.DEBUG,
+                    debugProUnlocked = debugProUnlocked,
+                    selectedLanguage = selectedLanguage,
+                    themeUiState = themeUiState,
+                    onBuyPro = {
+                        (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
+                    },
+                    onRestorePro = billingRepository::restorePurchases,
+                    onReaderPreferencesChanged = { nextPreferences ->
+                        saveReaderPreferences(context, nextPreferences)
+                        readerPreferences = nextPreferences
+                    },
+                    onDebugProUnlockedChanged = { unlocked ->
+                        if (BuildConfig.DEBUG) {
+                            saveDebugProUnlocked(context, unlocked)
+                            debugProUnlocked = unlocked
+                        }
+                    },
+                    onLanguageSelected = onLanguageSelected,
+                    onThemeModeSelected = onThemeModeSelected,
+                    onDynamicColorChanged = onDynamicColorChanged,
+                    onAccentColorSelected = onAccentColorSelected,
+                    onThemePresetSelected = onThemePresetSelected,
+                    onAmoledThemeChanged = onAmoledThemeChanged,
+                    onTabSelected = appState::selectTab,
+                    onStartAddToLibrary = appState::startAddToLibrary,
+                    onAutoScanLibrary = appState::autoScanLibraryArchives,
+                    onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
+                    onDirectoryChange = appState::changeDirectory,
+                    onOpenLocalArchive = appState::openLocalArchive,
+                    onOpenLocalFolder = appState::openLocalFolder,
+                    onOpenRecentComic = appState::openRecentComic,
+                    onOpenLibraryComic = appState::openLibraryComic,
+                    onAddLocalArchivesToLibrary = appState::addArchivesToLibrary,
+                    onAddLocalFolderToLibrary = appState::addFolderToLibrary,
+                    onRemoveLibraryComic = appState::removeFromLibrary,
+                    onToggleLibraryFavorite = appState::toggleFavorite,
+                    onSetLibraryTags = appState::setTags,
+                    onPrevious = appState::previousPage,
+                    onNext = appState::nextPage,
+                    onPageSelected = appState::selectPage,
+                    onCloseComic = appState::closeComic,
+                )
+            }
+            if (visibleProSuccessEventId > 0L) {
+                ProPurchaseSuccessOverlay(
+                    eventId = visibleProSuccessEventId,
+                    onDismiss = { visibleProSuccessEventId = 0L },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }

@@ -104,6 +104,10 @@
     <string name="pro_buy">Acquista Pro</string>
     <string name="pro_restore">Ripristina acquisti</string>
     <string name="pro_unavailable">Play Billing non e ancora disponibile. Assicurati che l\'app sia installata da Google Play e che il prodotto Pro sia configurato.</string>
+    <string name="pro_purchase_checking">Verifico lo stato dell\'acquisto...</string>
+    <string name="pro_purchase_failed">Non e stato possibile completare l\'acquisto. Riprova tra poco.</string>
+    <string name="pro_purchase_success_title">Comic Viewer Pro e attivo</string>
+    <string name="pro_purchase_success_message">Temi, controlli reader avanzati, preferiti, tag e filtri libreria sono pronti.</string>
     <string name="pro_badge">Pro</string>
     <string name="pro_benefit_rtl_title">Lettura da destra a sinistra</string>
     <string name="pro_benefit_rtl_message">Usa tocchi e swipe stile manga senza cambiare l\'ordine delle pagine.</string>

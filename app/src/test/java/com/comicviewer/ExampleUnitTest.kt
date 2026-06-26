@@ -1,5 +1,9 @@
 package com.comicviewer
 
+import com.android.billingclient.api.BillingClient
+import com.comicviewer.billing.ProBillingMessage
+import com.comicviewer.billing.isRecoverableBillingResponseCode
+import com.comicviewer.billing.userMessageForBillingResponseCode
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -1232,6 +1236,39 @@ class ExampleUnitTest {
                 debugOverrideUnlocked = false,
                 isDebugBuild = false,
             ),
+        )
+    }
+
+    @Test
+    fun isRecoverableBillingResponseCode_marksTransientPurchaseFailuresRecoverable() {
+        assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.NETWORK_ERROR))
+        assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE))
+        assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.SERVICE_DISCONNECTED))
+        assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.ERROR))
+        assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED))
+    }
+
+    @Test
+    fun isRecoverableBillingResponseCode_doesNotRetryUserCancelOrFatalSetupFailures() {
+        assertFalse(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.USER_CANCELED))
+        assertFalse(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.BILLING_UNAVAILABLE))
+        assertFalse(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.DEVELOPER_ERROR))
+        assertFalse(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.ITEM_UNAVAILABLE))
+    }
+
+    @Test
+    fun userMessageForBillingResponseCode_hidesTechnicalMessagesForRecoverableFailures() {
+        assertEquals(
+            ProBillingMessage.CheckingPurchase,
+            userMessageForBillingResponseCode(BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE),
+        )
+        assertEquals(
+            ProBillingMessage.CheckingPurchase,
+            userMessageForBillingResponseCode(BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED),
+        )
+        assertEquals(
+            ProBillingMessage.PurchaseFailed,
+            userMessageForBillingResponseCode(BillingClient.BillingResponseCode.DEVELOPER_ERROR),
         )
     }
 

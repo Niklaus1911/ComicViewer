@@ -97,6 +97,7 @@ import com.comicviewer.metadataFor
 import com.comicviewer.resolvedLibraryMetadata
 import com.comicviewer.resolvedLibraryProgressFilter
 import com.comicviewer.resolvedLibraryTagFilter
+import com.comicviewer.billing.ProBillingMessage
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.StaggeredReveal
@@ -841,7 +842,11 @@ fun ProUpgradeDialog(
                         )
                     }
                 }
-                if (billingState.status is ProBillingStatus.Unavailable && !billingState.isProUnlocked) {
+                if (
+                    billingState.status is ProBillingStatus.Unavailable &&
+                    !billingState.isProUnlocked &&
+                    billingState.message != ProBillingMessage.PurchaseUnavailable
+                ) {
                     Text(
                         text = stringResource(R.string.pro_unavailable),
                         style = MaterialTheme.typography.bodySmall,
@@ -850,9 +855,13 @@ fun ProUpgradeDialog(
                 }
                 billingState.message?.let { message ->
                     Text(
-                        text = message,
+                        text = proBillingMessageText(message),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = if (message == ProBillingMessage.CheckingPurchase) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
                     )
                 }
                 if (isDebugBuild) {
@@ -907,6 +916,16 @@ fun ProUpgradeDialog(
         },
     )
 }
+
+@Composable
+private fun proBillingMessageText(message: ProBillingMessage): String =
+    stringResource(
+        when (message) {
+            ProBillingMessage.CheckingPurchase -> R.string.pro_purchase_checking
+            ProBillingMessage.PurchaseUnavailable -> R.string.pro_unavailable
+            ProBillingMessage.PurchaseFailed -> R.string.pro_purchase_failed
+        },
+    )
 
 @Composable
 private fun ProBenefitRow(

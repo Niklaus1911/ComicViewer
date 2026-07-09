@@ -24,6 +24,9 @@ private const val IMAGE_HEADER_BYTE_COUNT = 12
 private const val STREAM_BUFFER_SIZE = 64 * 1024
 private const val MAX_ARCHIVE_ENTRY_COUNT = 10_000
 private const val ARCHIVE_CACHE_RESERVE_BYTES = 128L * 1024L * 1024L
+private const val MAX_ARCHIVE_SOURCE_BYTES = 1024L * 1024L * 1024L
+private const val MAX_ARCHIVE_PAGE_BYTES = 64L * 1024L * 1024L
+private const val MAX_ARCHIVE_CACHE_BYTES = 2L * 1024L * 1024L * 1024L
 
 class ComicLoadException(
     val error: ComicLoadError,
@@ -37,6 +40,9 @@ enum class ComicLoadError {
     FolderReadPermissionUnavailable,
     ArchiveNotReadable,
     ArchiveTooLarge,
+    ArchiveFileTooLarge,
+    ArchivePageTooLarge,
+    ArchiveContentsTooLarge,
     InvalidArchive,
     ArchiveExtractionFailed,
     NotEnoughArchiveSpace,
@@ -49,6 +55,9 @@ enum class ComicLoadError {
         FolderReadPermissionUnavailable -> "Folder read permission is not available."
         ArchiveNotReadable -> "Archive not readable."
         ArchiveTooLarge -> "Archive too large: it contains more than ${args[0]} files."
+        ArchiveFileTooLarge -> "Archive file exceeds the supported size limit."
+        ArchivePageTooLarge -> "An archive page exceeds the supported size limit."
+        ArchiveContentsTooLarge -> "Archive contents exceed the supported extraction limit."
         InvalidArchive -> "Select a valid .zip or .cbz archive."
         ArchiveExtractionFailed -> "Archive not readable or extraction interrupted."
         NotEnoughArchiveSpace -> "Not enough space to extract this archive."
@@ -62,6 +71,9 @@ enum class ComicLoadError {
         FolderReadPermissionUnavailable -> context.getString(R.string.folder_read_permission_unavailable)
         ArchiveNotReadable -> context.getString(R.string.archive_not_readable)
         ArchiveTooLarge -> context.getString(R.string.archive_too_large, args[0])
+        ArchiveFileTooLarge -> context.getString(R.string.archive_file_too_large)
+        ArchivePageTooLarge -> context.getString(R.string.archive_page_too_large)
+        ArchiveContentsTooLarge -> context.getString(R.string.archive_contents_too_large)
         InvalidArchive -> context.getString(R.string.invalid_archive)
         ArchiveExtractionFailed -> context.getString(R.string.archive_extraction_failed)
         NotEnoughArchiveSpace -> context.getString(R.string.not_enough_archive_space)
@@ -89,7 +101,10 @@ suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContex
     val cacheDir = resetArchiveCache(context)
     val archiveFile = copyArchiveToCache(context, uri, displayName, cacheDir)
     val pages = try {
-        archiveFile.extractComicPagesTo(cacheDir)
+        archiveFile.extractComicPagesTo(
+            cacheDir = cacheDir,
+            maxExtractionBytes = MAX_ARCHIVE_CACHE_BYTES - archiveFile.length(),
+        )
     } finally {
         archiveFile.delete()
     }
@@ -147,7 +162,10 @@ suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBoo
 
     val displayName = archiveFile.name
     val cacheDir = resetArchiveCache(context)
-    val pages = archiveFile.extractComicPagesTo(cacheDir)
+    val pages = archiveFile.extractComicPagesTo(
+        cacheDir = cacheDir,
+        maxExtractionBytes = MAX_ARCHIVE_CACHE_BYTES,
+    )
 
     ComicBook(
         title = displayName.withoutComicExtension(),
@@ -195,9 +213,16 @@ fun clearArchiveCache(context: Context) {
     File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME).deleteRecursively()
 }
 
-private fun File.extractComicPagesTo(cacheDir: File): List<ComicPage> {
+private fun File.extractComicPagesTo(
+    cacheDir: File,
+    maxExtractionBytes: Long,
+): List<ComicPage> {
+    if (maxExtractionBytes <= 0L) {
+        cacheDir.deleteRecursively()
+        throw ComicLoadException(ComicLoadError.ArchiveContentsTooLarge)
+    }
     val extraction = try {
-        extractArchivePages(this, cacheDir)
+        extractArchivePages(this, cacheDir, maxExtractionBytes)
     } catch (exception: Exception) {
         cacheDir.deleteRecursively()
         throw archiveExtractionFailureFor(exception)
@@ -225,44 +250,64 @@ private fun File.extractComicPagesTo(cacheDir: File): List<ComicPage> {
 private fun extractArchivePages(
     archiveFile: File,
     cacheDir: File,
+    maxExtractionBytes: Long,
 ): ArchiveExtraction {
     val extractedPages = mutableListOf<ExtractedPage>()
     val rejectedEntries = mutableListOf<String>()
     var scannedEntries = 0
+    var visitedEntries = 0
+    var processedImageBytes = 0L
 
     ZipFile(archiveFile).use { zipFile ->
         val entries = zipFile.entries()
         while (entries.hasMoreElements()) {
             val entry = entries.nextElement()
             val entryName = entry.name.replace('\\', '/')
+            visitedEntries += 1
+            if (visitedEntries > MAX_ARCHIVE_ENTRY_COUNT) {
+                throw ComicLoadException(ComicLoadError.ArchiveTooLarge, MAX_ARCHIVE_ENTRY_COUNT)
+            }
 
             if (!entry.isDirectory && !isHiddenComicPath(entryName)) {
                 scannedEntries += 1
-                if (scannedEntries > MAX_ARCHIVE_ENTRY_COUNT) {
-                    throw ComicLoadException(ComicLoadError.ArchiveTooLarge, MAX_ARCHIVE_ENTRY_COUNT)
+                val imageFormat = zipFile.getInputStream(entry).use { input ->
+                    detectImageFormat(readImageHeader(input))
                 }
 
-                val imageInfo = zipFile.getInputStream(entry).use { input ->
-                    detectImageInfo(input)
-                }
-
-                if (entry.size == 0L || imageInfo == null) {
+                if (entry.size == 0L || imageFormat == null) {
                     if (rejectedEntries.size < MAX_REJECTION_EXAMPLES) {
                         rejectedEntries += entryName.substringAfterLast('/')
                     }
                     continue
                 }
 
+                val copyLimit = archiveEntryCopyLimit(
+                    remainingTotalBytes = maxExtractionBytes - processedImageBytes,
+                    cacheWritableBytes = cacheWritableBytes(cacheDir),
+                )
+                if (entry.size > copyLimit.maxBytes) {
+                    throw ComicLoadException(copyLimit.limitError)
+                }
                 val outputFile = File(
                     cacheDir,
-                    safeCachePageName(extractedPages.size, imageInfo.format),
+                    safeCachePageName(extractedPages.size, imageFormat),
                 )
-                zipFile.getInputStream(entry).use { input ->
+                val copiedBytes = zipFile.getInputStream(entry).use { input ->
                     copyToFileBounded(
                         inputStream = input,
                         outputFile = outputFile,
-                        maxBytes = cacheWritableBytes(cacheDir),
+                        maxBytes = copyLimit.maxBytes,
+                        limitError = copyLimit.limitError,
                     )
+                }
+                processedImageBytes += copiedBytes
+                val imageInfo = detectImageInfo(outputFile)
+                if (imageInfo == null) {
+                    outputFile.delete()
+                    if (rejectedEntries.size < MAX_REJECTION_EXAMPLES) {
+                        rejectedEntries += entryName.substringAfterLast('/')
+                    }
+                    continue
                 }
                 extractedPages += ExtractedPage(entryName = entryName, file = outputFile, info = imageInfo)
             }
@@ -295,12 +340,18 @@ private fun copyArchiveToCache(
     val inputStream = context.contentResolver.openInputStream(uri)
         ?: throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
     val archiveFile = File(cacheDir, "selected_comic.${displayName.archiveExtension()}")
+    val copyLimit = resolvedCopyLimit(
+        logicalLimitBytes = MAX_ARCHIVE_SOURCE_BYTES,
+        cacheWritableBytes = cacheWritableBytes(cacheDir),
+        logicalLimitError = ComicLoadError.ArchiveFileTooLarge,
+    )
 
     inputStream.use { input ->
         copyToFileBounded(
             inputStream = input,
             outputFile = archiveFile,
-            maxBytes = cacheWritableBytes(cacheDir),
+            maxBytes = copyLimit.maxBytes,
+            limitError = copyLimit.limitError,
         )
     }
 
@@ -411,9 +462,10 @@ fun copyToFileBounded(
     inputStream: InputStream,
     outputFile: File,
     maxBytes: Long,
+    limitError: ComicLoadError = ComicLoadError.NotEnoughArchiveSpace,
 ): Long {
     if (maxBytes < 0L) {
-        throw ComicLoadException(ComicLoadError.NotEnoughArchiveSpace)
+        throw ComicLoadException(limitError)
     }
 
     val buffer = ByteArray(STREAM_BUFFER_SIZE)
@@ -426,7 +478,7 @@ fun copyToFileBounded(
                 if (bytesRead < 0) break
 
                 if (copiedBytes > maxBytes - bytesRead) {
-                    throw ComicLoadException(ComicLoadError.NotEnoughArchiveSpace)
+                    throw ComicLoadException(limitError)
                 }
 
                 output.write(buffer, 0, bytesRead)
@@ -444,6 +496,46 @@ fun copyToFileBounded(
 @SuppressLint("UsableSpace")
 private fun cacheWritableBytes(cacheDir: File): Long =
     cacheDir.usableSpace - ARCHIVE_CACHE_RESERVE_BYTES
+
+internal data class ArchiveCopyLimit(
+    val maxBytes: Long,
+    val limitError: ComicLoadError,
+)
+
+internal fun resolvedCopyLimit(
+    logicalLimitBytes: Long,
+    cacheWritableBytes: Long,
+    logicalLimitError: ComicLoadError,
+): ArchiveCopyLimit =
+    if (cacheWritableBytes < logicalLimitBytes) {
+        ArchiveCopyLimit(
+            maxBytes = cacheWritableBytes,
+            limitError = ComicLoadError.NotEnoughArchiveSpace,
+        )
+    } else {
+        ArchiveCopyLimit(
+            maxBytes = logicalLimitBytes,
+            limitError = logicalLimitError,
+        )
+    }
+
+internal fun archiveEntryCopyLimit(
+    remainingTotalBytes: Long,
+    cacheWritableBytes: Long,
+    maxEntryBytes: Long = MAX_ARCHIVE_PAGE_BYTES,
+): ArchiveCopyLimit {
+    val logicalLimitBytes = minOf(remainingTotalBytes.coerceAtLeast(0L), maxEntryBytes)
+    val logicalLimitError = if (remainingTotalBytes <= maxEntryBytes) {
+        ComicLoadError.ArchiveContentsTooLarge
+    } else {
+        ComicLoadError.ArchivePageTooLarge
+    }
+    return resolvedCopyLimit(
+        logicalLimitBytes = logicalLimitBytes,
+        cacheWritableBytes = cacheWritableBytes,
+        logicalLimitError = logicalLimitError,
+    )
+}
 
 private fun safeCachePageName(index: Int, format: ImageFormat): String =
     "page_${index.toString().padStart(5, '0')}.${format.extension}"

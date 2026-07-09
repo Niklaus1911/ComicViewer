@@ -70,6 +70,7 @@ import com.comicviewer.browserParentPathFor
 import com.comicviewer.filterBrowserEntries
 import com.comicviewer.isTabletWidth
 import com.comicviewer.loadBrowserDirectory
+import com.comicviewer.loadBrowserArchiveThumbnailUri
 import com.comicviewer.loadRecentComicThumbnailUri
 import com.comicviewer.ui.common.CoverThumbnail
 import com.comicviewer.ui.common.StaggeredReveal
@@ -695,8 +696,20 @@ fun FileBrowserThumbnail(
     entry: BrowserEntry,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    var thumbnailUri by remember(entry) { mutableStateOf(entry.thumbnailUri) }
+
+    LaunchedEffect(entry) {
+        if (entry.type == BrowserEntryType.Archive) {
+            thumbnailUri = loadBrowserArchiveThumbnailUri(
+                context = context.applicationContext,
+                path = entry.path,
+            )
+        }
+    }
+
     CoverThumbnail(
-        thumbnailUri = entry.thumbnailUri,
+        thumbnailUri = thumbnailUri,
         fallbackIcon = entry.type.icon(),
         modifier = modifier,
     )

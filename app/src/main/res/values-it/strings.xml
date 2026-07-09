@@ -25,6 +25,9 @@
     <string name="folder_read_permission_unavailable">Permesso di lettura della cartella non disponibile.</string>
     <string name="archive_not_readable">Archivio non leggibile.</string>
     <string name="archive_too_large">Archivio troppo grande: contiene piu di %1$d file.</string>
+    <string name="archive_file_too_large">Il file dell\'archivio supera il limite di dimensione supportato.</string>
+    <string name="archive_page_too_large">Una pagina dell\'archivio supera il limite di dimensione supportato.</string>
+    <string name="archive_contents_too_large">Il contenuto dell\'archivio supera il limite di estrazione supportato.</string>
     <string name="invalid_archive">Seleziona un archivio .zip o .cbz valido.</string>
     <string name="archive_extraction_failed">Archivio non leggibile o estrazione interrotta.</string>
     <string name="not_enough_archive_space">Spazio insufficiente per estrarre questo archivio.</string>

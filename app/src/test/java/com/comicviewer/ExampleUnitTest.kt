@@ -1740,6 +1740,101 @@ class ExampleUnitTest {
             ),
         )
     }
+
+    @Test
+    fun archiveEntryCopyLimit_distinguishesPageTotalAndStorageLimits() {
+        assertEquals(
+            ArchiveCopyLimit(
+                maxBytes = 100L,
+                limitError = ComicLoadError.ArchivePageTooLarge,
+            ),
+            archiveEntryCopyLimit(
+                remainingTotalBytes = 1_000L,
+                cacheWritableBytes = 5_000L,
+                maxEntryBytes = 100L,
+            ),
+        )
+        assertEquals(
+            ArchiveCopyLimit(
+                maxBytes = 50L,
+                limitError = ComicLoadError.ArchiveContentsTooLarge,
+            ),
+            archiveEntryCopyLimit(
+                remainingTotalBytes = 50L,
+                cacheWritableBytes = 5_000L,
+                maxEntryBytes = 100L,
+            ),
+        )
+        assertEquals(
+            ArchiveCopyLimit(
+                maxBytes = 40L,
+                limitError = ComicLoadError.NotEnoughArchiveSpace,
+            ),
+            archiveEntryCopyLimit(
+                remainingTotalBytes = 1_000L,
+                cacheWritableBytes = 40L,
+                maxEntryBytes = 100L,
+            ),
+        )
+    }
+
+    @Test
+    fun copyToFileBounded_reportsConfiguredLogicalLimit() {
+        val outputFile = File(temporaryFolder.root, "oversized-page.bin")
+
+        val exception = assertThrows(ComicLoadException::class.java) {
+            copyToFileBounded(
+                inputStream = ByteArrayInputStream(ByteArray(11)),
+                outputFile = outputFile,
+                maxBytes = 10L,
+                limitError = ComicLoadError.ArchivePageTooLarge,
+            )
+        }
+
+        assertEquals(ComicLoadError.ArchivePageTooLarge, exception.error)
+        assertFalse(outputFile.exists())
+    }
+
+    @Test
+    fun thumbnailSampleSize_boundsDecodedDimensions() {
+        assertEquals(1, thumbnailSampleSize(width = 512, height = 300))
+        assertEquals(2, thumbnailSampleSize(width = 513, height = 300))
+        assertEquals(8, thumbnailSampleSize(width = 4_000, height = 2_000))
+        assertEquals(1, thumbnailSampleSize(width = 0, height = 2_000))
+    }
+
+    @Test
+    fun trimThumbnailCache_removesOldestFilesAndKeepsProtectedFile() {
+        val cacheDir = File(temporaryFolder.root, "thumbnail-cache").apply { mkdirs() }
+        val oldest = File(cacheDir, "1_thumbnail.jpg").apply {
+            writeBytes(ByteArray(10))
+            setLastModified(1L)
+        }
+        val middle = File(cacheDir, "2_thumbnail.jpg").apply {
+            writeBytes(ByteArray(10))
+            setLastModified(2L)
+        }
+        val newest = File(cacheDir, "3_thumbnail.jpg").apply {
+            writeBytes(ByteArray(10))
+            setLastModified(3L)
+        }
+        val inProgress = File(cacheDir, "thumbnail_in_progress.tmp").apply {
+            writeBytes(ByteArray(100))
+            setLastModified(0L)
+        }
+
+        trimThumbnailCache(
+            cacheDir = cacheDir,
+            maxBytes = 20L,
+            maxFiles = 2,
+            protectedFile = newest,
+        )
+
+        assertFalse(oldest.exists())
+        assertTrue(middle.exists())
+        assertTrue(newest.exists())
+        assertTrue(inProgress.exists())
+    }
 }
 
 private data class BrowserSortCase(

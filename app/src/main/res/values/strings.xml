@@ -25,6 +25,9 @@
     <string name="folder_read_permission_unavailable">Folder read permission is not available.</string>
     <string name="archive_not_readable">Archive not readable.</string>
     <string name="archive_too_large">Archive too large: it contains more than %1$d files.</string>
+    <string name="archive_file_too_large">Archive file exceeds the supported size limit.</string>
+    <string name="archive_page_too_large">An archive page exceeds the supported size limit.</string>
+    <string name="archive_contents_too_large">Archive contents exceed the supported extraction limit.</string>
     <string name="invalid_archive">Select a valid .zip or .cbz archive.</string>
     <string name="archive_extraction_failed">Archive not readable or extraction interrupted.</string>
     <string name="not_enough_archive_space">Not enough space to extract this archive.</string>

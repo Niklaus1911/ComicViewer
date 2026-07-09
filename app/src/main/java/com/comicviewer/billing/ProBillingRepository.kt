@@ -25,6 +25,9 @@ const val PRO_UNLOCK_PRODUCT_ID = "comicviewer_pro_unlock"
 private const val OK_RESPONSE_CODE = BillingClient.BillingResponseCode.OK
 private const val PURCHASE_RECHECK_DELAY_MS = 1_500L
 private const val MAX_PURCHASE_RECHECK_ATTEMPTS = 2
+private const val INITIAL_OPERATION_RETRY_DELAY_MS = 1_500L
+private const val MAX_OPERATION_RETRY_DELAY_MS = 60_000L
+private const val MAX_OPERATION_RETRY_ATTEMPTS = 6
 private const val TAG = "ProBillingRepository"
 
 sealed interface ProBillingStatus {
@@ -55,6 +58,7 @@ internal fun isRecoverableBillingResponseCode(responseCode: Int): Boolean =
         BillingClient.BillingResponseCode.SERVICE_DISCONNECTED,
         BillingClient.BillingResponseCode.ERROR,
         BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED,
+        BillingClient.BillingResponseCode.ITEM_NOT_OWNED,
         -> true
         else -> false
     }
@@ -66,10 +70,32 @@ internal fun userMessageForBillingResponseCode(responseCode: Int): ProBillingMes
         ProBillingMessage.PurchaseFailed
     }
 
+internal fun billingRetryDelayMillis(
+    attempt: Int,
+    initialDelayMs: Long = INITIAL_OPERATION_RETRY_DELAY_MS,
+    maxDelayMs: Long = MAX_OPERATION_RETRY_DELAY_MS,
+): Long {
+    require(initialDelayMs > 0L)
+    require(maxDelayMs >= initialDelayMs)
+    var delayMs = initialDelayMs
+    repeat((attempt - 1).coerceAtLeast(0)) {
+        delayMs = if (delayMs >= maxDelayMs / 2L) maxDelayMs else delayMs * 2L
+    }
+    return delayMs
+}
+
+private enum class BillingRetryOperation {
+    Connection,
+    ProductDetails,
+    Purchases,
+    PurchaseFlow,
+}
+
 class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
     private val appContext = context.applicationContext
     private var proProductDetails: ProductDetails? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val scheduledRetries = mutableMapOf<BillingRetryOperation, Runnable>()
     private val billingClient = BillingClient.newBuilder(appContext)
         .setListener(this)
         .enableAutoServiceReconnection()
@@ -83,13 +109,19 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
     private val _state = MutableStateFlow(ProBillingState())
     val state: StateFlow<ProBillingState> = _state.asStateFlow()
     private var isConnectionInProgress = false
+    private var isDisposed = false
     private var purchaseFlowInProgress = false
     private var purchaseRecheckAttempts = 0
-    private var acknowledgeRetryScheduled = false
     private var purchaseSuccessEventId = 0L
 
     fun startConnection() {
+        startConnection(retryAttempt = 0)
+    }
+
+    private fun startConnection(retryAttempt: Int) {
+        if (isDisposed) return
         if (billingClient.isReady) {
+            cancelScheduledRetry(BillingRetryOperation.Connection)
             queryProductDetails()
             queryPurchases(allowSuccessEvent = purchaseFlowInProgress)
             return
@@ -97,33 +129,49 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
         if (isConnectionInProgress) return
 
         isConnectionInProgress = true
-        _state.value = _state.value.copy(status = ProBillingStatus.Loading, message = null)
+        _state.value = _state.value.copy(
+            status = ProBillingStatus.Loading,
+            message = if (retryAttempt > 0) ProBillingMessage.CheckingPurchase else null,
+        )
         billingClient.startConnection(
             object : BillingClientStateListener {
                 override fun onBillingSetupFinished(billingResult: BillingResult) {
+                    if (isDisposed) return
                     isConnectionInProgress = false
                     if (billingResult.responseCode == OK_RESPONSE_CODE) {
+                        cancelScheduledRetry(BillingRetryOperation.Connection)
                         queryProductDetails()
                         queryPurchases(allowSuccessEvent = purchaseFlowInProgress)
                     } else {
-                        handleUnavailableBillingResult(billingResult)
+                        handleConnectionFailure(billingResult, retryAttempt)
                     }
                 }
 
                 override fun onBillingServiceDisconnected() {
+                    if (isDisposed) return
                     isConnectionInProgress = false
                     _state.value = _state.value.copy(
-                        status = ProBillingStatus.Unavailable,
-                        message = null,
+                        status = ProBillingStatus.Loading,
+                        message = ProBillingMessage.CheckingPurchase,
                     )
+                    scheduleOperationRetry(
+                        operation = BillingRetryOperation.Connection,
+                        attempt = 1,
+                    ) {
+                        startConnection(retryAttempt = 1)
+                    }
                 }
             },
         )
     }
 
     fun endConnection() {
+        if (isDisposed) return
+        isDisposed = true
+        isConnectionInProgress = false
         mainHandler.removeCallbacksAndMessages(null)
-        if (billingClient.isReady) billingClient.endConnection()
+        scheduledRetries.clear()
+        billingClient.endConnection()
     }
 
     fun launchPurchase(activity: Activity) {
@@ -138,6 +186,7 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
 
         purchaseFlowInProgress = true
         purchaseRecheckAttempts = 0
+        cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
         _state.value = _state.value.copy(message = null)
         val productDetailsParams = BillingFlowParams.ProductDetailsParams.newBuilder()
             .setProductDetails(productDetails)
@@ -152,6 +201,7 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
     }
 
     fun restorePurchases() {
+        if (isDisposed) return
         if (billingClient.isReady) {
             queryPurchases(allowSuccessEvent = purchaseFlowInProgress)
         } else {
@@ -160,6 +210,7 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
     }
 
     override fun onPurchasesUpdated(billingResult: BillingResult, purchases: MutableList<Purchase>?) {
+        if (isDisposed) return
         when (billingResult.responseCode) {
             OK_RESPONSE_CODE -> {
                 if (purchases.isNullOrEmpty()) {
@@ -170,12 +221,21 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> {
                 purchaseFlowInProgress = false
+                purchaseRecheckAttempts = 0
+                cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
+                _state.value = _state.value.copy(message = null)
             }
             else -> handlePurchaseFlowResult(billingResult)
         }
     }
 
-    private fun queryProductDetails() {
+    private fun queryProductDetails(retryAttempt: Int = 0) {
+        if (isDisposed) return
+        if (!billingClient.isReady) {
+            startConnection()
+            return
+        }
+        cancelScheduledRetry(BillingRetryOperation.ProductDetails)
         val product = QueryProductDetailsParams.Product.newBuilder()
             .setProductId(PRO_UNLOCK_PRODUCT_ID)
             .setProductType(BillingClient.ProductType.INAPP)
@@ -185,8 +245,9 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             .build()
 
         billingClient.queryProductDetailsAsync(params) { billingResult, productDetailsResult ->
+            if (isDisposed) return@queryProductDetailsAsync
             if (billingResult.responseCode != OK_RESPONSE_CODE) {
-                handleUnavailableBillingResult(billingResult)
+                handleProductDetailsFailure(billingResult, retryAttempt)
                 return@queryProductDetailsAsync
             }
 
@@ -208,15 +269,29 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
         }
     }
 
-    private fun queryPurchases(allowSuccessEvent: Boolean) {
+    private fun queryPurchases(
+        allowSuccessEvent: Boolean,
+        retryAttempt: Int = 0,
+    ) {
+        if (isDisposed) return
+        if (!billingClient.isReady) {
+            startConnection()
+            return
+        }
+        cancelScheduledRetry(BillingRetryOperation.Purchases)
         val params = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.INAPP)
             .build()
         billingClient.queryPurchasesAsync(params) { billingResult, purchases ->
+            if (isDisposed) return@queryPurchasesAsync
             if (billingResult.responseCode == OK_RESPONSE_CODE) {
                 handlePurchases(purchases, allowSuccessEvent = allowSuccessEvent)
             } else {
-                handleQueryPurchasesFailure(billingResult)
+                handleQueryPurchasesFailure(
+                    billingResult = billingResult,
+                    allowSuccessEvent = allowSuccessEvent,
+                    retryAttempt = retryAttempt,
+                )
             }
         }
     }
@@ -234,13 +309,14 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             }
             purchaseFlowInProgress = false
             purchaseRecheckAttempts = 0
+            cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
             _state.value = _state.value.copy(
                 isProUnlocked = true,
                 message = null,
                 purchaseSuccessEventId = purchaseSuccessEventId,
             )
         } else {
-            if (allowSuccessEvent) {
+            if (allowSuccessEvent && purchaseFlowInProgress) {
                 schedulePurchaseFlowRecheckOrFail()
             } else {
                 _state.value = _state.value.copy(isProUnlocked = false)
@@ -249,24 +325,23 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
     }
 
     private fun acknowledgeIfNeeded(purchase: Purchase) {
-        if (purchase.isAcknowledged) return
+        if (purchase.isAcknowledged) {
+            cancelProPurchaseAcknowledgement(appContext, purchase.purchaseToken)
+            return
+        }
 
+        enqueueProPurchaseAcknowledgement(
+            context = appContext,
+            purchaseToken = purchase.purchaseToken,
+        )
         val params = AcknowledgePurchaseParams.newBuilder()
             .setPurchaseToken(purchase.purchaseToken)
             .build()
         billingClient.acknowledgePurchase(params) { billingResult ->
             if (billingResult.responseCode == OK_RESPONSE_CODE) {
-                acknowledgeRetryScheduled = false
+                cancelProPurchaseAcknowledgement(appContext, purchase.purchaseToken)
             } else {
-                logBillingResult("Acknowledge Pro purchase failed", billingResult)
-                if (isRecoverableBillingResponseCode(billingResult.responseCode)) {
-                    if (!acknowledgeRetryScheduled) {
-                        acknowledgeRetryScheduled = true
-                        schedulePurchaseRecheck()
-                    }
-                } else if (!_state.value.isProUnlocked) {
-                    _state.value = _state.value.copy(message = ProBillingMessage.PurchaseFailed)
-                }
+                logBillingResult("Acknowledge Pro purchase failed; persistent retry remains queued", billingResult)
             }
         }
     }
@@ -278,58 +353,140 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             queryPurchases(allowSuccessEvent = true)
         } else {
             purchaseFlowInProgress = false
+            purchaseRecheckAttempts = 0
+            cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
             _state.value = _state.value.copy(message = userMessageForBillingResponseCode(billingResult.responseCode))
         }
     }
 
-    private fun handleUnavailableBillingResult(billingResult: BillingResult) {
-        logBillingResult("Play Billing is unavailable", billingResult)
-        _state.value = _state.value.copy(
-            status = ProBillingStatus.Unavailable,
-            message = ProBillingMessage.PurchaseUnavailable,
-        )
+    private fun handleConnectionFailure(billingResult: BillingResult, retryAttempt: Int) {
+        logBillingResult("Play Billing connection failed", billingResult)
+        if (
+            isRecoverableBillingResponseCode(billingResult.responseCode) &&
+            retryAttempt < MAX_OPERATION_RETRY_ATTEMPTS
+        ) {
+            val nextAttempt = retryAttempt + 1
+            _state.value = _state.value.copy(
+                status = ProBillingStatus.Loading,
+                message = ProBillingMessage.CheckingPurchase,
+            )
+            scheduleOperationRetry(BillingRetryOperation.Connection, nextAttempt) {
+                startConnection(retryAttempt = nextAttempt)
+            }
+        } else {
+            setBillingUnavailable()
+        }
     }
 
-    private fun handleQueryPurchasesFailure(billingResult: BillingResult) {
-        logBillingResult("Query Pro purchases failed", billingResult)
-        if (isRecoverableBillingResponseCode(billingResult.responseCode)) {
-            _state.value = _state.value.copy(message = ProBillingMessage.CheckingPurchase)
-            if (purchaseFlowInProgress) {
-                schedulePurchaseFlowRecheckOrFail()
+    private fun handleProductDetailsFailure(billingResult: BillingResult, retryAttempt: Int) {
+        logBillingResult("Query Pro product details failed", billingResult)
+        if (
+            isRecoverableBillingResponseCode(billingResult.responseCode) &&
+            retryAttempt < MAX_OPERATION_RETRY_ATTEMPTS
+        ) {
+            val nextAttempt = retryAttempt + 1
+            _state.value = _state.value.copy(
+                status = ProBillingStatus.Loading,
+                message = ProBillingMessage.CheckingPurchase,
+            )
+            scheduleOperationRetry(BillingRetryOperation.ProductDetails, nextAttempt) {
+                queryProductDetails(retryAttempt = nextAttempt)
             }
-        } else if (!_state.value.isProUnlocked) {
-            _state.value = _state.value.copy(message = ProBillingMessage.PurchaseFailed)
+        } else {
+            setBillingUnavailable()
+        }
+    }
+
+    private fun handleQueryPurchasesFailure(
+        billingResult: BillingResult,
+        allowSuccessEvent: Boolean,
+        retryAttempt: Int,
+    ) {
+        logBillingResult("Query Pro purchases failed", billingResult)
+        if (
+            isRecoverableBillingResponseCode(billingResult.responseCode) &&
+            retryAttempt < MAX_OPERATION_RETRY_ATTEMPTS
+        ) {
+            val nextAttempt = retryAttempt + 1
+            _state.value = _state.value.copy(message = ProBillingMessage.CheckingPurchase)
+            scheduleOperationRetry(BillingRetryOperation.Purchases, nextAttempt) {
+                queryPurchases(
+                    allowSuccessEvent = allowSuccessEvent,
+                    retryAttempt = nextAttempt,
+                )
+            }
+        } else {
+            if (allowSuccessEvent && purchaseFlowInProgress) {
+                purchaseFlowInProgress = false
+                purchaseRecheckAttempts = 0
+            }
+            _state.value = _state.value.copy(
+                message = if (_state.value.isProUnlocked) null else ProBillingMessage.PurchaseFailed,
+            )
         }
     }
 
     private fun schedulePurchaseFlowRecheckOrFail() {
-        if (!purchaseFlowInProgress) {
-            _state.value = _state.value.copy(message = ProBillingMessage.CheckingPurchase)
-            return
-        }
+        if (!purchaseFlowInProgress) return
         if (purchaseRecheckAttempts >= MAX_PURCHASE_RECHECK_ATTEMPTS) {
             purchaseFlowInProgress = false
             purchaseRecheckAttempts = 0
+            cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
             _state.value = _state.value.copy(message = ProBillingMessage.PurchaseFailed)
             return
         }
 
         purchaseRecheckAttempts += 1
         _state.value = _state.value.copy(message = ProBillingMessage.CheckingPurchase)
-        schedulePurchaseRecheck()
+        scheduleRetry(
+            operation = BillingRetryOperation.PurchaseFlow,
+            delayMs = PURCHASE_RECHECK_DELAY_MS,
+        ) {
+            if (billingClient.isReady) {
+                queryPurchases(allowSuccessEvent = true)
+            } else {
+                startConnection()
+            }
+        }
     }
 
-    private fun schedulePurchaseRecheck() {
-        mainHandler.removeCallbacksAndMessages(null)
-        mainHandler.postDelayed(
-            {
-                if (billingClient.isReady) {
-                    queryPurchases(allowSuccessEvent = purchaseFlowInProgress)
-                } else {
-                    startConnection()
-                }
-            },
-            PURCHASE_RECHECK_DELAY_MS,
+    private fun scheduleOperationRetry(
+        operation: BillingRetryOperation,
+        attempt: Int,
+        action: () -> Unit,
+    ) {
+        scheduleRetry(
+            operation = operation,
+            delayMs = billingRetryDelayMillis(attempt),
+            action = action,
+        )
+    }
+
+    private fun scheduleRetry(
+        operation: BillingRetryOperation,
+        delayMs: Long,
+        action: () -> Unit,
+    ) {
+        if (isDisposed) return
+        cancelScheduledRetry(operation)
+        lateinit var runnable: Runnable
+        runnable = Runnable {
+            if (scheduledRetries[operation] !== runnable) return@Runnable
+            scheduledRetries.remove(operation)
+            if (!isDisposed) action()
+        }
+        scheduledRetries[operation] = runnable
+        mainHandler.postDelayed(runnable, delayMs)
+    }
+
+    private fun cancelScheduledRetry(operation: BillingRetryOperation) {
+        scheduledRetries.remove(operation)?.let(mainHandler::removeCallbacks)
+    }
+
+    private fun setBillingUnavailable() {
+        _state.value = _state.value.copy(
+            status = ProBillingStatus.Unavailable,
+            message = if (_state.value.isProUnlocked) null else ProBillingMessage.PurchaseUnavailable,
         )
     }
 

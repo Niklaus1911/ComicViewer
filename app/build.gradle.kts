@@ -147,6 +147,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.coil.compose)
     implementation(libs.play.billing.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
 
     constraints {
         implementation(libs.androidx.fragment) {

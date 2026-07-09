@@ -130,6 +130,10 @@ private suspend fun loadComicThumbnailUri(
             }
 
             RecentComicSourceType.LocalFolder -> firstLocalFolderCoverFile(File(path))?.toUri()
+
+            RecentComicSourceType.DocumentArchive,
+            RecentComicSourceType.DocumentFolder,
+            -> null
         }
     }
 

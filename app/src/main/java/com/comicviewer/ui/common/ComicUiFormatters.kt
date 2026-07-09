@@ -32,6 +32,8 @@ internal fun BrowserEntryType.icon(): ImageVector = when (this) {
 internal fun RecentComicSourceType.icon(): ImageVector = when (this) {
     RecentComicSourceType.LocalArchive -> Icons.Filled.Archive
     RecentComicSourceType.LocalFolder -> Icons.Filled.Folder
+    RecentComicSourceType.DocumentArchive -> Icons.Filled.Archive
+    RecentComicSourceType.DocumentFolder -> Icons.Filled.Folder
 }
 
 @Composable

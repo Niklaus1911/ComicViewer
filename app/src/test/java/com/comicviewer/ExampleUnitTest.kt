@@ -607,6 +607,26 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun encodeAndDecodeRecentComics_roundTripsDocumentSources() {
+        val archive = sampleRecentComic(
+            title = "Document archive",
+            path = "content://provider/document/archive%3AComic.cbz",
+            sourceType = RecentComicSourceType.DocumentArchive,
+            lastOpenedAt = 200L,
+        )
+        val folder = sampleRecentComic(
+            title = "Document folder",
+            path = "content://provider/tree/folder%3AComics",
+            sourceType = RecentComicSourceType.DocumentFolder,
+            lastOpenedAt = 100L,
+        )
+
+        val result = decodeRecentComics(encodeRecentComics(listOf(folder, archive)))
+
+        assertEquals(listOf(archive, folder), result)
+    }
+
+    @Test
     fun encodeAndDecodeLibraryComics_roundTripsNewestFirst() {
         val older = sampleLibraryComic(
             title = "Older",
@@ -622,6 +642,27 @@ class ExampleUnitTest {
         val result = decodeLibraryComics(encodeLibraryComics(listOf(older, newer)))
 
         assertEquals(listOf(newer, older), result)
+    }
+
+    @Test
+    fun documentLibraryComicFactories_keepUriAndSourceKind() {
+        val archive = libraryComicForDocumentArchive(
+            uri = "content://provider/document/archive%3ABatman.cbz",
+            displayName = "Batman.cbz",
+            addedAt = 200L,
+        )
+        val folder = libraryComicForDocumentFolder(
+            uri = "content://provider/tree/folder%3AManga",
+            displayName = "Manga",
+            addedAt = 100L,
+        )
+
+        assertEquals(RecentComicSourceType.DocumentArchive, archive.sourceType)
+        assertEquals("content://provider/document/archive%3ABatman.cbz", archive.path)
+        assertEquals("Batman", archive.title)
+        assertEquals(RecentComicSourceType.DocumentFolder, folder.sourceType)
+        assertEquals("content://provider/tree/folder%3AManga", folder.path)
+        assertEquals("Manga", folder.title)
     }
 
     @Test
@@ -1440,10 +1481,24 @@ class ExampleUnitTest {
             path = "/storage/emulated/0/Folder",
             sourceType = RecentComicSourceType.LocalFolder,
         )
-        val comics = listOf(archive, folder)
+        val documentArchive = sampleLibraryComic(
+            path = "content://provider/document/archive%3AB.cbz",
+            sourceType = RecentComicSourceType.DocumentArchive,
+        )
+        val documentFolder = sampleLibraryComic(
+            path = "content://provider/tree/folder%3AFolder",
+            sourceType = RecentComicSourceType.DocumentFolder,
+        )
+        val comics = listOf(archive, folder, documentArchive, documentFolder)
 
-        assertEquals(listOf(archive), filterLibraryComicsBySource(comics, LibraryFilter.Archives))
-        assertEquals(listOf(folder), filterLibraryComicsBySource(comics, LibraryFilter.Folders))
+        assertEquals(
+            listOf(archive, documentArchive),
+            filterLibraryComicsBySource(comics, LibraryFilter.Archives),
+        )
+        assertEquals(
+            listOf(folder, documentFolder),
+            filterLibraryComicsBySource(comics, LibraryFilter.Folders),
+        )
         assertEquals(comics, filterLibraryComicsBySource(comics, LibraryFilter.All))
     }
 

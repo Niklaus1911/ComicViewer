@@ -48,6 +48,32 @@ fun libraryComicForFolder(folder: File, addedAt: Long): LibraryComic =
         addedAt = addedAt,
     )
 
+fun libraryComicForDocumentArchive(
+    uri: String,
+    displayName: String,
+    addedAt: Long,
+): LibraryComic =
+    LibraryComic(
+        sourceType = RecentComicSourceType.DocumentArchive,
+        path = uri,
+        displayName = displayName,
+        title = displayName.withoutComicExtension(),
+        addedAt = addedAt,
+    )
+
+fun libraryComicForDocumentFolder(
+    uri: String,
+    displayName: String,
+    addedAt: Long,
+): LibraryComic =
+    LibraryComic(
+        sourceType = RecentComicSourceType.DocumentFolder,
+        path = uri,
+        displayName = displayName,
+        title = displayName,
+        addedAt = addedAt,
+    )
+
 fun upsertLibraryComic(
     libraryComics: List<LibraryComic>,
     libraryComic: LibraryComic,
@@ -87,6 +113,9 @@ fun LibraryComic.isReadableOnDisk(): Boolean {
     return when (sourceType) {
         RecentComicSourceType.LocalArchive -> file.isFile && file.canRead()
         RecentComicSourceType.LocalFolder -> file.isDirectory && file.canRead()
+        RecentComicSourceType.DocumentArchive,
+        RecentComicSourceType.DocumentFolder,
+        -> false
     }
 }
 

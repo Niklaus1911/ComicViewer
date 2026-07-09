@@ -1,16 +1,11 @@
 package com.comicviewer.ui.app
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -20,14 +15,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -36,6 +29,7 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -44,12 +38,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -58,7 +49,6 @@ import com.comicviewer.AppLanguage
 import com.comicviewer.AppThemeMode
 import com.comicviewer.BuildConfig
 import com.comicviewer.LibraryComic
-import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryComicMetadata
 import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderUiState
@@ -72,9 +62,10 @@ import com.comicviewer.resolveDarkTheme
 import com.comicviewer.resolvedThemePreset
 import com.comicviewer.saveDebugProUnlocked
 import com.comicviewer.saveReaderPreferences
+import com.comicviewer.takePersistableReadPermission
 import com.comicviewer.billing.ProBillingRepository
 import com.comicviewer.billing.ProBillingState
-import com.comicviewer.ui.browser.FileBrowserScreen
+import com.comicviewer.ui.browser.DocumentBrowserScreen
 import com.comicviewer.ui.common.ProPurchaseSuccessOverlay
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
@@ -87,8 +78,15 @@ import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 import com.comicviewer.ui.theme.ComicViewerTheme
 import com.comicviewer.ui.welcome.WelcomeScreen
-import java.io.File
 import kotlin.math.roundToInt
+
+private val COMIC_ARCHIVE_MIME_TYPES = arrayOf(
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/x-cbz",
+    "application/vnd.comicbook+zip",
+    "application/octet-stream",
+)
 
 /** Current theme selections surfaced in Settings, threaded down from [MainActivity]. */
 data class ThemeUiState(
@@ -111,16 +109,14 @@ fun ComicViewerApp(
     onAmoledThemeChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val appState = rememberComicViewerAppState(
-        appContext = context,
-        hasFileAccess = hasFileManagerAccess(),
-    )
+    val appState = rememberComicViewerAppState(appContext = context)
     val billingRepository = remember(context) { ProBillingRepository(context.applicationContext) }
     val proBillingState by billingRepository.state.collectAsState()
     var readerPreferences by remember { mutableStateOf(loadReaderPreferences(context)) }
     var debugProUnlocked by remember { mutableStateOf(loadDebugProUnlocked(context)) }
     var visibleProSuccessEventId by remember { mutableStateOf(0L) }
     var consumedProSuccessEventId by remember { mutableStateOf(0L) }
+    var documentPermissionError by remember { mutableStateOf(false) }
     val effectiveProUnlockedValue = effectiveProUnlocked(
         billingUnlocked = proBillingState.isProUnlocked,
         debugOverrideUnlocked = debugProUnlocked,
@@ -132,24 +128,29 @@ fun ComicViewerApp(
         isProUnlocked = effectiveProUnlockedValue,
     )
 
-    val fileAccessLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult(),
-    ) {
-        appState.refreshFileAccess(hasFileManagerAccess())
+    fun persistSelection(uri: android.net.Uri): Boolean {
+        val persisted = takePersistableReadPermission(context, uri)
+        if (!persisted) documentPermissionError = true
+        return persisted
     }
 
-    fun openFileAccessSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val appSettingsIntent = Intent(
-                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                Uri.parse("package:${context.packageName}"),
-            )
-            runCatching {
-                fileAccessLauncher.launch(appSettingsIntent)
-            }.onFailure {
-                fileAccessLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-            }
+    val openArchiveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && persistSelection(uri)) appState.openArchive(uri)
+    }
+    val openFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null && persistSelection(uri)) appState.openFolder(uri)
+    }
+    val addArchivesLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris ->
+        val distinctUris = uris.distinctBy(android.net.Uri::toString)
+        val persistedUris = distinctUris.filter(::persistSelection)
+        if (persistedUris.isNotEmpty()) {
+            appState.addArchiveDocumentsToLibrary(persistedUris)
         }
+    }
+    val addFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null && persistSelection(uri)) appState.addFolderDocumentToLibrary(uri)
     }
 
     DisposableEffect(billingRepository) {
@@ -161,7 +162,6 @@ fun ComicViewerApp(
         val activity = context as? ComponentActivity
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                appState.refreshFileAccess(hasFileManagerAccess())
                 billingRepository.restorePurchases()
             }
         }
@@ -172,7 +172,7 @@ fun ComicViewerApp(
         }
     }
 
-    BackHandler(enabled = appState.showWelcome && appState.hasFileAccess) {
+    BackHandler(enabled = appState.showWelcome) {
         appState.dismissWelcome()
     }
 
@@ -197,14 +197,12 @@ fun ComicViewerApp(
         amoledTheme = themeUiState.amoledEnabled,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            if (!appState.hasFileAccess) {
-                FileAccessScreen(onOpenSettings = ::openFileAccessSettings)
-            } else if (appState.showWelcome) {
+            if (appState.showWelcome) {
                 WelcomeScreen(
                     proBillingState = effectiveProBillingState,
                     isDebugBuild = BuildConfig.DEBUG,
                     debugProUnlocked = debugProUnlocked,
-                    onAutoScan = appState::startWelcomeAutoScan,
+                    onImportArchives = { addArchivesLauncher.launch(COMIC_ARCHIVE_MIME_TYPES) },
                     onBrowseManually = appState::startWelcomeManualBrowse,
                     onSkip = appState::dismissWelcome,
                     onBuyPro = {
@@ -222,11 +220,8 @@ fun ComicViewerApp(
                 ComicViewerScreen(
                     state = appState.uiState,
                     selectedTab = appState.currentTab,
-                    currentDirectoryPath = appState.currentDirectoryPath,
-                    browserRootPath = appState.browserRootPath,
                     libraryComics = appState.libraryComics,
                     libraryMetadata = appState.libraryMetadata,
-                    libraryAutoScanState = appState.libraryAutoScanState,
                     recentComics = appState.recentComics,
                     isAddingToLibrary = appState.isAddingToLibrary,
                     proBillingState = effectiveProBillingState,
@@ -257,15 +252,12 @@ fun ComicViewerApp(
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = appState::selectTab,
                     onStartAddToLibrary = appState::startAddToLibrary,
-                    onAutoScanLibrary = appState::autoScanLibraryArchives,
-                    onClearLibraryAutoScanResult = appState::clearLibraryAutoScanResult,
-                    onDirectoryChange = appState::changeDirectory,
-                    onOpenLocalArchive = appState::openLocalArchive,
-                    onOpenLocalFolder = appState::openLocalFolder,
+                    onOpenArchivePicker = { openArchiveLauncher.launch(COMIC_ARCHIVE_MIME_TYPES) },
+                    onOpenFolderPicker = { openFolderLauncher.launch(null) },
+                    onAddArchivesPicker = { addArchivesLauncher.launch(COMIC_ARCHIVE_MIME_TYPES) },
+                    onAddFolderPicker = { addFolderLauncher.launch(null) },
                     onOpenRecentComic = appState::openRecentComic,
                     onOpenLibraryComic = appState::openLibraryComic,
-                    onAddLocalArchivesToLibrary = appState::addArchivesToLibrary,
-                    onAddLocalFolderToLibrary = appState::addFolderToLibrary,
                     onRemoveLibraryComic = appState::removeFromLibrary,
                     onToggleLibraryFavorite = appState::toggleFavorite,
                     onSetLibraryTags = appState::setTags,
@@ -282,6 +274,18 @@ fun ComicViewerApp(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            if (documentPermissionError) {
+                AlertDialog(
+                    onDismissRequest = { documentPermissionError = false },
+                    title = { Text(stringResource(R.string.document_permission_error_title)) },
+                    text = { Text(stringResource(R.string.document_permission_error_message)) },
+                    confirmButton = {
+                        TextButton(onClick = { documentPermissionError = false }) {
+                            Text(stringResource(R.string.ok))
+                        }
+                    },
+                )
+            }
         }
     }
 }
@@ -290,11 +294,8 @@ fun ComicViewerApp(
 fun ComicViewerScreen(
     state: ReaderUiState,
     selectedTab: AppTab,
-    currentDirectoryPath: String,
-    browserRootPath: String,
     libraryComics: List<LibraryComic>,
     libraryMetadata: List<LibraryComicMetadata>,
-    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
@@ -315,15 +316,12 @@ fun ComicViewerScreen(
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
-    onAutoScanLibrary: () -> Unit,
-    onClearLibraryAutoScanResult: () -> Unit,
-    onDirectoryChange: (String) -> Unit,
-    onOpenLocalArchive: (File) -> Unit,
-    onOpenLocalFolder: (File) -> Unit,
+    onOpenArchivePicker: () -> Unit,
+    onOpenFolderPicker: () -> Unit,
+    onAddArchivesPicker: () -> Unit,
+    onAddFolderPicker: () -> Unit,
     onOpenRecentComic: (RecentComic) -> Unit,
     onOpenLibraryComic: (LibraryComic) -> Unit,
-    onAddLocalArchivesToLibrary: (List<File>) -> Unit,
-    onAddLocalFolderToLibrary: (File) -> Unit,
     onRemoveLibraryComic: (LibraryComic) -> Unit,
     onToggleLibraryFavorite: (LibraryComic) -> Unit,
     onSetLibraryTags: (LibraryComic, List<String>) -> Unit,
@@ -362,11 +360,8 @@ fun ComicViewerScreen(
             when (targetState) {
                 ReaderUiState.Empty -> HomeScreen(
                     selectedTab = selectedTab,
-                    currentDirectoryPath = currentDirectoryPath,
-                    browserRootPath = browserRootPath,
                     libraryComics = libraryComics,
                     libraryMetadata = libraryMetadata,
-                    libraryAutoScanState = libraryAutoScanState,
                     recentComics = recentComics,
                     isAddingToLibrary = isAddingToLibrary,
                     proBillingState = proBillingState,
@@ -385,15 +380,12 @@ fun ComicViewerScreen(
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
                     onStartAddToLibrary = onStartAddToLibrary,
-                    onAutoScanLibrary = onAutoScanLibrary,
-                    onClearLibraryAutoScanResult = onClearLibraryAutoScanResult,
-                    onDirectoryChange = onDirectoryChange,
-                    onOpenLocalArchive = onOpenLocalArchive,
-                    onOpenLocalFolder = onOpenLocalFolder,
+                    onOpenArchivePicker = onOpenArchivePicker,
+                    onOpenFolderPicker = onOpenFolderPicker,
+                    onAddArchivesPicker = onAddArchivesPicker,
+                    onAddFolderPicker = onAddFolderPicker,
                     onOpenRecentComic = onOpenRecentComic,
                     onOpenLibraryComic = onOpenLibraryComic,
-                    onAddLocalArchivesToLibrary = onAddLocalArchivesToLibrary,
-                    onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
                     onRemoveLibraryComic = onRemoveLibraryComic,
                     onToggleLibraryFavorite = onToggleLibraryFavorite,
                     onSetLibraryTags = onSetLibraryTags,
@@ -415,11 +407,8 @@ fun ComicViewerScreen(
 @Composable
 fun HomeScreen(
     selectedTab: AppTab,
-    currentDirectoryPath: String,
-    browserRootPath: String,
     libraryComics: List<LibraryComic>,
     libraryMetadata: List<LibraryComicMetadata>,
-    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     isAddingToLibrary: Boolean,
     proBillingState: ProBillingState,
@@ -438,15 +427,12 @@ fun HomeScreen(
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
     onStartAddToLibrary: () -> Unit,
-    onAutoScanLibrary: () -> Unit,
-    onClearLibraryAutoScanResult: () -> Unit,
-    onDirectoryChange: (String) -> Unit,
-    onOpenLocalArchive: (File) -> Unit,
-    onOpenLocalFolder: (File) -> Unit,
+    onOpenArchivePicker: () -> Unit,
+    onOpenFolderPicker: () -> Unit,
+    onAddArchivesPicker: () -> Unit,
+    onAddFolderPicker: () -> Unit,
     onOpenRecentComic: (RecentComic) -> Unit,
     onOpenLibraryComic: (LibraryComic) -> Unit,
-    onAddLocalArchivesToLibrary: (List<File>) -> Unit,
-    onAddLocalFolderToLibrary: (File) -> Unit,
     onRemoveLibraryComic: (LibraryComic) -> Unit,
     onToggleLibraryFavorite: (LibraryComic) -> Unit,
     onSetLibraryTags: (LibraryComic, List<String>) -> Unit,
@@ -470,12 +456,10 @@ fun HomeScreen(
                             AppTab.Library -> LibraryScreen(
                                 libraryComics = libraryComics,
                                 libraryMetadata = libraryMetadata,
-                                libraryAutoScanState = libraryAutoScanState,
                                 recentComics = recentComics,
                                 proBillingState = proBillingState,
                                 onStartAddToLibrary = onStartAddToLibrary,
-                                onAutoScanLibrary = onAutoScanLibrary,
-                                onClearAutoScanResult = onClearLibraryAutoScanResult,
+                                onImportArchives = onAddArchivesPicker,
                                 onBuyPro = onBuyPro,
                                 onRestorePro = onRestorePro,
                                 isDebugBuild = isDebugBuild,
@@ -488,17 +472,14 @@ fun HomeScreen(
                                 modifier = Modifier.fillMaxSize(),
                             )
 
-                            AppTab.Browse -> FileBrowserScreen(
-                                currentDirectoryPath = currentDirectoryPath,
-                                browserRootPath = browserRootPath,
+                            AppTab.Browse -> DocumentBrowserScreen(
                                 recentComics = recentComics,
                                 isAddingToLibrary = isAddingToLibrary,
-                                onDirectoryChange = onDirectoryChange,
-                                onOpenLocalArchive = onOpenLocalArchive,
-                                onOpenLocalFolder = onOpenLocalFolder,
+                                onOpenArchivePicker = onOpenArchivePicker,
+                                onOpenFolderPicker = onOpenFolderPicker,
+                                onAddArchivesPicker = onAddArchivesPicker,
+                                onAddFolderPicker = onAddFolderPicker,
                                 onOpenRecentComic = onOpenRecentComic,
-                                            onAddLocalArchivesToLibrary = onAddLocalArchivesToLibrary,
-                                onAddLocalFolderToLibrary = onAddLocalFolderToLibrary,
                                 modifier = Modifier.fillMaxSize(),
                             )
 
@@ -614,58 +595,5 @@ fun AppNavigationRail(
             icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_settings)) },
         )
-    }
-}
-
-@Composable
-fun FileAccessScreen(
-    onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(64.dp),
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.file_access_title),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = stringResource(R.string.file_access_message),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(28.dp))
-            Button(onClick = onOpenSettings) {
-                Text(stringResource(R.string.open_settings))
-            }
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun FileAccessScreenPreview() {
-    ComicViewerTheme {
-        FileAccessScreen(onOpenSettings = {})
     }
 }

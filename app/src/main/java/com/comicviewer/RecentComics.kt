@@ -13,6 +13,8 @@ private const val RECENT_COMICS_KEY = "items"
 enum class RecentComicSourceType(val storageName: String) {
     LocalArchive("local_archive"),
     LocalFolder("local_folder"),
+    DocumentArchive("document_archive"),
+    DocumentFolder("document_folder"),
     ;
 
     companion object {
@@ -52,16 +54,14 @@ fun recentComicFor(
     val sourceType = when (source) {
         is ComicSource.LocalArchive -> RecentComicSourceType.LocalArchive
         is ComicSource.LocalFolder -> RecentComicSourceType.LocalFolder
-        is ComicSource.Archive,
-        is ComicSource.Folder,
-        -> return null
+        is ComicSource.Archive -> RecentComicSourceType.DocumentArchive
+        is ComicSource.Folder -> RecentComicSourceType.DocumentFolder
     }
     val path = when (source) {
         is ComicSource.LocalArchive -> source.filePath
         is ComicSource.LocalFolder -> source.folderPath
-        is ComicSource.Archive,
-        is ComicSource.Folder,
-        -> return null
+        is ComicSource.Archive -> source.uri.toString()
+        is ComicSource.Folder -> source.uri.toString()
     }
 
     return RecentComic(
@@ -122,8 +122,17 @@ fun RecentComic.isReadableOnDisk(): Boolean {
     return when (sourceType) {
         RecentComicSourceType.LocalArchive -> file.isFile && file.canRead()
         RecentComicSourceType.LocalFolder -> file.isDirectory && file.canRead()
+        RecentComicSourceType.DocumentArchive,
+        RecentComicSourceType.DocumentFolder,
+        -> false
     }
 }
+
+val RecentComicSourceType.isArchive: Boolean
+    get() = this == RecentComicSourceType.LocalArchive || this == RecentComicSourceType.DocumentArchive
+
+val RecentComicSourceType.isFolder: Boolean
+    get() = this == RecentComicSourceType.LocalFolder || this == RecentComicSourceType.DocumentFolder
 
 private fun Context.recentComicsPrefs() =
     getSharedPreferences(RECENT_COMICS_PREFS_NAME, Context.MODE_PRIVATE)
@@ -134,7 +143,7 @@ private fun RecentComic.hasSameSourceAs(other: RecentComic): Boolean =
 private fun RecentComic.withValidProgress(): RecentComic =
     copy(lastPageIndex = coercePageIndex(lastPageIndex, pageCount))
 
-private fun encodeRecentComics(recentComics: List<RecentComic>): String =
+internal fun encodeRecentComics(recentComics: List<RecentComic>): String =
     JSONArray().apply {
         recentComics.forEach { comic ->
             put(
@@ -150,7 +159,7 @@ private fun encodeRecentComics(recentComics: List<RecentComic>): String =
         }
     }.toString()
 
-private fun decodeRecentComics(storedValue: String): List<RecentComic> {
+internal fun decodeRecentComics(storedValue: String): List<RecentComic> {
     val array = JSONArray(storedValue)
     return (0 until array.length()).mapNotNull { index ->
         val item = array.optJSONObject(index) ?: return@mapNotNull null

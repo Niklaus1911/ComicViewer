@@ -38,8 +38,8 @@ fun filterLibraryComicsBySource(
     filter: LibraryFilter,
 ): List<LibraryComic> = when (filter) {
     LibraryFilter.All -> comics
-    LibraryFilter.Archives -> comics.filter { comic -> comic.sourceType == RecentComicSourceType.LocalArchive }
-    LibraryFilter.Folders -> comics.filter { comic -> comic.sourceType == RecentComicSourceType.LocalFolder }
+    LibraryFilter.Archives -> comics.filter { comic -> comic.sourceType.isArchive }
+    LibraryFilter.Folders -> comics.filter { comic -> comic.sourceType.isFolder }
 }
 
 fun filterLibraryComicsByProgress(

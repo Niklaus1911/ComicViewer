@@ -43,7 +43,11 @@ data class ComicBook(
 
 sealed interface ReaderUiState {
     data object Empty : ReaderUiState
-    data object Loading : ReaderUiState
+    data class Loading(
+        val source: ComicSource,
+        val pageIndex: Int,
+    ) : ReaderUiState
+
     data class Ready(
         val book: ComicBook,
         val pageIndex: Int,

@@ -12,6 +12,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicLoadException
+import com.comicviewer.ComicSource
 import com.comicviewer.R
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryAutoScanState
@@ -26,6 +27,8 @@ import com.comicviewer.libraryComicForArchive
 import com.comicviewer.libraryComicForFolder
 import com.comicviewer.loadLibraryComics
 import com.comicviewer.loadLibraryMetadata
+import com.comicviewer.loadArchiveComic
+import com.comicviewer.loadFolderComic
 import com.comicviewer.loadLocalArchiveComic
 import com.comicviewer.loadLocalFolderComic
 import com.comicviewer.loadRecentComics
@@ -91,6 +94,10 @@ class ComicViewerAppState(
     private var loadJob by mutableStateOf<Job?>(null)
     private var libraryAutoScanJob: Job? = null
 
+    init {
+        (uiState as? ReaderUiState.Loading)?.let(::launchComicLoad)
+    }
+
     val currentTab: AppTab
         get() = runCatching { AppTab.valueOf(selectedTabName) }.getOrDefault(AppTab.Library)
 
@@ -140,75 +147,111 @@ class ComicViewerAppState(
     }
 
     fun openLocalArchive(file: File) {
-        loadJob?.cancel()
-        uiState = ReaderUiState.Loading
-        loadJob = scope.launch {
-            runCatching { loadLocalArchiveComic(appContext, file) }
-                .onSuccess { book ->
-                    showReadyComic(book = book, pageIndex = 0)
-                }
-                .onFailure { throwable ->
-                    if (throwable !is CancellationException) showError(throwable)
-                }
-        }
+        startComicLoad(
+            ReaderUiState.Loading(
+                source = ComicSource.LocalArchive(
+                    filePath = file.absolutePath,
+                    displayName = file.name.ifBlank { file.absolutePath },
+                ),
+                pageIndex = 0,
+            ),
+        )
     }
 
     fun openLocalFolder(folder: File) {
-        loadJob?.cancel()
-        uiState = ReaderUiState.Loading
-        loadJob = scope.launch {
-            runCatching { loadLocalFolderComic(folder) }
-                .onSuccess { book ->
-                    showReadyComic(book = book, pageIndex = 0)
-                }
-                .onFailure { throwable ->
-                    if (throwable !is CancellationException) showError(throwable)
-                }
-        }
+        startComicLoad(
+            ReaderUiState.Loading(
+                source = ComicSource.LocalFolder(
+                    folderPath = folder.absolutePath,
+                    displayName = folder.name.ifBlank { folder.absolutePath },
+                ),
+                pageIndex = 0,
+            ),
+        )
     }
 
     fun openRecentComic(recentComic: RecentComic) {
-        loadJob?.cancel()
-        uiState = ReaderUiState.Loading
-        loadJob = scope.launch {
-            runCatching {
-                when (recentComic.sourceType) {
-                    RecentComicSourceType.LocalArchive -> loadLocalArchiveComic(appContext, File(recentComic.path))
-                    RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(recentComic.path))
-                }
-            }.onSuccess { book ->
-                showReadyComic(book = book, pageIndex = recentComic.lastPageIndex)
-            }.onFailure { throwable ->
-                if (throwable !is CancellationException) {
-                    persistRecentComics(
-                        removeRecentComic(
-                            recentComics = recentComics,
-                            sourceType = recentComic.sourceType,
-                            path = recentComic.path,
-                        ),
-                    )
-                    showError(throwable)
-                }
+        val loading = ReaderUiState.Loading(
+            source = recentComic.toComicSource(),
+            pageIndex = recentComic.lastPageIndex,
+        )
+        startComicLoad(loading) { throwable ->
+            if (throwable !is CancellationException) {
+                persistRecentComics(
+                    removeRecentComic(
+                        recentComics = recentComics,
+                        sourceType = recentComic.sourceType,
+                        path = recentComic.path,
+                    ),
+                )
+                showError(throwable)
             }
         }
     }
 
     fun openLibraryComic(libraryComic: LibraryComic) {
         val recentComic = libraryComic.matchingRecentComic(recentComics)
+        startComicLoad(
+            loading = ReaderUiState.Loading(
+                source = libraryComic.toComicSource(),
+                pageIndex = recentComic?.lastPageIndex ?: 0,
+            ),
+        )
+    }
+
+    private fun startComicLoad(
+        loading: ReaderUiState.Loading,
+        onFailure: (Throwable) -> Unit = { throwable ->
+            if (throwable !is CancellationException) showError(throwable)
+        },
+    ) {
         loadJob?.cancel()
-        uiState = ReaderUiState.Loading
+        uiState = loading
+        launchComicLoad(loading, onFailure)
+    }
+
+    private fun launchComicLoad(
+        loading: ReaderUiState.Loading,
+        onFailure: (Throwable) -> Unit = { throwable ->
+            if (throwable !is CancellationException) showError(throwable)
+        },
+    ) {
         loadJob = scope.launch {
-            runCatching {
-                when (libraryComic.sourceType) {
-                    RecentComicSourceType.LocalArchive -> loadLocalArchiveComic(appContext, File(libraryComic.path))
-                    RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(libraryComic.path))
+            runCatching { loadComic(loading.source) }
+                .onSuccess { book ->
+                    showReadyComic(book = book, pageIndex = loading.pageIndex)
                 }
-            }.onSuccess { book ->
-                showReadyComic(book = book, pageIndex = recentComic?.lastPageIndex ?: 0)
-            }.onFailure { throwable ->
-                if (throwable !is CancellationException) showError(throwable)
-            }
+                .onFailure(onFailure)
         }
+    }
+
+    private suspend fun loadComic(source: ComicSource): ComicBook = when (source) {
+        is ComicSource.Archive -> loadArchiveComic(appContext, source.uri)
+        is ComicSource.Folder -> loadFolderComic(appContext, source.uri)
+        is ComicSource.LocalArchive -> loadLocalArchiveComic(appContext, File(source.filePath))
+        is ComicSource.LocalFolder -> loadLocalFolderComic(File(source.folderPath))
+    }
+
+    private fun RecentComic.toComicSource(): ComicSource = when (sourceType) {
+        RecentComicSourceType.LocalArchive -> ComicSource.LocalArchive(
+            filePath = path,
+            displayName = displayName,
+        )
+        RecentComicSourceType.LocalFolder -> ComicSource.LocalFolder(
+            folderPath = path,
+            displayName = displayName,
+        )
+    }
+
+    private fun LibraryComic.toComicSource(): ComicSource = when (sourceType) {
+        RecentComicSourceType.LocalArchive -> ComicSource.LocalArchive(
+            filePath = path,
+            displayName = displayName,
+        )
+        RecentComicSourceType.LocalFolder -> ComicSource.LocalFolder(
+            folderPath = path,
+            displayName = displayName,
+        )
     }
 
     fun addArchiveToLibrary(file: File) {
@@ -382,7 +425,7 @@ class ComicViewerAppState(
                 }
             }
 
-            ReaderUiState.Loading,
+            is ReaderUiState.Loading,
             is ReaderUiState.Error,
             is ReaderUiState.Ready,
             -> returnToBrowser()

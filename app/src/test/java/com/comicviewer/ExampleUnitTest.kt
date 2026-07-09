@@ -4,6 +4,8 @@ import com.android.billingclient.api.BillingClient
 import com.comicviewer.billing.ProBillingMessage
 import com.comicviewer.billing.isRecoverableBillingResponseCode
 import com.comicviewer.billing.userMessageForBillingResponseCode
+import com.comicviewer.ui.app.restoreReaderUiState
+import com.comicviewer.ui.app.saveReaderUiState
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -1696,6 +1698,47 @@ class ExampleUnitTest {
         assertFalse(resolveDarkTheme(AppThemeMode.Light, systemInDark = false))
         assertTrue(resolveDarkTheme(AppThemeMode.Dark, systemInDark = false))
         assertTrue(resolveDarkTheme(AppThemeMode.Dark, systemInDark = true))
+    }
+
+    @Test
+    fun readerUiStateSaver_savesOnlySourceAndPageIndex() {
+        val source = ComicSource.LocalArchive(
+            filePath = "/storage/emulated/0/Long Comic.cbz",
+            displayName = "Long Comic.cbz",
+        )
+        val ready = ReaderUiState.Ready(
+            book = ComicBook(
+                title = "Long Comic",
+                source = source,
+                pages = emptyList(),
+            ),
+            pageIndex = 9_999,
+        )
+
+        val savedValues = saveReaderUiState(ready)
+
+        assertEquals(5, savedValues.size)
+        assertEquals(
+            ReaderUiState.Loading(source = source, pageIndex = 9_999),
+            restoreReaderUiState(savedValues),
+        )
+    }
+
+    @Test
+    fun readerUiStateSaver_boundsUntrustedStrings() {
+        val savedError = saveReaderUiState(ReaderUiState.Error("x".repeat(100_000)))
+        val oversizedSource = ComicSource.LocalArchive(
+            filePath = "/" + "a".repeat(9_000),
+            displayName = "Comic.cbz",
+        )
+
+        assertTrue(savedError.sumOf(String::length) < 2_100)
+        assertEquals(
+            listOf("empty"),
+            saveReaderUiState(
+                ReaderUiState.Loading(source = oversizedSource, pageIndex = 0),
+            ),
+        )
     }
 }
 

@@ -399,7 +399,7 @@ fun ComicViewerScreen(
                     onSetLibraryTags = onSetLibraryTags,
                 )
 
-                ReaderUiState.Loading -> LoadingComicScreen()
+                is ReaderUiState.Loading -> LoadingComicScreen()
 
                 is ReaderUiState.Error -> ErrorComicScreen(
                     message = targetState.message,

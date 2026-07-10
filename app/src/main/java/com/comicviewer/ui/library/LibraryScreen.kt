@@ -36,7 +36,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Close
@@ -44,10 +43,12 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
 import com.comicviewer.R
+import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryComicMetadata
 import com.comicviewer.LibraryFilter
@@ -107,6 +109,9 @@ import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+
+private const val AUTO_SCAN_RESULT_VISIBLE_MS = 5_000L
 private const val MAX_STAGGER_STEPS = 8
 private const val STAGGER_STEP_MS = 40
 
@@ -116,10 +121,12 @@ private enum class LibraryContentMode { EmptyLibrary, NoResults, Results }
 fun LibraryScreen(
     libraryComics: List<LibraryComic>,
     libraryMetadata: List<LibraryComicMetadata>,
+    libraryAutoScanState: LibraryAutoScanState,
     recentComics: List<RecentComic>,
     proBillingState: ProBillingState,
     onStartAddToLibrary: () -> Unit,
-    onImportArchives: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
+    onClearAutoScanResult: () -> Unit,
     onBuyPro: () -> Unit,
     onRestorePro: () -> Unit,
     isDebugBuild: Boolean,
@@ -132,11 +139,12 @@ fun LibraryScreen(
     modifier: Modifier = Modifier,
 ) {
     val throttledStartAdd = rememberThrottledAction(action = onStartAddToLibrary)
-    val throttledImportArchives = rememberThrottledAction(action = onImportArchives)
+    val throttledAutoScan = rememberThrottledAction(action = onAutoScanLibrary)
     var comicPendingRemoval by remember { mutableStateOf<LibraryComic?>(null) }
     var comicPendingActions by remember { mutableStateOf<LibraryComic?>(null) }
     var comicPendingTagEdit by remember { mutableStateOf<LibraryComic?>(null) }
     var showProDialog by remember { mutableStateOf(false) }
+    val isAutoScanning = libraryAutoScanState is LibraryAutoScanState.Scanning
 
     // Pure view-state derived from the lists already passed in — kept local (survives rotation via
     // rememberSaveable; enums save through the default Serializable path) so app state stays untouched.
@@ -158,6 +166,13 @@ fun LibraryScreen(
         tagFilter = tagFilter,
         isProUnlocked = isProUnlocked,
     )
+
+    LaunchedEffect(libraryAutoScanState) {
+        if (libraryAutoScanState is LibraryAutoScanState.Complete) {
+            delay(AUTO_SCAN_RESULT_VISIBLE_MS)
+            onClearAutoScanResult()
+        }
+    }
 
     LaunchedEffect(isProUnlocked) {
         if (!isProUnlocked) {
@@ -211,9 +226,16 @@ fun LibraryScreen(
         LibraryHeader(
             itemCount = libraryComics.size,
             isProUnlocked = proBillingState.isProUnlocked,
+            isAutoScanning = isAutoScanning,
             onStartAddToLibrary = throttledStartAdd,
-            onImportArchives = throttledImportArchives,
+            onAutoScanLibrary = throttledAutoScan,
             onShowPro = { showProDialog = true },
+        )
+        LibraryAutoScanStatus(
+            autoScanState = libraryAutoScanState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
         )
 
         if (libraryComics.isNotEmpty()) {
@@ -440,8 +462,9 @@ fun LibraryScreen(
 fun LibraryHeader(
     itemCount: Int,
     isProUnlocked: Boolean,
+    isAutoScanning: Boolean,
     onStartAddToLibrary: () -> Unit,
-    onImportArchives: () -> Unit,
+    onAutoScanLibrary: () -> Unit,
     onShowPro: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -479,11 +502,21 @@ fun LibraryHeader(
                 },
             )
         }
-        IconButton(onClick = onImportArchives) {
-            Icon(
-                imageVector = Icons.Filled.Archive,
-                contentDescription = stringResource(R.string.import_archives),
-            )
+        IconButton(
+            onClick = onAutoScanLibrary,
+            enabled = !isAutoScanning,
+        ) {
+            if (isAutoScanning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(22.dp),
+                    strokeWidth = 2.dp,
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.Radar,
+                    contentDescription = stringResource(R.string.library_auto_scan),
+                )
+            }
         }
         IconButton(onClick = onStartAddToLibrary) {
             Icon(
@@ -647,6 +680,65 @@ private fun LibraryComicsGrid(
                 }
             }
         }
+    }
+}
+
+@Composable
+fun LibraryAutoScanStatus(
+    autoScanState: LibraryAutoScanState,
+    modifier: Modifier = Modifier,
+) {
+    val message = when (autoScanState) {
+        LibraryAutoScanState.Idle -> null
+        LibraryAutoScanState.Scanning -> stringResource(R.string.library_auto_scan_scanning)
+        is LibraryAutoScanState.Complete -> when {
+            autoScanState.directoryLimitReached -> stringResource(
+                R.string.library_auto_scan_directory_limit,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+
+            autoScanState.libraryLimitReached -> stringResource(
+                R.string.library_auto_scan_library_limit,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+
+            autoScanState.addedCount == 0 -> stringResource(
+                R.string.library_auto_scan_no_new,
+                autoScanState.foundCount,
+            )
+
+            else -> stringResource(
+                R.string.library_auto_scan_complete,
+                autoScanState.addedCount,
+                autoScanState.foundCount,
+            )
+        }
+
+        is LibraryAutoScanState.Failed -> autoScanState.message
+    } ?: return
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (autoScanState is LibraryAutoScanState.Scanning) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+        }
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (autoScanState is LibraryAutoScanState.Failed) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
 

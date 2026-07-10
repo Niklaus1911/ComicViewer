@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
@@ -75,7 +76,7 @@ fun WelcomeScreen(
     proBillingState: ProBillingState,
     isDebugBuild: Boolean,
     debugProUnlocked: Boolean,
-    onImportArchives: () -> Unit,
+    onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
     onBuyPro: () -> Unit,
@@ -83,7 +84,7 @@ fun WelcomeScreen(
     onDebugProUnlockedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val throttledImportArchives = rememberThrottledAction(action = onImportArchives)
+    val throttledAutoScan = rememberThrottledAction(action = onAutoScan)
     val throttledBrowseManually = rememberThrottledAction(action = onBrowseManually)
     val throttledSkip = rememberThrottledAction(action = onSkip)
     var visible by remember { mutableStateOf(false) }
@@ -144,7 +145,7 @@ fun WelcomeScreen(
                             visible = visible,
                             proBillingState = proBillingState,
                             onShowPro = { showProDialog = true },
-                            onImportArchives = throttledImportArchives,
+                            onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
                             modifier = Modifier.weight(1.1f),
@@ -170,7 +171,7 @@ fun WelcomeScreen(
                             visible = visible,
                             proBillingState = proBillingState,
                             onShowPro = { showProDialog = true },
-                            onImportArchives = throttledImportArchives,
+                            onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
                         )
@@ -272,12 +273,12 @@ private fun WelcomeContent(
     visible: Boolean,
     proBillingState: ProBillingState,
     onShowPro: () -> Unit,
-    onImportArchives: () -> Unit,
+    onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val importInteraction = remember { MutableInteractionSource() }
+    val autoScanInteraction = remember { MutableInteractionSource() }
     val browseInteraction = remember { MutableInteractionSource() }
     val skipInteraction = remember { MutableInteractionSource() }
 
@@ -344,20 +345,20 @@ private fun WelcomeContent(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Button(
-                onClick = onImportArchives,
-                interactionSource = importInteraction,
+                onClick = onAutoScan,
+                interactionSource = autoScanInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .softPress(importInteraction)
+                    .softPress(autoScanInteraction)
                     .sheen(progress = sheenProgress, alpha = 0.28f),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Archive,
+                    imageVector = Icons.Filled.Search,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.welcome_import_archives))
+                Text(stringResource(R.string.welcome_auto_scan))
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
@@ -748,7 +749,7 @@ private fun WelcomeScreenPreview() {
             proBillingState = previewProBillingState(),
             isDebugBuild = false,
             debugProUnlocked = false,
-            onImportArchives = {},
+            onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
             onBuyPro = {},
@@ -766,7 +767,7 @@ private fun WelcomeScreenLightPreview() {
             proBillingState = previewProBillingState(),
             isDebugBuild = false,
             debugProUnlocked = false,
-            onImportArchives = {},
+            onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
             onBuyPro = {},
@@ -784,7 +785,7 @@ private fun WelcomeScreenAmoledPreview() {
             proBillingState = previewProBillingState(),
             isDebugBuild = false,
             debugProUnlocked = false,
-            onImportArchives = {},
+            onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
             onBuyPro = {},

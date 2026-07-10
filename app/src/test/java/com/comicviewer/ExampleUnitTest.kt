@@ -41,6 +41,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
 
 class ExampleUnitTest {
     @get:Rule
@@ -54,6 +55,15 @@ class ExampleUnitTest {
         assertFalse(isSupportedArchiveName("comic.rar"))
         assertFalse(isSupportedArchiveName("comic.pdf"))
         assertFalse(isSupportedArchiveName("comic"))
+    }
+
+    @Test
+    fun storageAccessKindForSdk_usesLegacyTreeAndAllFilesByPlatform() {
+        assertEquals(StorageAccessKind.LegacyReadPermission, storageAccessKindForSdk(24))
+        assertEquals(StorageAccessKind.LegacyReadPermission, storageAccessKindForSdk(28))
+        assertEquals(StorageAccessKind.DocumentTree, storageAccessKindForSdk(29))
+        assertEquals(StorageAccessKind.AllFiles, storageAccessKindForSdk(30))
+        assertEquals(StorageAccessKind.AllFiles, storageAccessKindForSdk(36))
     }
 
     @Test
@@ -800,6 +810,20 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun archiveContainsSupportedImage_countsHiddenEntriesTowardLimit() {
+        val archive = File(temporaryFolder.root, "Hidden first.cbz")
+        writeZipArchive(
+            archive,
+            linkedMapOf(
+                ".hidden" to "ignored".encodeToByteArray(),
+                "001.jpg" to sampleJpegHeader(),
+            ),
+        )
+
+        assertFalse(archiveContainsSupportedImage(archive, maxEntries = 1))
+    }
+
+    @Test
     fun scanLibraryArchives_skipsHiddenAndTopLevelAndroidDirectoryOnly() {
         val root = temporaryFolder.newFolder("skip-scan-root")
         val hiddenArchive = File(File(root, ".hidden").apply { mkdirs() }, "Hidden.cbz")
@@ -825,6 +849,92 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun scanLibraryArchives_stopsAtCandidateLimitAndSupportsCancellation() {
+        val root = temporaryFolder.newFolder("bounded-scan-root")
+        listOf("One.cbz", "Two.cbz").forEach { name ->
+            writeZipArchive(File(root, name), mapOf("001.jpg" to sampleJpegHeader()))
+        }
+
+        val limited = scanLibraryArchivesInDirectory(root, maxCandidates = 1)
+
+        assertEquals(1, limited.candidates.size)
+        assertTrue(limited.candidateLimitReached)
+        assertThrows(CancellationException::class.java) {
+            scanLibraryArchivesInDirectory(root, shouldContinue = { false })
+        }
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_recursesAndSkipsHiddenAndTopLevelAndroid() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val android = archiveDocumentNode("android", "Android", isDirectory = true)
+        val comics = archiveDocumentNode("comics", "Comics", isDirectory = true)
+        val hidden = archiveDocumentNode("hidden", ".hidden", isDirectory = true)
+        val nestedAndroid = archiveDocumentNode("nested-android", "Android", isDirectory = true)
+        val visibleArchive = archiveDocumentNode("visible", "Visible.cbz", isFile = true)
+        val nestedArchive = archiveDocumentNode("nested", "Nested.zip", isFile = true)
+        val skippedArchive = archiveDocumentNode("skipped", "Skipped.cbz", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(android, hidden, comics),
+            android.uri to listOf(skippedArchive),
+            hidden.uri to listOf(skippedArchive),
+            comics.uri to listOf(visibleArchive, nestedAndroid),
+            nestedAndroid.uri to listOf(nestedArchive),
+        )
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { node -> node.uri != skippedArchive.uri },
+        )
+
+        assertEquals(listOf("nested", "visible"), result.candidates.map { candidate -> candidate.uri }.sorted())
+        assertEquals(3, result.scannedDirectoryCount)
+        assertFalse(result.directoryLimitReached)
+        assertFalse(result.candidateLimitReached)
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_reportsDirectoryAndCandidateLimits() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val folder = archiveDocumentNode("folder", "Comics", isDirectory = true)
+        val one = archiveDocumentNode("one", "One.cbz", isFile = true)
+        val two = archiveDocumentNode("two", "Two.cbz", isFile = true)
+
+        val directoryLimited = scanLibraryDocumentArchiveTree(
+            root = root,
+            listChildren = { node -> if (node.uri == root.uri) listOf(folder) else emptyList() },
+            archiveContainsSupportedImage = { true },
+            maxDirectories = 1,
+        )
+        val candidateLimited = scanLibraryDocumentArchiveTree(
+            root = root,
+            listChildren = { node -> if (node.uri == root.uri) listOf(one, two) else emptyList() },
+            archiveContainsSupportedImage = { true },
+            maxCandidates = 1,
+        )
+
+        assertTrue(directoryLimited.directoryLimitReached)
+        assertEquals(1, candidateLimited.candidates.size)
+        assertTrue(candidateLimited.candidateLimitReached)
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_preservesCancellationFromDirectoryEnumeration() {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                scanLibraryDocumentArchiveTree(
+                    root = root,
+                    listChildren = { throw CancellationException() },
+                    archiveContainsSupportedImage = { true },
+                )
+            }
+        }
+    }
+
+    @Test
     fun newLibraryComicsForArchiveScan_skipsExistingAndRespectsLibraryLimit() {
         val existingFile = File(temporaryFolder.root, "Existing.cbz")
         val newFile = File(temporaryFolder.root, "New.cbz")
@@ -842,6 +952,30 @@ class ExampleUnitTest {
         )
 
         assertEquals(listOf(newFile.absolutePath), result.map { comic -> comic.path })
+        assertEquals(100L, result.single().addedAt)
+    }
+
+    @Test
+    fun newLibraryComicsForDocumentArchiveScan_skipsExistingAndRespectsLibraryLimit() {
+        val existing = sampleLibraryComic(
+            path = "content://provider/existing",
+            sourceType = RecentComicSourceType.DocumentArchive,
+        )
+        val candidates = listOf(
+            LibraryDocumentArchiveScanCandidate("content://provider/existing", "Existing.cbz"),
+            LibraryDocumentArchiveScanCandidate("content://provider/new", "New.cbz"),
+            LibraryDocumentArchiveScanCandidate("content://provider/extra", "Extra.cbz"),
+        )
+
+        val result = newLibraryComicsForDocumentArchiveScan(
+            libraryComics = listOf(existing),
+            candidates = candidates,
+            addedAt = 100L,
+            maxItems = 2,
+        )
+
+        assertEquals(listOf("content://provider/new"), result.map { comic -> comic.path })
+        assertEquals(RecentComicSourceType.DocumentArchive, result.single().sourceType)
         assertEquals(100L, result.single().addedAt)
     }
 
@@ -1912,11 +2046,70 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun thumbnailSampleSize_boundsDecodedDimensions() {
-        assertEquals(1, thumbnailSampleSize(width = 512, height = 300))
-        assertEquals(2, thumbnailSampleSize(width = 513, height = 300))
-        assertEquals(8, thumbnailSampleSize(width = 4_000, height = 2_000))
+    fun thumbnailSampleSize_keepsDecodedImageAtOrAboveScaleTarget() {
+        assertEquals(1, thumbnailSampleSize(width = 1_024, height = 600))
+        assertEquals(1, thumbnailSampleSize(width = 1_025, height = 600))
+        assertEquals(2, thumbnailSampleSize(width = 1_600, height = 2_400))
+        assertEquals(2, thumbnailSampleSize(width = 4_000, height = 2_000))
         assertEquals(1, thumbnailSampleSize(width = 0, height = 2_000))
+    }
+
+    @Test
+    fun thumbnailOutputDimensions_scalesToTargetWithoutUpscalingSmallSources() {
+        assertEquals(
+            ThumbnailDimensions(width = 683, height = 1_024),
+            thumbnailOutputDimensions(width = 1_600, height = 2_400),
+        )
+        assertEquals(
+            ThumbnailDimensions(width = 1_024, height = 683),
+            thumbnailOutputDimensions(width = 2_400, height = 1_600),
+        )
+        assertEquals(
+            ThumbnailDimensions(width = 1_024, height = 1_024),
+            thumbnailOutputDimensions(width = 2_048, height = 2_048),
+        )
+        assertEquals(
+            ThumbnailDimensions(width = 600, height = 900),
+            thumbnailOutputDimensions(width = 600, height = 900),
+        )
+        assertNull(thumbnailOutputDimensions(width = 0, height = 900))
+    }
+
+    @Test
+    fun thumbnailCacheIdentity_isStableAndChangesWithEverySourceIdentityField() {
+        val identity = thumbnailCacheIdentity(
+            sourcePath = "/storage/emulated/0/Comics/Issue.cbz",
+            sourceLength = 10_000L,
+            sourceLastModified = 20_000L,
+            cacheVersion = 2,
+        )
+
+        assertEquals(64, identity.length)
+        assertEquals(
+            identity,
+            thumbnailCacheIdentity(
+                sourcePath = "/storage/emulated/0/Comics/Issue.cbz",
+                sourceLength = 10_000L,
+                sourceLastModified = 20_000L,
+                cacheVersion = 2,
+            ),
+        )
+        assertNotEquals(
+            identity,
+            thumbnailCacheIdentity("/storage/emulated/0/Comics/Other.cbz", 10_000L, 20_000L, 2),
+        )
+        assertNotEquals(
+            identity,
+            thumbnailCacheIdentity("/storage/emulated/0/Comics/Issue.cbz", 10_001L, 20_000L, 2),
+        )
+        assertNotEquals(
+            identity,
+            thumbnailCacheIdentity("/storage/emulated/0/Comics/Issue.cbz", 10_000L, 20_001L, 2),
+        )
+        assertNotEquals(
+            identity,
+            thumbnailCacheIdentity("/storage/emulated/0/Comics/Issue.cbz", 10_000L, 20_000L, 3),
+        )
     }
 
     @Test
@@ -2019,6 +2212,20 @@ private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(
 
 private fun sampleJpegHeader(): ByteArray =
     byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x00, 0x00, 0x00)
+
+private fun archiveDocumentNode(
+    uri: String,
+    name: String,
+    isDirectory: Boolean = false,
+    isFile: Boolean = false,
+): ArchiveDocumentNode =
+    ArchiveDocumentNode(
+        uri = uri,
+        name = name,
+        isDirectory = isDirectory,
+        isFile = isFile,
+        canRead = true,
+    )
 
 private fun writeZipArchive(
     file: File,

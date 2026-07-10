@@ -3,25 +3,35 @@ package com.comicviewer
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.core.graphics.scale
 import androidx.core.net.toUri
-import java.io.FilterInputStream
 import java.io.File
+import java.io.FilterInputStream
 import java.io.InputStream
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 private const val BROWSER_THUMBNAIL_CACHE_DIR_NAME = "browser_thumbnails"
 private const val LIBRARY_THUMBNAIL_CACHE_DIR_NAME = "library_thumbnails"
 private const val MAX_ARCHIVE_THUMBNAIL_ENTRY_COUNT = 10_000
 private const val MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES = 64L * 1024L * 1024L
-private const val MAX_THUMBNAIL_DIMENSION_PX = 512
-private const val MAX_THUMBNAIL_OUTPUT_BYTES = 2L * 1024L * 1024L
-private const val MAX_THUMBNAIL_CACHE_BYTES = 64L * 1024L * 1024L
+private const val MAX_THUMBNAIL_DIMENSION_PX = 1_024
+private const val MAX_THUMBNAIL_OUTPUT_BYTES = 8L * 1024L * 1024L
+private const val MAX_THUMBNAIL_CACHE_BYTES = 128L * 1024L * 1024L
 private const val MAX_THUMBNAIL_CACHE_FILES = 512
-private const val JPEG_THUMBNAIL_QUALITY = 82
+private const val JPEG_THUMBNAIL_QUALITY = 92
+private const val THUMBNAIL_CACHE_VERSION = 2
+private const val MAX_CONCURRENT_THUMBNAIL_GENERATIONS = 2
+private const val HEX_DIGITS = "0123456789abcdef"
 private val thumbnailCacheLock = Any()
+private val thumbnailGenerationSemaphore = Semaphore(MAX_CONCURRENT_THUMBNAIL_GENERATIONS)
 
 enum class BrowserEntryType {
     Directory,
@@ -170,13 +180,24 @@ private fun File.toBrowserEntry(): BrowserEntry {
     )
 }
 
-private fun File.extractArchiveThumbnailTo(cacheDir: File): File? =
-    runCatching {
-        ZipFile(this).use { zipFile ->
-            val candidate = zipFile.firstSupportedImageEntry() ?: return@use null
-            zipFile.writeThumbnail(candidate.entry, cacheDir, absolutePath.hashCode())
-        }
-    }.getOrNull()
+private suspend fun File.extractArchiveThumbnailTo(cacheDir: File): File? {
+    val cacheKey = thumbnailCacheIdentity(
+        sourcePath = absolutePath,
+        sourceLength = length(),
+        sourceLastModified = lastModified(),
+        cacheVersion = THUMBNAIL_CACHE_VERSION,
+    )
+    findCachedThumbnailFile(cacheDir, cacheKey)?.let { cachedFile -> return cachedFile }
+
+    return thumbnailGenerationSemaphore.withPermit {
+        findCachedThumbnailFile(cacheDir, cacheKey) ?: runCatching {
+            ZipFile(this).use { zipFile ->
+                val candidate = zipFile.firstSupportedImageEntry() ?: return@use null
+                zipFile.writeThumbnail(candidate.entry, cacheDir, cacheKey)
+            }
+        }.getOrNull()
+    }
+}
 
 private fun ZipFile.firstSupportedImageEntry(): ArchiveThumbnailCandidate? {
     var bestCandidate: ArchiveThumbnailCandidate? = null
@@ -212,7 +233,7 @@ private fun ZipFile.firstSupportedImageEntry(): ArchiveThumbnailCandidate? {
 private fun ZipFile.writeThumbnail(
     entry: ZipEntry,
     cacheDir: File,
-    cacheKey: Int,
+    cacheKey: String,
 ): File? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     getThumbnailInputStream(entry).use { input ->
@@ -229,35 +250,60 @@ private fun ZipFile.writeThumbnail(
     val bitmap = getThumbnailInputStream(entry).use { input ->
         BitmapFactory.decodeStream(input, null, options)
     } ?: return null
-    val hasAlpha = bitmap.hasAlpha()
+    val outputDimensions = thumbnailOutputDimensions(
+        width = bitmap.width,
+        height = bitmap.height,
+    ) ?: run {
+        bitmap.recycle()
+        return null
+    }
+    val thumbnailBitmap = try {
+        if (outputDimensions.width == bitmap.width && outputDimensions.height == bitmap.height) {
+            bitmap
+        } else {
+            bitmap.scale(
+                width = outputDimensions.width,
+                height = outputDimensions.height,
+                filter = true,
+            )
+        }
+    } catch (throwable: Throwable) {
+        bitmap.recycle()
+        throw throwable
+    }
+    val hasAlpha = thumbnailBitmap.hasAlpha()
     val outputFile = File(cacheDir, "${cacheKey}_thumbnail.${if (hasAlpha) "png" else "jpg"}")
-    val temporaryFile = File.createTempFile("thumbnail_", ".tmp", cacheDir)
+    var temporaryFile: File? = null
 
     return try {
-        val compressed = temporaryFile.outputStream().buffered().use { output ->
-            bitmap.compress(
+        val pendingFile = File.createTempFile("thumbnail_", ".tmp", cacheDir)
+        temporaryFile = pendingFile
+        val compressed = pendingFile.outputStream().buffered().use { output ->
+            thumbnailBitmap.compress(
                 if (hasAlpha) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG,
                 JPEG_THUMBNAIL_QUALITY,
                 output,
             )
         }
-        if (!compressed || temporaryFile.length() > MAX_THUMBNAIL_OUTPUT_BYTES) {
+        if (!compressed || pendingFile.length() > MAX_THUMBNAIL_OUTPUT_BYTES) {
             return null
         }
 
         synchronized(thumbnailCacheLock) {
+            cachedThumbnailFiles(cacheDir, cacheKey).forEach(File::delete)
             outputFile.delete()
-            if (!temporaryFile.renameTo(outputFile)) {
-                temporaryFile.copyTo(outputFile, overwrite = true)
-                temporaryFile.delete()
+            if (!pendingFile.renameTo(outputFile)) {
+                pendingFile.copyTo(outputFile, overwrite = true)
+                pendingFile.delete()
             }
             outputFile.setLastModified(System.currentTimeMillis())
             trimThumbnailCache(cacheDir, protectedFile = outputFile)
         }
         outputFile.takeIf(File::isFile)
     } finally {
+        if (thumbnailBitmap !== bitmap) thumbnailBitmap.recycle()
         bitmap.recycle()
-        temporaryFile.delete()
+        temporaryFile?.delete()
     }
 }
 
@@ -296,6 +342,11 @@ private class LimitedInputStream(
     }
 }
 
+internal data class ThumbnailDimensions(
+    val width: Int,
+    val height: Int,
+)
+
 internal fun thumbnailSampleSize(
     width: Int,
     height: Int,
@@ -304,11 +355,65 @@ internal fun thumbnailSampleSize(
     if (width <= 0 || height <= 0 || maxDimension <= 0) return 1
     val largestDimension = maxOf(width, height)
     var sampleSize = 1
-    while (largestDimension / sampleSize > maxDimension && sampleSize <= Int.MAX_VALUE / 2) {
-        sampleSize *= 2
+    while (sampleSize <= Int.MAX_VALUE / 2) {
+        val nextSampleSize = sampleSize * 2
+        if (largestDimension / nextSampleSize < maxDimension) break
+        sampleSize = nextSampleSize
     }
     return sampleSize
 }
+
+internal fun thumbnailOutputDimensions(
+    width: Int,
+    height: Int,
+    maxDimension: Int = MAX_THUMBNAIL_DIMENSION_PX,
+): ThumbnailDimensions? {
+    if (width <= 0 || height <= 0 || maxDimension <= 0) return null
+    if (maxOf(width, height) <= maxDimension) return ThumbnailDimensions(width, height)
+
+    return if (width >= height) {
+        ThumbnailDimensions(
+            width = maxDimension,
+            height = (height.toDouble() * maxDimension / width).roundToInt().coerceAtLeast(1),
+        )
+    } else {
+        ThumbnailDimensions(
+            width = (width.toDouble() * maxDimension / height).roundToInt().coerceAtLeast(1),
+            height = maxDimension,
+        )
+    }
+}
+
+internal fun thumbnailCacheIdentity(
+    sourcePath: String,
+    sourceLength: Long,
+    sourceLastModified: Long,
+    cacheVersion: Int,
+): String {
+    val identity = "$cacheVersion\u0000$sourcePath\u0000$sourceLength\u0000$sourceLastModified"
+    val digest = MessageDigest.getInstance("SHA-256")
+        .digest(identity.toByteArray(StandardCharsets.UTF_8))
+    return buildString(digest.size * 2) {
+        digest.forEach { byte ->
+            val unsignedByte = byte.toInt() and 0xFF
+            append(HEX_DIGITS[unsignedByte ushr 4])
+            append(HEX_DIGITS[unsignedByte and 0x0F])
+        }
+    }
+}
+
+private fun findCachedThumbnailFile(cacheDir: File, cacheKey: String): File? =
+    synchronized(thumbnailCacheLock) {
+        cachedThumbnailFiles(cacheDir, cacheKey)
+            .firstOrNull { file -> file.isFile && file.length() in 1L..MAX_THUMBNAIL_OUTPUT_BYTES }
+            ?.also { file -> file.setLastModified(System.currentTimeMillis()) }
+    }
+
+private fun cachedThumbnailFiles(cacheDir: File, cacheKey: String): List<File> =
+    listOf(
+        File(cacheDir, "${cacheKey}_thumbnail.jpg"),
+        File(cacheDir, "${cacheKey}_thumbnail.png"),
+    )
 
 internal fun trimThumbnailCache(
     cacheDir: File,

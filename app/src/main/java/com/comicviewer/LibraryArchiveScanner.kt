@@ -170,6 +170,9 @@ suspend fun scanLibraryDocumentArchives(
         archiveContainsSupportedImage = { node ->
             documentArchiveContainsSupportedImage(context, node.uri)
         },
+        imageIsSupported = { node ->
+            detectDocumentImageInfo(context, node.uri.toUri()) != null
+        },
         shouldContinue = { currentCoroutineContext().isActive },
     )
 }
@@ -178,6 +181,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
     root: ArchiveDocumentNode,
     listChildren: suspend (ArchiveDocumentNode) -> List<ArchiveDocumentNode>,
     archiveContainsSupportedImage: suspend (ArchiveDocumentNode) -> Boolean,
+    imageIsSupported: suspend (ArchiveDocumentNode) -> Boolean = { true },
     maxDirectories: Int = MAX_ARCHIVE_SCAN_DIRECTORIES,
     maxCandidates: Int = MAX_ARCHIVE_SCAN_CANDIDATES,
     shouldContinue: suspend () -> Boolean = { true },
@@ -213,12 +217,26 @@ internal suspend fun scanLibraryDocumentArchiveTree(
             .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
         if (!shouldContinue()) throw CancellationException()
 
-        if (children.any { child ->
+        var containsSupportedDirectImage = false
+        for (child in children) {
+            if (!shouldContinue()) throw CancellationException()
+            if (
                 child.isFile &&
-                    !isHiddenComicPath(child.name) &&
-                    isSupportedImageName(child.name)
+                !isHiddenComicPath(child.name) &&
+                isSupportedImageName(child.name)
+            ) {
+                containsSupportedDirectImage = try {
+                    imageIsSupported(child)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    false
+                }
+                if (containsSupportedDirectImage) break
             }
-        ) {
+        }
+
+        if (containsSupportedDirectImage) {
             folderCandidates += LibraryDocumentFolderScanCandidate(
                 uri = directory.uri,
                 displayName = directory.name,

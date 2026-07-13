@@ -62,6 +62,7 @@ import com.comicviewer.coercePageIndex
 import com.comicviewer.detailsFor
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.metadataFor
+import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.app.ComicDetailsTarget
 import com.comicviewer.ui.browser.RecentComicThumbnail
 import com.comicviewer.ui.common.fileSizeText
@@ -96,7 +97,7 @@ fun ComicDetailsScreen(
     }
     val recentComic = when (target) {
         is ComicDetailsTarget.Library -> target.comic.matchingRecentComic(recentComics)
-        is ComicDetailsTarget.Recent -> target.comic
+        is ComicDetailsTarget.Recent -> currentRecentComicForDetails(target.comic, recentComics)
     }
     val title = libraryComic?.title ?: recentComic?.title.orEmpty()
     val displayName = libraryComic?.displayName ?: recentComic?.displayName.orEmpty()
@@ -109,7 +110,7 @@ fun ComicDetailsScreen(
     val userMetadata = libraryComic?.let { comic ->
         metadataFor(comic, if (proBillingState.isProUnlocked) libraryMetadata else emptyList())
     }
-    val pageCount = details?.pageCount ?: recentComic?.pageCount?.takeIf { it > 0 }
+    val pageCount = resolvedComicPageCount(details, recentComic)
     val progress = recentComic?.progressFraction()
     val authors = metadata?.writers?.joinToString()?.takeIf(String::isNotBlank)
     val tags = (metadata?.genres.orEmpty() + userMetadata?.tags.orEmpty()).distinct()
@@ -235,7 +236,7 @@ fun ComicDetailsScreen(
                         onClick = {
                             when (target) {
                                 is ComicDetailsTarget.Library -> onReadLibraryComic(target.comic)
-                                is ComicDetailsTarget.Recent -> onReadRecentComic(target.comic)
+                                is ComicDetailsTarget.Recent -> recentComic?.let(onReadRecentComic)
                             }
                         },
                         modifier = Modifier.weight(1f),
@@ -420,3 +421,10 @@ private fun RecentComic.progressFraction(): Float? {
     if (pageCount <= 0) return null
     return ((coercePageIndex(lastPageIndex, pageCount) + 1).toFloat() / pageCount).coerceIn(0f, 1f)
 }
+
+internal fun currentRecentComicForDetails(
+    selectedComic: RecentComic,
+    recentComics: List<RecentComic>,
+): RecentComic = recentComics.firstOrNull { comic ->
+    comic.sourceType == selectedComic.sourceType && comic.path == selectedComic.path
+} ?: selectedComic

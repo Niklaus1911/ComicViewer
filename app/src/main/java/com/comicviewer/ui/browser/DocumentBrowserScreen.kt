@@ -67,6 +67,7 @@ import com.comicviewer.ui.common.StatusContent
 import com.comicviewer.ui.common.absoluteDateText
 import com.comicviewer.ui.common.fileSizeText
 import com.comicviewer.ui.common.softContentTransform
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -127,8 +128,8 @@ fun DocumentBrowserScreen(
 
     LaunchedEffect(current.uri, reloadRevision) {
         browserState = DocumentBrowserUiState.Loading
-        runCatching {
-            withContext(Dispatchers.IO) {
+        try {
+            val entries = withContext(Dispatchers.IO) {
                 check(canReadDocumentDirectory(context.applicationContext, current.uri)) {
                     resources.getString(R.string.folder_not_readable)
                 }
@@ -149,9 +150,10 @@ fun DocumentBrowserScreen(
                         )
                     }
             }
-        }.onSuccess { entries ->
             browserState = DocumentBrowserUiState.Loaded(entries)
-        }.onFailure { throwable ->
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Exception) {
             browserState = DocumentBrowserUiState.Error(
                 throwable.message?.takeIf(String::isNotBlank)
                     ?: resources.getString(R.string.folder_not_readable),

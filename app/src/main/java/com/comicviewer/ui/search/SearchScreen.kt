@@ -48,6 +48,7 @@ import com.comicviewer.compareComicPageNames
 import com.comicviewer.detailsFor
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.metadataFor
+import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.common.ReferenceScreenHeader
 import com.comicviewer.ui.common.StatusContent
 import com.comicviewer.ui.library.LibraryComicCover
@@ -166,8 +167,10 @@ fun SearchScreen(
                         Column {
                             SearchResultRow(
                                 comic = comic,
-                                pageCount = detailsFor(comic, libraryDetails)?.pageCount
-                                    ?: comic.matchingRecentComic(recentComics)?.pageCount,
+                                pageCount = resolvedComicPageCount(
+                                    details = detailsFor(comic, libraryDetails),
+                                    recentComic = comic.matchingRecentComic(recentComics),
+                                ),
                                 author = detailsFor(comic, libraryDetails)?.metadata?.writers?.joinToString(),
                                 onClick = { onOpenComic(comic) },
                             )

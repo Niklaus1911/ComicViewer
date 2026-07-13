@@ -8,6 +8,7 @@ fun comicPageImageCacheKey(source: ComicSource, page: ComicPage): String {
         pageIndex = page.index,
         relativePath = page.relativePath,
         imageUri = page.imageUri.toString(),
+        sourceFingerprint = page.cacheFingerprint,
     )
     val localPageFile = page.imageUri.path?.let(::File)?.takeIf(File::isFile)
     return if (localPageFile == null) {
@@ -22,14 +23,19 @@ fun comicPageImageCacheKey(
     pageIndex: Int,
     relativePath: String,
     imageUri: String,
-): String =
-    listOf(
-        "comic-page",
-        comicSourceImageCacheKey(source),
-        pageIndex.toString(),
-        relativePath,
-        imageUri,
-    ).joinToString(separator = "|")
+    sourceFingerprint: String? = null,
+): String = buildList {
+    addAll(
+        listOf(
+            "comic-page",
+            comicSourceImageCacheKey(source),
+            pageIndex.toString(),
+            relativePath,
+            imageUri,
+        ),
+    )
+    sourceFingerprint?.let { add("source:$it") }
+}.joinToString(separator = "|")
 
 private fun comicSourceImageCacheKey(source: ComicSource): String = when (source) {
     is ComicSource.Archive -> "archive-uri:${source.displayName}:${source.uri}"

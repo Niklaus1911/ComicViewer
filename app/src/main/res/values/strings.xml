@@ -53,6 +53,7 @@
     <string name="reader_page_grid">Page thumbnails</string>
     <string name="reader_previous_page">Previous page</string>
     <string name="reader_next_page">Next page</string>
+    <string name="reader_toggle_controls">Show or hide controls</string>
     <string name="reader_reading_mode">Reading mode</string>
     <string name="reader_single_page">Single page</string>
     <string name="reader_two_page">Two page</string>

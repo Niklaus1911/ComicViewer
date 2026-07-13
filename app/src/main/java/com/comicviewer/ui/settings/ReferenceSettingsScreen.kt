@@ -268,7 +268,11 @@ fun ReferenceSettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    listOf(R.string.reader_previous_page, R.string.reader_settings, R.string.reader_next_page).forEach { label ->
+                    listOf(
+                        R.string.reader_previous_page,
+                        R.string.reader_toggle_controls,
+                        R.string.reader_next_page,
+                    ).forEach { label ->
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),

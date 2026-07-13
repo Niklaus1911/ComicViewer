@@ -156,16 +156,22 @@ private suspend fun loadComicThumbnailUri(
                 context.extractDocumentArchiveThumbnailTo(path.toUri(), cacheDir)?.toUri()
             }
 
-            RecentComicSourceType.DocumentFolder -> listDocumentChildren(context, path.toUri())
-                .asSequence()
-                .filter { entry ->
-                    entry.isFile &&
-                        !isHiddenComicPath(entry.displayName) &&
-                        isSupportedImageName(entry.displayName)
-                }
-                .sortedWith { left, right -> compareComicPageNames(left.displayName, right.displayName) }
-                .firstOrNull()
-                ?.uri
+            RecentComicSourceType.DocumentFolder -> {
+                val coroutineContext = currentCoroutineContext()
+                listDocumentChildren(context, path.toUri())
+                    .asSequence()
+                    .filter { entry ->
+                        entry.isFile &&
+                            !isHiddenComicPath(entry.displayName) &&
+                            isSupportedImageName(entry.displayName)
+                    }
+                    .sortedWith { left, right -> compareComicPageNames(left.displayName, right.displayName) }
+                    .firstOrNull { entry ->
+                        if (!coroutineContext.isActive) throw CancellationException()
+                        detectDocumentImageInfo(context, entry.uri) != null
+                    }
+                    ?.uri
+            }
         }
     }
 

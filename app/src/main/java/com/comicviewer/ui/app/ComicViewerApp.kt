@@ -81,6 +81,7 @@ import com.comicviewer.ComicSource
 import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
+import com.comicviewer.RecentComicSourceType
 import com.comicviewer.StorageAccessKind
 import com.comicviewer.currentAppBuildInfo
 import com.comicviewer.collectAppBackupData
@@ -206,6 +207,18 @@ fun ComicViewerApp(
         return persisted
     }
 
+    fun persistAutomationPreferences(next: LibraryAutomationPreferences) {
+        saveLibraryAutomationPreferences(context.applicationContext, next)
+        automationPreferences = next
+        appState?.updateAutomationPreferences(next)
+    }
+
+    fun recordSuccessfulAutomaticScan(expectedImportFolderUri: String?) {
+        val current = automationPreferences
+        if (!current.autoScanEnabled || current.importFolderUri != expectedImportFolderUri) return
+        persistAutomationPreferences(current.copy(lastAutoScanAt = System.currentTimeMillis()))
+    }
+
     val legacyReadPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -286,9 +299,14 @@ fun ComicViewerApp(
                     importFolderName = document.displayName,
                     lastAutoScanAt = 0L,
                 )
-                saveLibraryAutomationPreferences(context.applicationContext, next)
-                automationPreferences = next
-                appState?.autoScanLibraryFolder(uri)
+                persistAutomationPreferences(next)
+                if (next.autoScanEnabled) {
+                    appState?.autoScanLibraryFolder(uri) { success ->
+                        if (success) recordSuccessfulAutomaticScan(uri.toString())
+                    }
+                } else {
+                    appState?.autoScanLibraryFolder(uri)
+                }
             }
         }
     }
@@ -334,12 +352,6 @@ fun ComicViewerApp(
         }
     }
 
-    fun persistAutomationPreferences(next: LibraryAutomationPreferences) {
-        saveLibraryAutomationPreferences(context.applicationContext, next)
-        automationPreferences = next
-        appState?.updateAutoDeleteTempFiles(next.autoDeleteTempFiles)
-    }
-
     DisposableEffect(billingRepository) {
         billingRepository.startConnection()
         onDispose { billingRepository.endConnection() }
@@ -360,8 +372,8 @@ fun ComicViewerApp(
         }
     }
 
-    LaunchedEffect(appState, automationPreferences.autoDeleteTempFiles) {
-        appState?.updateAutoDeleteTempFiles(automationPreferences.autoDeleteTempFiles)
+    LaunchedEffect(appState, automationPreferences) {
+        appState?.updateAutomationPreferences(automationPreferences)
     }
 
     LaunchedEffect(
@@ -379,9 +391,16 @@ fun ComicViewerApp(
                 nowMs = now,
             )
         ) {
-            persistAutomationPreferences(automationPreferences.copy(lastAutoScanAt = now))
-            val root = automationPreferences.importFolderUri?.let { runCatching { it.toUri() }.getOrNull() }
-            if (root != null) state.autoScanLibraryFolder(root) else state.autoScanLibraryArchives()
+            val expectedImportFolderUri = automationPreferences.importFolderUri
+            val root = expectedImportFolderUri?.let { runCatching { it.toUri() }.getOrNull() }
+            val onFinished: (Boolean) -> Unit = { success ->
+                if (success) recordSuccessfulAutomaticScan(expectedImportFolderUri)
+            }
+            if (root != null) {
+                state.autoScanLibraryFolder(root, onFinished)
+            } else {
+                state.autoScanLibraryArchives(onFinished)
+            }
         }
     }
 
@@ -785,10 +804,10 @@ fun ComicViewerScreen(
 }
 
 private fun LibraryComic.matches(source: ComicSource): Boolean = when (source) {
-    is ComicSource.LocalArchive -> sourceType.storageName == "local_archive" && path == source.filePath
-    is ComicSource.LocalFolder -> sourceType.storageName == "local_folder" && path == source.folderPath
-    is ComicSource.Archive -> sourceType.storageName == "document_archive" && path == source.uri.toString()
-    is ComicSource.Folder -> sourceType.storageName == "document_folder" && path == source.uri.toString()
+    is ComicSource.LocalArchive -> sourceType == RecentComicSourceType.LocalArchive && path == source.filePath
+    is ComicSource.LocalFolder -> sourceType == RecentComicSourceType.LocalFolder && path == source.folderPath
+    is ComicSource.Archive -> sourceType == RecentComicSourceType.DocumentArchive && path == source.uri.toString()
+    is ComicSource.Folder -> sourceType == RecentComicSourceType.DocumentFolder && path == source.uri.toString()
 }
 
 @Composable

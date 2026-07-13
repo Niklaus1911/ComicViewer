@@ -11,6 +11,7 @@ private const val RECENT_COMICS_PREFS_NAME = "recent_comics"
 private const val RECENT_COMICS_KEY = "items"
 private const val MAX_PERSISTED_PATH_CHARS = 4_096
 private const val MAX_PERSISTED_COMIC_TEXT_CHARS = 512
+private const val MAX_PERSISTED_PAGE_COUNT = 10_000
 
 enum class RecentComicSourceType(val storageName: String) {
     LocalArchive("local_archive"),
@@ -92,6 +93,15 @@ fun upsertRecentComic(
         .take(maxItems)
 }
 
+fun mergeOpenedRecentComic(
+    existing: RecentComic?,
+    opened: RecentComic,
+): RecentComic = opened.copy(
+    completedAt = existing?.completedAt
+        ?.takeIf { existing.pageCount == opened.pageCount }
+        ?: opened.completedAt,
+).withValidProgress()
+
 fun updateRecentComicPage(
     recentComics: List<RecentComic>,
     sourceType: RecentComicSourceType,
@@ -102,13 +112,15 @@ fun updateRecentComicPage(
 ): List<RecentComic> =
     recentComics.map { comic ->
         if (comic.sourceType == sourceType && comic.path == path) {
+            val normalizedPageCount = pageCount.coerceIn(0, MAX_PERSISTED_PAGE_COUNT)
             comic.copy(
-                lastPageIndex = coercePageIndex(pageIndex, pageCount),
-                pageCount = pageCount,
+                lastPageIndex = coercePageIndex(pageIndex, normalizedPageCount),
+                pageCount = normalizedPageCount,
                 completedAt = comic.completedAt ?: nowMs.takeIf {
-                    pageCount > 0 && coercePageIndex(pageIndex, pageCount) == pageCount - 1
+                    normalizedPageCount > 0 &&
+                        coercePageIndex(pageIndex, normalizedPageCount) == normalizedPageCount - 1
                 },
-            )
+            ).withValidProgress()
         } else {
             comic
         }
@@ -151,7 +163,14 @@ private fun RecentComic.hasSameSourceAs(other: RecentComic): Boolean =
     sourceType == other.sourceType && path == other.path
 
 private fun RecentComic.withValidProgress(): RecentComic =
-    copy(lastPageIndex = coercePageIndex(lastPageIndex, pageCount))
+    pageCount.coerceIn(0, MAX_PERSISTED_PAGE_COUNT).let { normalizedPageCount ->
+        copy(
+            lastPageIndex = coercePageIndex(lastPageIndex, normalizedPageCount),
+            pageCount = normalizedPageCount,
+            lastOpenedAt = lastOpenedAt.coerceAtLeast(0L),
+            completedAt = completedAt?.takeIf { it > 0L },
+        )
+    }
 
 internal fun encodeRecentComics(recentComics: List<RecentComic>): String =
     JSONArray().apply {

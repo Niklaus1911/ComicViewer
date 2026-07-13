@@ -33,6 +33,7 @@ data class ComicPage(
     val imageUri: Uri,
     val width: Int,
     val height: Int,
+    val cacheFingerprint: String? = null,
 )
 
 data class ComicBook(

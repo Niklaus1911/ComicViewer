@@ -85,6 +85,7 @@ import com.comicviewer.metadataFor
 import com.comicviewer.resolvedLibraryMetadata
 import com.comicviewer.resolvedLibraryProgressFilter
 import com.comicviewer.resolvedLibraryTagFilter
+import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.common.ReferenceScreenHeader
 import com.comicviewer.ui.common.StatusContent
 import kotlin.math.roundToInt
@@ -474,7 +475,7 @@ private fun ReferenceLibraryCard(
     onActions: () -> Unit,
 ) {
     val progress = libraryProgressFraction(comic, listOfNotNull(recentComic))
-    val pageCount = details?.pageCount ?: recentComic?.pageCount?.takeIf { it > 0 }
+    val pageCount = resolvedComicPageCount(details, recentComic)
     Column(modifier = Modifier.clickable(onClick = onOpen)) {
         Surface(
             modifier = Modifier

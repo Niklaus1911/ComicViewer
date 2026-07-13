@@ -189,6 +189,7 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
             imageUri = document.uri,
             width = 0,
             height = 0,
+            cacheFingerprint = document.cacheFingerprint(),
         )
     }
 
@@ -641,6 +642,12 @@ fun detectImageInfo(file: File): ImageInfo? {
     }
 }
 
+internal fun detectDocumentImageInfo(context: Context, uri: Uri): ImageInfo? = try {
+    context.contentResolver.openInputStream(uri)?.use(::detectImageInfo)
+} catch (_: Exception) {
+    null
+}
+
 fun copyToFileBounded(
     inputStream: InputStream,
     outputFile: File,
@@ -752,6 +759,13 @@ private data class LocalImageFile(
     val file: File,
     val info: ImageInfo,
 )
+
+private fun ComicDocumentEntry.cacheFingerprint(): String? =
+    if (sizeBytes != null || lastModifiedAt != null) {
+        "${sizeBytes ?: -1L}:${lastModifiedAt ?: -1L}"
+    } else {
+        null
+    }
 
 private data class ArchiveExtraction(
     val scannedEntries: Int,

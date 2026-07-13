@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
+import java.net.URI
+import java.util.Locale
 
 private const val MAX_DOCUMENT_DISPLAY_NAME_CHARS = 512
 
@@ -152,6 +154,33 @@ fun releasePersistableReadPermission(context: Context, uri: Uri) {
     }
 }
 
+internal fun documentPermissionCovers(
+    permissionUri: String,
+    targetUri: String,
+): Boolean {
+    if (permissionUri == targetUri) return true
+    val permission = permissionUri.documentTreeIdentity() ?: return false
+    val target = targetUri.documentTreeIdentity() ?: return false
+    return permission == target
+}
+
+internal fun releaseUnusedPersistableReadPermissions(
+    context: Context,
+    retainedUris: Collection<String>,
+) {
+    val persistedReadPermissions = runCatching {
+        context.contentResolver.persistedUriPermissions
+            .filter { permission -> permission.isReadPermission }
+            .map { permission -> permission.uri }
+    }.getOrDefault(emptyList())
+    persistedReadPermissions.forEach { permissionUri ->
+        val permission = permissionUri.toString()
+        if (retainedUris.none { retained -> documentPermissionCovers(permission, retained) }) {
+            releasePersistableReadPermission(context, permissionUri)
+        }
+    }
+}
+
 private fun Context.queryDocumentDisplayName(uri: Uri): String? =
     runCatching {
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -170,3 +199,53 @@ private fun String?.normalizedDocumentName(): String? =
         ?.trim()
         ?.takeIf(String::isNotEmpty)
         ?.take(MAX_DOCUMENT_DISPLAY_NAME_CHARS)
+
+private data class DocumentTreeIdentity(
+    val scheme: String,
+    val authority: String,
+    val treeDocumentId: String,
+)
+
+private fun String.documentTreeIdentity(): DocumentTreeIdentity? {
+    val parsed = runCatching { URI(this) }.getOrNull() ?: return null
+    val pathSegments = parsed.rawPath
+        ?.split('/')
+        ?.filter(String::isNotEmpty)
+        .orEmpty()
+    val treeIndex = pathSegments.indexOf("tree")
+    if (treeIndex < 0) return null
+    val treeDocumentId = pathSegments.getOrNull(treeIndex + 1)
+        ?.normalizePercentEscapes()
+        ?: return null
+    return DocumentTreeIdentity(
+        scheme = parsed.scheme?.lowercase(Locale.ROOT) ?: return null,
+        authority = parsed.rawAuthority?.lowercase(Locale.ROOT) ?: return null,
+        treeDocumentId = treeDocumentId,
+    )
+}
+
+private fun String.normalizePercentEscapes(): String {
+    val normalized = StringBuilder(length)
+    var index = 0
+    while (index < length) {
+        val character = this[index]
+        if (
+            character == '%' &&
+            index + 2 < length &&
+            this[index + 1].isHexDigit() &&
+            this[index + 2].isHexDigit()
+        ) {
+            normalized.append('%')
+            normalized.append(this[index + 1].uppercaseChar())
+            normalized.append(this[index + 2].uppercaseChar())
+            index += 3
+        } else {
+            normalized.append(character)
+            index += 1
+        }
+    }
+    return normalized.toString()
+}
+
+private fun Char.isHexDigit(): Boolean =
+    this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'

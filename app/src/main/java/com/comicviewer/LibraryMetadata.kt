@@ -1,6 +1,7 @@
 package com.comicviewer
 
 import android.content.Context
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -111,7 +112,7 @@ fun setLibraryTags(
 
 fun availableLibraryTags(metadata: List<LibraryComicMetadata>): List<String> =
     metadata.flatMap { item -> item.tags }
-        .distinctBy { tag -> tag.lowercase() }
+        .distinctBy { tag -> tag.lowercase(Locale.ROOT) }
         .sortedWith { left, right -> compareComicPageNames(left, right) }
 
 internal fun encodeLibraryMetadata(metadata: List<LibraryComicMetadata>): String =
@@ -158,7 +159,7 @@ private fun normalizeLibraryTags(tags: List<String>): List<String> =
     tags.map { tag -> tag.trim() }
         .filter { tag -> tag.isNotEmpty() }
         .map { tag -> tag.take(MAX_LIBRARY_TAG_CHARS) }
-        .distinctBy { tag -> tag.lowercase() }
+        .distinctBy { tag -> tag.lowercase(Locale.ROOT) }
         .sortedWith { left, right -> compareComicPageNames(left, right) }
         .take(MAX_LIBRARY_TAGS)
 

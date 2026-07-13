@@ -49,6 +49,7 @@ import com.comicviewer.R
 import com.comicviewer.RecentComic
 import com.comicviewer.detailsFor
 import com.comicviewer.matchingRecentComic
+import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.common.ReferenceBadge
 import com.comicviewer.ui.common.ReferenceLargeCardShape
 import com.comicviewer.ui.common.ReferenceScreenHeader
@@ -252,7 +253,7 @@ private fun ImportComicRow(
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    val pageCount = details?.pageCount ?: recentComic?.pageCount?.takeIf { it > 0 }
+    val pageCount = resolvedComicPageCount(details, recentComic)
     val size = fileSizeText(details?.fileSizeBytes)
     Surface(
         modifier = modifier

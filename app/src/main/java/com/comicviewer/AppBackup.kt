@@ -2,7 +2,6 @@ package com.comicviewer
 
 import android.content.Context
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
 import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 import java.io.File
@@ -171,21 +170,13 @@ suspend fun restoreAppBackup(
     saveAmoledThemeEnabled(context, backup.themePreferences.amoledEnabled)
     saveWelcomeSeen(context, true)
 
-    if (mode == RestoreMode.Replace) {
-        val previouslyReferencedDocumentUris = (currentLibrary.map { it.sourceType to it.path } +
-            currentHistory.map { it.sourceType to it.path })
-            .filter { (sourceType, _) -> sourceType.isDocumentSource() }
-            .mapTo(mutableSetOf()) { (_, path) -> path }
-        val retainedDocumentUris = (nextLibrary.map { it.sourceType to it.path } +
-            nextHistory.map { it.sourceType to it.path })
-            .filter { (sourceType, _) -> sourceType.isDocumentSource() }
-            .mapTo(mutableSetOf()) { (_, path) -> path }
-        loadPersistedStorageTreeUri(context)?.toString()?.let(retainedDocumentUris::add)
-        automationPreferences.importFolderUri?.let(retainedDocumentUris::add)
-        (previouslyReferencedDocumentUris - retainedDocumentUris).forEach { path ->
-            releasePersistableReadPermission(context, path.toUri())
-        }
-    }
+    val retainedDocumentUris = (nextLibrary.map { it.sourceType to it.path } +
+        nextHistory.map { it.sourceType to it.path })
+        .filter { (sourceType, _) -> sourceType.isDocumentSource() }
+        .mapTo(mutableSetOf()) { (_, path) -> path }
+    loadPersistedStorageTreeUri(context)?.toString()?.let(retainedDocumentUris::add)
+    automationPreferences.importFolderUri?.let(retainedDocumentUris::add)
+    releaseUnusedPersistableReadPermissions(context, retainedDocumentUris)
 
     RestoreSummary(
         libraryCount = nextLibrary.size,
@@ -209,7 +200,7 @@ private fun RecentComicSourceType.isDocumentSource(): Boolean =
 
 private fun LibraryAutomationPreferences.validatedFor(context: Context): LibraryAutomationPreferences {
     val uri = importFolderUri?.let { runCatching { it.toUri() }.getOrNull() }
-    val readable = uri != null && runCatching { DocumentFile.fromTreeUri(context, uri)?.canRead() == true }.getOrDefault(false)
+    val readable = uri != null && canReadDocumentDirectory(context, uri)
     return if (readable) this else copy(importFolderUri = null, importFolderName = null, autoScanEnabled = false)
 }
 

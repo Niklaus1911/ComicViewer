@@ -80,6 +80,22 @@ fun detailsFor(
     it.sourceType == comic.sourceType && it.path == comic.path
 }
 
+fun resolvedComicPageCount(
+    details: LibraryComicDetails?,
+    recentComic: RecentComic?,
+): Int? {
+    val inspectedCount = details?.pageCount?.takeIf { it > 0 }
+    val loadedCount = recentComic?.pageCount?.takeIf { it > 0 }
+    val inspectedAt = details?.refreshedAt ?: Long.MIN_VALUE
+    val loadedAt = recentComic?.lastOpenedAt ?: Long.MIN_VALUE
+    return when {
+        inspectedCount == null -> loadedCount
+        loadedCount == null -> inspectedCount
+        inspectedAt >= loadedAt -> inspectedCount
+        else -> loadedCount
+    }
+}
+
 fun upsertLibraryComicDetails(
     details: List<LibraryComicDetails>,
     item: LibraryComicDetails,
@@ -114,9 +130,11 @@ suspend fun inspectLibraryComic(
     LibraryComicDetails(
         sourceType = comic.sourceType,
         path = comic.path,
-        pageCount = recentComic?.pageCount?.takeIf { it > 0 }
-            ?: sourceFacts.metadata?.pageCount
-            ?: sourceFacts.pageCount,
+        pageCount = inspectedComicPageCount(
+            sourcePageCount = sourceFacts.pageCount,
+            recentPageCount = recentComic?.pageCount,
+            metadataPageCount = sourceFacts.metadata?.pageCount,
+        ),
         fileSizeBytes = sourceFacts.fileSizeBytes,
         lastModifiedAt = sourceFacts.lastModifiedAt,
         metadata = sourceFacts.metadata,
@@ -221,7 +239,10 @@ private fun inspectLocalArchive(
                 }
             }
             SourceFacts(
-                pageCount = pageCount.takeIf { it > 0 && !tooManyEntries },
+                pageCount = inspectedArchivePageCount(
+                    pageCount = pageCount,
+                    tooManyEntries = tooManyEntries,
+                ),
                 metadata = metadata,
             )
         }
@@ -276,7 +297,8 @@ private fun inspectDocumentArchive(
     val uri = runCatching { path.toUri() }.getOrNull() ?: return SourceFacts()
     val archiveFacts = runCatching {
         val source = context.contentResolver.openInputStream(uri) ?: return@runCatching null
-        ZipInputStream(MetadataLimitedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)).use { zip ->
+        val limitedSource = MetadataLimitedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)
+        ZipInputStream(limitedSource).use { zip ->
             var visited = 0
             var pageCount = 0
             var tooManyEntries = false
@@ -300,7 +322,11 @@ private fun inspectDocumentArchive(
                 }
             }
             SourceFacts(
-                pageCount = pageCount.takeIf { it > 0 && !tooManyEntries },
+                pageCount = inspectedArchivePageCount(
+                    pageCount = pageCount,
+                    tooManyEntries = tooManyEntries,
+                    sourceLimitReached = limitedSource.limitReached,
+                ),
                 metadata = metadata,
             )
         }
@@ -400,22 +426,56 @@ private data class SourceFacts(
     val metadata: ComicInfoMetadata? = null,
 )
 
-private class MetadataLimitedInputStream(
+internal fun inspectedArchivePageCount(
+    pageCount: Int,
+    tooManyEntries: Boolean,
+    sourceLimitReached: Boolean = false,
+): Int? = pageCount.takeIf { it > 0 && !tooManyEntries && !sourceLimitReached }
+
+internal fun inspectedComicPageCount(
+    sourcePageCount: Int?,
+    recentPageCount: Int?,
+    metadataPageCount: Int?,
+): Int? = sourcePageCount?.takeIf { it > 0 }
+    ?: recentPageCount?.takeIf { it > 0 }
+    ?: metadataPageCount?.takeIf { it > 0 }
+
+internal class MetadataLimitedInputStream(
     input: InputStream,
     maxBytes: Long,
 ) : FilterInputStream(input) {
     private var remaining = maxBytes.coerceAtLeast(0L)
+    var limitReached: Boolean = false
+        private set
 
     override fun read(): Int {
-        if (remaining == 0L) return -1
+        if (remaining == 0L) {
+            limitReached = true
+            return -1
+        }
         return super.read().also { if (it >= 0) remaining -= 1 }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (remaining == 0L) return -1
+        if (length == 0) return 0
+        if (remaining == 0L) {
+            limitReached = true
+            return -1
+        }
         val read = super.read(buffer, offset, minOf(length.toLong(), remaining).toInt())
         if (read > 0) remaining -= read
         return read
+    }
+
+    override fun skip(byteCount: Long): Long {
+        if (byteCount <= 0L) return 0L
+        if (remaining == 0L) {
+            limitReached = true
+            return 0L
+        }
+        val skipped = super.skip(minOf(byteCount, remaining))
+        if (skipped > 0L) remaining -= skipped
+        return skipped
     }
 }
 

@@ -12,6 +12,7 @@ import com.comicviewer.ui.app.restoreReaderUiState
 import com.comicviewer.ui.app.saveReaderUiState
 import com.comicviewer.ui.app.AppTab
 import com.comicviewer.ui.app.restoredAppTab
+import com.comicviewer.ui.library.currentRecentComicForDetails
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -25,6 +26,7 @@ import com.comicviewer.ui.reader.readerNavigationDirectionForTap
 import com.comicviewer.ui.reader.readerHorizontalSwipeEnabled
 import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
 import com.comicviewer.ui.reader.readerReportedPageIndex
+import com.comicviewer.ui.reader.readerResolvedPageDimension
 import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
@@ -665,6 +667,33 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun decodeRecentComics_boundsUntrustedProgressValues() {
+        val decoded = decodeRecentComics(
+            """
+            [
+              {"sourceType":"local_archive","path":"/one.cbz","displayName":"one.cbz","title":"One","lastPageIndex":99999,"pageCount":99999,"lastOpenedAt":-5},
+              {"sourceType":"local_archive","path":"/two.cbz","displayName":"two.cbz","title":"Two","lastPageIndex":5,"pageCount":-10,"lastOpenedAt":10}
+            ]
+            """.trimIndent(),
+        )
+
+        assertEquals(10_000, decoded.first { it.path == "/one.cbz" }.pageCount)
+        assertEquals(9_999, decoded.first { it.path == "/one.cbz" }.lastPageIndex)
+        assertEquals(0L, decoded.first { it.path == "/one.cbz" }.lastOpenedAt)
+        assertEquals(0, decoded.first { it.path == "/two.cbz" }.pageCount)
+        assertEquals(0, decoded.first { it.path == "/two.cbz" }.lastPageIndex)
+    }
+
+    @Test
+    fun currentRecentComicForDetails_usesLatestPersistedProgress() {
+        val selected = sampleRecentComic(lastPageIndex = 1, pageCount = 10, lastOpenedAt = 100L)
+        val updated = selected.copy(lastPageIndex = 7, lastOpenedAt = 200L)
+
+        assertEquals(updated, currentRecentComicForDetails(selected, listOf(updated)))
+        assertEquals(selected, currentRecentComicForDetails(selected, emptyList()))
+    }
+
+    @Test
     fun encodeAndDecodeLibraryComics_roundTripsNewestFirst() {
         val older = sampleLibraryComic(
             title = "Older",
@@ -1076,6 +1105,31 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun comicPageImageCacheKey_changesWithDocumentPageMetadata() {
+        val source = ComicSource.LocalFolder(
+            folderPath = "/storage/emulated/0/Manga",
+            displayName = "Manga",
+        )
+
+        val original = comicPageImageCacheKey(
+            source = source,
+            pageIndex = 0,
+            relativePath = "001.jpg",
+            imageUri = "content://provider/document/001",
+            sourceFingerprint = "1000:2000",
+        )
+        val updated = comicPageImageCacheKey(
+            source = source,
+            pageIndex = 0,
+            relativePath = "001.jpg",
+            imageUri = "content://provider/document/001",
+            sourceFingerprint = "1200:3000",
+        )
+
+        assertNotEquals(original, updated)
+    }
+
+    @Test
     fun shouldAcceptThrottledAction_blocksClicksInsideWindow() {
         assertFalse(
             shouldAcceptThrottledAction(
@@ -1433,6 +1487,14 @@ class ExampleUnitTest {
                 userScale = 1f,
             ),
         )
+    }
+
+    @Test
+    fun readerResolvedPageDimension_usesPainterBoundsForDocumentPages() {
+        assertEquals(1_200, readerResolvedPageDimension(storedDimension = 1_200, painterIntrinsicDimension = 900f))
+        assertEquals(900, readerResolvedPageDimension(storedDimension = 0, painterIntrinsicDimension = 900.4f))
+        assertEquals(0, readerResolvedPageDimension(storedDimension = 0, painterIntrinsicDimension = Float.NaN))
+        assertEquals(0, readerResolvedPageDimension(storedDimension = 0, painterIntrinsicDimension = Float.POSITIVE_INFINITY))
     }
 
     @Test
@@ -2172,6 +2234,20 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun documentPermissionCovers_matchesExactAndSharedTreeGrantsOnly() {
+        val tree = "content://provider/tree/primary%3AComics"
+        val firstChild = "content://provider/tree/primary%3AComics/document/primary%3AComics%2FIssue1.cbz"
+        val secondChild = "content://provider/tree/primary%3aComics/document/primary%3AComics%2FIssue2.cbz"
+
+        assertTrue(documentPermissionCovers(tree, tree))
+        assertTrue(documentPermissionCovers(tree, firstChild))
+        assertTrue(documentPermissionCovers(firstChild, secondChild))
+        assertFalse(documentPermissionCovers(tree, "content://provider/tree/primary%3AOther"))
+        assertFalse(documentPermissionCovers(tree, "content://other/tree/primary%3AComics"))
+        assertFalse(documentPermissionCovers("content://provider/document/one", "content://provider/document/two"))
+    }
+
+    @Test
     fun parseComicInfoXml_readsSupportedFieldsAndNormalizesLists() {
         val metadata = parseComicInfoXml(
             """
@@ -2227,6 +2303,69 @@ class ExampleUnitTest {
 
         assertNull(parseComicInfoXml(xml.toByteArray(Charsets.UTF_16LE)))
         assertNull(parseComicInfoXml(xml.toByteArray(java.nio.charset.Charset.forName("UTF-32BE"))))
+    }
+
+    @Test
+    fun comicInspectionPageCounts_preferCompleteAndNewestAuthoritativeValues() {
+        assertEquals(
+            12,
+            inspectedComicPageCount(
+                sourcePageCount = 12,
+                recentPageCount = 10,
+                metadataPageCount = 99,
+            ),
+        )
+        assertEquals(
+            10,
+            inspectedComicPageCount(
+                sourcePageCount = null,
+                recentPageCount = 10,
+                metadataPageCount = 99,
+            ),
+        )
+        assertEquals(
+            99,
+            inspectedComicPageCount(
+                sourcePageCount = null,
+                recentPageCount = null,
+                metadataPageCount = 99,
+            ),
+        )
+
+        val recent = sampleRecentComic(pageCount = 20, lastOpenedAt = 300L)
+        val olderDetails = LibraryComicDetails(
+            sourceType = recent.sourceType,
+            path = recent.path,
+            pageCount = 10,
+            refreshedAt = 200L,
+        )
+        val newerDetails = olderDetails.copy(pageCount = 30, refreshedAt = 400L)
+
+        assertEquals(20, resolvedComicPageCount(olderDetails, recent))
+        assertEquals(30, resolvedComicPageCount(newerDetails, recent))
+        assertEquals(20, resolvedComicPageCount(null, recent))
+        assertEquals(30, resolvedComicPageCount(newerDetails, null))
+    }
+
+    @Test
+    fun metadataInspection_doesNotPublishPartialArchivePageCounts() {
+        assertEquals(5, inspectedArchivePageCount(pageCount = 5, tooManyEntries = false))
+        assertNull(inspectedArchivePageCount(pageCount = 5, tooManyEntries = true))
+        assertNull(
+            inspectedArchivePageCount(
+                pageCount = 5,
+                tooManyEntries = false,
+                sourceLimitReached = true,
+            ),
+        )
+
+        val truncated = MetadataLimitedInputStream(ByteArrayInputStream(ByteArray(8)), maxBytes = 4)
+        assertEquals(4, truncated.readBytes().size)
+        assertTrue(truncated.limitReached)
+
+        val complete = MetadataLimitedInputStream(ByteArrayInputStream(ByteArray(4)), maxBytes = 8)
+        assertEquals(4, complete.readBytes().size)
+        assertFalse(complete.limitReached)
     }
 
     @Test
@@ -2447,6 +2586,25 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun mergeOpenedRecentComic_clearsStaleCompletionWhenPageCountChanges() {
+        val completed = sampleRecentComic(
+            lastPageIndex = 9,
+            pageCount = 10,
+            lastOpenedAt = 100L,
+        ).copy(completedAt = 100L)
+        val sameEditionReopenedEarlier = completed.copy(lastPageIndex = 4, lastOpenedAt = 200L, completedAt = null)
+        val expandedEdition = completed.copy(
+            lastPageIndex = 9,
+            pageCount = 20,
+            lastOpenedAt = 300L,
+            completedAt = null,
+        )
+
+        assertEquals(100L, mergeOpenedRecentComic(completed, sameEditionReopenedEarlier).completedAt)
+        assertNull(mergeOpenedRecentComic(completed, expandedEdition).completedAt)
+    }
+
+    @Test
     fun shouldRunAutomaticLibraryScan_enforcesIntervalAndHandlesClockEdges() {
         val day = 24L * 60L * 60L * 1_000L
 
@@ -2483,6 +2641,26 @@ class ExampleUnitTest {
 
         assertEquals(listOf("archive"), result.candidates.map { it.uri })
         assertEquals(listOf("folder"), result.folderCandidates.map { it.uri })
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_rejectsFilesThatOnlyLookLikeImages() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val folder = archiveDocumentNode("folder", "Broken comic", isDirectory = true)
+        val fakeImage = archiveDocumentNode("image", "001.jpg", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(folder),
+            folder.uri to listOf(fakeImage),
+        )
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { false },
+            imageIsSupported = { false },
+        )
+
+        assertTrue(result.folderCandidates.isEmpty())
     }
 
     @Test

@@ -94,6 +94,7 @@ import com.comicviewer.ui.common.fileSizeText
 import java.io.File
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 
 private const val MAX_STAGGER_STEPS = 8
 private const val STAGGER_STEP_MS = 40
@@ -142,14 +143,17 @@ fun FileBrowserScreen(
     LaunchedEffect(currentDirectoryPath, browserState is FileBrowserUiState.Loading) {
         if (browserState !is FileBrowserUiState.Loading) return@LaunchedEffect
 
-        runCatching { loadBrowserDirectory(context.applicationContext, File(currentDirectoryPath)) }
-            .onSuccess { directory -> browserState = FileBrowserUiState.Loaded(directory) }
-            .onFailure { throwable ->
-                browserState = FileBrowserUiState.Error(
-                    throwable.message?.takeIf { it.isNotBlank() }
-                        ?: resources.getString(R.string.folder_not_readable),
-                )
-            }
+        try {
+            val directory = loadBrowserDirectory(context.applicationContext, File(currentDirectoryPath))
+            browserState = FileBrowserUiState.Loaded(directory)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Exception) {
+            browserState = FileBrowserUiState.Error(
+                throwable.message?.takeIf { it.isNotBlank() }
+                    ?: resources.getString(R.string.folder_not_readable),
+            )
+        }
     }
 
     Surface(

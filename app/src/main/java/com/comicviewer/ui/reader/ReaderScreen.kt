@@ -81,6 +81,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -481,6 +482,18 @@ internal fun readerHorizontalSwipeEnabled(
     return fitSize.width * effectiveScale <= viewportWidth + 0.5f
 }
 
+internal fun readerResolvedPageDimension(
+    storedDimension: Int,
+    painterIntrinsicDimension: Float,
+): Int {
+    if (storedDimension > 0) return storedDimension
+    if (!painterIntrinsicDimension.isFinite() || painterIntrinsicDimension <= 0f) return 0
+    return painterIntrinsicDimension
+        .coerceAtMost(Int.MAX_VALUE.toFloat())
+        .roundToInt()
+        .coerceAtLeast(1)
+}
+
 private data class RememberedPagePainter(
     val imageUri: String,
     val painter: Painter,
@@ -732,6 +745,14 @@ fun ComicReaderScreen(
             swipeDragStartOffsetX = 0f
             activeSwipeDirection = null
         }
+        val reportedPageIndex = readerReportedPageIndex(
+            visualPageIndex = requestedVisualIndex,
+            pageCount = book.pages.size,
+            pageMode = activeReaderPreferences.pageMode,
+        )
+        if (reportedPageIndex != currentIndex) {
+            onPageSelected(reportedPageIndex)
+        }
     }
 
     fun resetSwipeState() {
@@ -887,15 +908,33 @@ fun ComicReaderScreen(
         }
     }
 
+    val primaryIntrinsicSize = (painterState as? AsyncImagePainter.State.Success)
+        ?.painter
+        ?.intrinsicSize
+        ?: Size.Unspecified
+    val secondaryIntrinsicSize = (secondPainterState as? AsyncImagePainter.State.Success)
+        ?.painter
+        ?.intrinsicSize
+        ?: Size.Unspecified
+    val primaryPageWidth = readerResolvedPageDimension(visualPage.width, primaryIntrinsicSize.width)
+    val primaryPageHeight = readerResolvedPageDimension(visualPage.height, primaryIntrinsicSize.height)
+    val secondaryPageWidth = secondSpreadPage?.let { page ->
+        readerResolvedPageDimension(page.width, secondaryIntrinsicSize.width)
+    } ?: 0
+    val secondaryPageHeight = secondSpreadPage?.let { page ->
+        readerResolvedPageDimension(page.height, secondaryIntrinsicSize.height)
+    } ?: 0
     val layoutPageWidth = if (secondSpreadPage != null) {
-        visualPage.width.coerceAtLeast(0) + secondSpreadPage.width.coerceAtLeast(0)
+        (primaryPageWidth.toLong() + secondaryPageWidth.toLong())
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
     } else {
-        visualPage.width
+        primaryPageWidth
     }
     val layoutPageHeight = if (secondSpreadPage != null) {
-        maxOf(visualPage.height, secondSpreadPage.height)
+        maxOf(primaryPageHeight, secondaryPageHeight)
     } else {
-        visualPage.height
+        primaryPageHeight
     }
     val effectivePageScale = readerEffectivePageScale(
         pageFitMode = activeReaderPreferences.pageFitMode,
@@ -913,6 +952,7 @@ fun ComicReaderScreen(
         effectiveScale = effectivePageScale,
         userScale = pageScale,
     )
+    val currentHorizontalSwipeEnabled = rememberUpdatedState(horizontalSwipeEnabled)
 
     LaunchedEffect(
         visualPage.imageUri,
@@ -941,17 +981,17 @@ fun ComicReaderScreen(
                 .onSizeChanged { viewportSize = it }
                 .pointerInput(
                     visualPage.imageUri,
+                    secondSpreadPage?.imageUri,
                     viewportSize,
-                    controlsVisible,
-                    pageScale,
+                    layoutPageWidth,
+                    layoutPageHeight,
                     activeReaderPreferences.readingDirection,
                     activeReaderPreferences.pageFitMode,
                     activeReaderPreferences.pageMode,
                     activeReaderPreferences.marginDp,
-                    horizontalSwipeEnabled,
                 ) {
                     detectPageGestures(
-                        swipingEnabled = horizontalSwipeEnabled,
+                        swipingEnabled = { currentHorizontalSwipeEnabled.value },
                         onTap = { tapOffset ->
                             when (
                                 readerNavigationDirectionForTap(
@@ -1246,7 +1286,7 @@ private fun SwipeTargetPageImage(
 }
 
 private suspend fun PointerInputScope.detectPageGestures(
-    swipingEnabled: Boolean,
+    swipingEnabled: () -> Boolean,
     onTap: (Offset) -> Unit,
     onSwipeStart: (ReaderSwipeDirection) -> Unit,
     onSwipeDrag: (offsetX: Float) -> Unit,
@@ -1256,6 +1296,7 @@ private suspend fun PointerInputScope.detectPageGestures(
 ) {
     awaitEachGesture {
         val firstDown = awaitFirstDown(requireUnconsumed = false)
+        val swipeAllowedForGesture = swipingEnabled()
         val startPosition = firstDown.position
         val velocityTracker = VelocityTracker().apply {
             addPosition(firstDown.uptimeMillis, firstDown.position)
@@ -1308,7 +1349,7 @@ private suspend fun PointerInputScope.detectPageGestures(
                 val panMotion = accumulatedPan.getDistance()
                 val horizontalSwipeMotion = abs(accumulatedPan.x)
                 val verticalSwipeMotion = abs(accumulatedPan.y)
-                val horizontalSwipeCandidate = swipingEnabled &&
+                val horizontalSwipeCandidate = swipeAllowedForGesture &&
                     !pointerCountExceededTap &&
                     zoomMotion <= touchSlop &&
                     horizontalSwipeMotion > verticalSwipeMotion * 1.4f
@@ -1845,8 +1886,8 @@ private fun ReaderChoiceChip(
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 11.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 8.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (leading != null) {
@@ -1856,12 +1897,12 @@ private fun ReaderChoiceChip(
                     imageVector = if (selected) Icons.Filled.Check else Icons.Filled.RadioButtonUnchecked,
                     contentDescription = null,
                     tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(17.dp),
                 )
             }
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodyMedium,
                 color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Start,
                 maxLines = 1,
@@ -1889,18 +1930,20 @@ private fun LockedProBadge() {
         contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.Lock,
                 contentDescription = null,
-                modifier = Modifier.size(13.dp),
+                modifier = Modifier.size(12.dp),
             )
             Text(
                 text = stringResource(R.string.pro_badge),
                 style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }

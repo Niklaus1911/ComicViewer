@@ -10,6 +10,8 @@ import com.comicviewer.billing.proAcknowledgeActionFor
 import com.comicviewer.billing.userMessageForBillingResponseCode
 import com.comicviewer.ui.app.restoreReaderUiState
 import com.comicviewer.ui.app.saveReaderUiState
+import com.comicviewer.ui.app.AppTab
+import com.comicviewer.ui.app.restoredAppTab
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
@@ -20,14 +22,21 @@ import com.comicviewer.ui.reader.readerEffectivePageScale
 import com.comicviewer.ui.reader.readerFitWidthScaleMultiplier
 import com.comicviewer.ui.reader.readerLogicalDirectionForPhysicalDirection
 import com.comicviewer.ui.reader.readerNavigationDirectionForTap
+import com.comicviewer.ui.reader.readerHorizontalSwipeEnabled
 import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
+import com.comicviewer.ui.reader.readerReportedPageIndex
 import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
 import com.comicviewer.ui.reader.readerSwipeCommitDirection
 import com.comicviewer.ui.reader.readerSwipeStartOffset
 import com.comicviewer.ui.reader.readerSwipeTargetIndex
+import com.comicviewer.ui.reader.readerSpreadPageIndices
+import com.comicviewer.ui.reader.readerSpreadStartIndex
+import com.comicviewer.ui.reader.readerSpreadTargetIndex
+import com.comicviewer.ui.reader.readerSpreadVisualPageIndices
 import com.comicviewer.ui.reader.resistedReaderSwipeOffset
+import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotEquals
@@ -156,6 +165,23 @@ class ExampleUnitTest {
                 inputStream = ByteArrayInputStream(ByteArray(70 * 1024)),
                 outputFile = outputFile,
                 maxBytes = 64L * 1024L,
+            )
+        }
+
+        assertFalse(outputFile.exists())
+    }
+
+    @Test
+    fun copyToFileBounded_cancellationDeletesPartialFile() {
+        val outputFile = File(temporaryFolder.root, "cancelled-page.bin")
+        var continuationChecks = 0
+
+        assertThrows(CancellationException::class.java) {
+            copyToFileBounded(
+                inputStream = ByteArrayInputStream(ByteArray(16 * 1024)),
+                outputFile = outputFile,
+                maxBytes = 32L * 1024L,
+                shouldContinue = { continuationChecks++ == 0 },
             )
         }
 
@@ -566,6 +592,7 @@ class ExampleUnitTest {
 
     @Test
     fun upsertRecentComic_trimsToMaxRecentComics() {
+        val maxItems = 10
         val result = (0..11).fold(emptyList<RecentComic>()) { recents, index ->
             upsertRecentComic(
                 recents,
@@ -574,10 +601,11 @@ class ExampleUnitTest {
                     path = "/storage/emulated/0/Comic $index.cbz",
                     lastOpenedAt = index.toLong(),
                 ),
+                maxItems = maxItems,
             )
         }
 
-        assertEquals(MAX_RECENT_COMICS, result.size)
+        assertEquals(maxItems, result.size)
         assertEquals(
             (11 downTo 2).map { index -> "/storage/emulated/0/Comic $index.cbz" },
             result.map { comic -> comic.path },
@@ -1384,6 +1412,30 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun readerHorizontalSwipeEnabled_allowsFitWidthButProtectsHorizontalPanning() {
+        assertTrue(
+            readerHorizontalSwipeEnabled(
+                pageWidth = 1_000,
+                pageHeight = 2_000,
+                viewportWidth = 1_000,
+                viewportHeight = 1_000,
+                effectiveScale = 2f,
+                userScale = 1f,
+            ),
+        )
+        assertFalse(
+            readerHorizontalSwipeEnabled(
+                pageWidth = 2_000,
+                pageHeight = 1_000,
+                viewportWidth = 1_000,
+                viewportHeight = 1_000,
+                effectiveScale = 2f,
+                userScale = 1f,
+            ),
+        )
+    }
+
+    @Test
     fun resolvedReaderPreferences_returnsDefaultsUntilProUnlocked() {
         val proPreferences = ReaderPreferences(
             readingDirection = ReaderReadingDirection.RightToLeft,
@@ -2110,6 +2162,348 @@ class ExampleUnitTest {
             identity,
             thumbnailCacheIdentity("/storage/emulated/0/Comics/Issue.cbz", 10_000L, 20_000L, 3),
         )
+    }
+
+    @Test
+    fun restoredAppTab_mapsLegacyBrowseAndFallsBackSafely() {
+        assertEquals(AppTab.Import, restoredAppTab("Browse"))
+        assertEquals(AppTab.Search, restoredAppTab("Search"))
+        assertEquals(AppTab.Library, restoredAppTab("Unknown"))
+    }
+
+    @Test
+    fun parseComicInfoXml_readsSupportedFieldsAndNormalizesLists() {
+        val metadata = parseComicInfoXml(
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ComicInfo>
+                <Title>Year One</Title>
+                <Series>Batman</Series>
+                <Number>1</Number>
+                <Volume>2</Volume>
+                <Summary>Bruce Wayne returns to Gotham.</Summary>
+                <Writer>Frank Miller; David Mazzucchelli; frank miller</Writer>
+                <Publisher>DC Comics</Publisher>
+                <Year>1987</Year>
+                <LanguageISO>en</LanguageISO>
+                <Genre>Crime, Graphic Novel, Crime</Genre>
+                <PageCount>184</PageCount>
+            </ComicInfo>
+            """.trimIndent().toByteArray(),
+        )
+
+        assertEquals("Year One", metadata?.title)
+        assertEquals("Batman", metadata?.series)
+        assertEquals("1", metadata?.number)
+        assertEquals(2, metadata?.volume)
+        assertEquals(listOf("Frank Miller", "David Mazzucchelli"), metadata?.writers)
+        assertEquals(listOf("Crime", "Graphic Novel"), metadata?.genres)
+        assertEquals("DC Comics", metadata?.publisher)
+        assertEquals(1987, metadata?.year)
+        assertEquals("en", metadata?.language)
+        assertEquals(184, metadata?.pageCount)
+    }
+
+    @Test
+    fun parseComicInfoXml_rejectsMalformedOversizedAndDoctypeDocuments() {
+        assertNull(parseComicInfoXml("<ComicInfo><Title>Broken".toByteArray()))
+        assertNull(parseComicInfoXml(ByteArray(1024 * 1024 + 1)))
+        assertNull(
+            parseComicInfoXml(
+                """
+                <!DOCTYPE ComicInfo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+                <ComicInfo><Title>&xxe;</Title></ComicInfo>
+                """.trimIndent().toByteArray(),
+            ),
+        )
+    }
+
+    @Test
+    fun parseComicInfoXml_rejectsUtf16AndUtf32DoctypeDocuments() {
+        val xml = """
+            <!DOCTYPE ComicInfo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+            <ComicInfo><Title>&xxe;</Title></ComicInfo>
+        """.trimIndent()
+
+        assertNull(parseComicInfoXml(xml.toByteArray(Charsets.UTF_16LE)))
+        assertNull(parseComicInfoXml(xml.toByteArray(java.nio.charset.Charset.forName("UTF-32BE"))))
+    }
+
+    @Test
+    fun appBackup_roundTripsAllAppDataAndExpandedReaderPreferences() {
+        val libraryComic = sampleLibraryComic(
+            title = "Batman: Year One",
+            path = "/storage/emulated/0/Comics/Batman.cbz",
+            addedAt = 100L,
+        )
+        val recentComic = sampleRecentComic(
+            title = libraryComic.title,
+            path = libraryComic.path,
+            lastPageIndex = 86,
+            pageCount = 184,
+            lastOpenedAt = 200L,
+        ).copy(completedAt = 250L)
+        val readerPreferences = ReaderPreferences(
+            pageMode = ReaderPageMode.TwoPage,
+            readingDirection = ReaderReadingDirection.RightToLeft,
+            pageFitMode = ReaderPageFitMode.Original,
+            background = ReaderBackground.Sepia,
+            brightness = 0.73f,
+            marginDp = 18,
+            keepScreenOn = false,
+            showPageNumber = false,
+        )
+        val backup = AppBackupData(
+            libraryComics = listOf(libraryComic),
+            recentComics = listOf(recentComic),
+            libraryMetadata = listOf(
+                LibraryComicMetadata(
+                    sourceType = libraryComic.sourceType,
+                    path = libraryComic.path,
+                    favorite = true,
+                    tags = listOf("Crime", "Noir"),
+                    updatedAt = 300L,
+                ),
+            ),
+            libraryDetails = listOf(
+                LibraryComicDetails(
+                    sourceType = libraryComic.sourceType,
+                    path = libraryComic.path,
+                    pageCount = 184,
+                    fileSizeBytes = 78_000_000L,
+                    lastModifiedAt = 400L,
+                    metadata = ComicInfoMetadata(
+                        title = "Year One",
+                        series = "Batman",
+                        writers = listOf("Frank Miller"),
+                        publisher = "DC Comics",
+                        year = 1987,
+                        language = "en",
+                        genres = listOf("Crime"),
+                        pageCount = 184,
+                    ),
+                    refreshedAt = 500L,
+                ),
+            ),
+            readerPreferences = readerPreferences,
+            automationPreferences = LibraryAutomationPreferences(
+                importFolderUri = "content://provider/tree/primary%3AComics",
+                importFolderName = "Comics",
+                autoScanEnabled = true,
+                lastAutoScanAt = 600L,
+                autoDeleteTempFiles = false,
+            ),
+            themePreferences = BackupThemePreferences(
+                language = AppLanguage.Italian,
+                themeMode = AppThemeMode.Dark,
+                dynamicColorEnabled = false,
+                accentColor = AppColor.PURPLE,
+                themePreset = AppThemePreset.Aurora,
+                amoledEnabled = true,
+            ),
+        )
+
+        val decoded = decodeAppBackup(encodeAppBackup(backup))
+
+        assertEquals(backup, decoded)
+        assertEquals(readerPreferences, decoded.readerPreferences)
+    }
+
+    @Test
+    fun appBackup_rejectsOversizedAndUnsupportedPayloads() {
+        assertThrows(IllegalArgumentException::class.java) {
+            readBackupBytesBounded(ByteArrayInputStream(ByteArray(MAX_BACKUP_BYTES + 1)))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeAppBackup(ByteArray(MAX_BACKUP_BYTES + 1))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeAppBackup(
+                """
+                {"schemaVersion":2,"libraryComics":[],"recentComics":[],"libraryMetadata":[],"libraryDetails":[],"readerPreferences":{},"automationPreferences":{},"themePreferences":{}}
+                """.trimIndent().toByteArray(),
+            )
+        }
+        val excessiveLibraryRecords = List(MAX_LIBRARY_COMICS + 1) { "{}" }.joinToString(",")
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeAppBackup(
+                """
+                {"schemaVersion":1,"libraryComics":[$excessiveLibraryRecords],"recentComics":[],"libraryMetadata":[],"libraryDetails":[]}
+                """.trimIndent().toByteArray(),
+            )
+        }
+    }
+
+    @Test
+    fun readerSpreadPairing_keepsCoverAloneAndPairsFollowingPages() {
+        assertEquals(listOf(0), readerSpreadPageIndices(pageIndex = 0, pageCount = 6))
+        assertEquals(listOf(1, 2), readerSpreadPageIndices(pageIndex = 1, pageCount = 6))
+        assertEquals(listOf(1, 2), readerSpreadPageIndices(pageIndex = 2, pageCount = 6))
+        assertEquals(listOf(3, 4), readerSpreadPageIndices(pageIndex = 4, pageCount = 6))
+        assertEquals(listOf(5), readerSpreadPageIndices(pageIndex = 5, pageCount = 6))
+        assertEquals(1, readerSpreadStartIndex(pageIndex = 2, pageCount = 6))
+        assertEquals(5, readerSpreadStartIndex(pageIndex = 5, pageCount = 6))
+    }
+
+    @Test
+    fun readerReportedPageIndex_reportsLastVisiblePageForSpreads() {
+        assertEquals(
+            0,
+            readerReportedPageIndex(visualPageIndex = 0, pageCount = 6, pageMode = ReaderPageMode.TwoPage),
+        )
+        assertEquals(
+            2,
+            readerReportedPageIndex(visualPageIndex = 1, pageCount = 6, pageMode = ReaderPageMode.TwoPage),
+        )
+        assertEquals(
+            5,
+            readerReportedPageIndex(visualPageIndex = 5, pageCount = 6, pageMode = ReaderPageMode.TwoPage),
+        )
+    }
+
+    @Test
+    fun readerSpreadPairing_reversesVisualOrderForRtlOnly() {
+        assertEquals(
+            listOf(1, 2),
+            readerSpreadVisualPageIndices(1, 6, ReaderReadingDirection.LeftToRight),
+        )
+        assertEquals(
+            listOf(2, 1),
+            readerSpreadVisualPageIndices(1, 6, ReaderReadingDirection.RightToLeft),
+        )
+        assertEquals(
+            listOf(5),
+            readerSpreadVisualPageIndices(5, 6, ReaderReadingDirection.RightToLeft),
+        )
+    }
+
+    @Test
+    fun readerSpreadTargetIndex_movesBySpreadAndHandlesOddLastPage() {
+        assertNull(readerSpreadTargetIndex(0, 6, ReaderSwipeDirection.Previous))
+        assertEquals(1, readerSpreadTargetIndex(0, 6, ReaderSwipeDirection.Next))
+        assertEquals(0, readerSpreadTargetIndex(1, 6, ReaderSwipeDirection.Previous))
+        assertEquals(3, readerSpreadTargetIndex(1, 6, ReaderSwipeDirection.Next))
+        assertEquals(5, readerSpreadTargetIndex(3, 6, ReaderSwipeDirection.Next))
+        assertEquals(3, readerSpreadTargetIndex(5, 6, ReaderSwipeDirection.Previous))
+        assertNull(readerSpreadTargetIndex(5, 6, ReaderSwipeDirection.Next))
+    }
+
+    @Test
+    fun twoPageSwipeCommitAndResistance_stopAtFinalSpread() {
+        assertNull(
+            readerSwipeCommitDirection(
+                offsetX = -250f,
+                velocityX = -900f,
+                viewportWidth = 1_000f,
+                currentPageIndex = 3,
+                pageCount = 5,
+                velocityThresholdPx = 700f,
+                pageMode = ReaderPageMode.TwoPage,
+            ),
+        )
+        assertEquals(
+            -70f,
+            resistedReaderSwipeOffset(
+                rawOffsetX = -250f,
+                currentPageIndex = 3,
+                pageCount = 5,
+                pageMode = ReaderPageMode.TwoPage,
+            ),
+        )
+    }
+
+    @Test
+    fun updateRecentComicPage_recordsCompletionTimestampOnce() {
+        val comic = sampleRecentComic(lastPageIndex = 3, pageCount = 10)
+
+        val unfinished = updateRecentComicPage(
+            recentComics = listOf(comic),
+            sourceType = comic.sourceType,
+            path = comic.path,
+            pageIndex = 8,
+            pageCount = 10,
+            nowMs = 100L,
+        ).single()
+        val completed = updateRecentComicPage(
+            recentComics = listOf(unfinished),
+            sourceType = comic.sourceType,
+            path = comic.path,
+            pageIndex = 9,
+            pageCount = 10,
+            nowMs = 200L,
+        ).single()
+        val reopened = updateRecentComicPage(
+            recentComics = listOf(completed),
+            sourceType = comic.sourceType,
+            path = comic.path,
+            pageIndex = 9,
+            pageCount = 10,
+            nowMs = 300L,
+        ).single()
+
+        assertNull(unfinished.completedAt)
+        assertEquals(200L, completed.completedAt)
+        assertEquals(200L, reopened.completedAt)
+    }
+
+    @Test
+    fun shouldRunAutomaticLibraryScan_enforcesIntervalAndHandlesClockEdges() {
+        val day = 24L * 60L * 60L * 1_000L
+
+        assertFalse(shouldRunAutomaticLibraryScan(false, 0L, day))
+        assertFalse(shouldRunAutomaticLibraryScan(true, 100L, 100L + day - 1L))
+        assertTrue(shouldRunAutomaticLibraryScan(true, 100L, 100L + day))
+        assertFalse(shouldRunAutomaticLibraryScan(true, 1_000L, 999L))
+        assertFalse(
+            shouldRunAutomaticLibraryScan(
+                enabled = true,
+                lastScanAt = Long.MAX_VALUE - 1L,
+                nowMs = Long.MAX_VALUE,
+                intervalMs = 10L,
+            ),
+        )
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_findsDirectImageComicFolders() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val folder = archiveDocumentNode("folder", "Batman", isDirectory = true)
+        val image = archiveDocumentNode("image", "001.jpg", isFile = true)
+        val archive = archiveDocumentNode("archive", "Annual.cbz", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(folder),
+            folder.uri to listOf(image, archive),
+        )
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { true },
+        )
+
+        assertEquals(listOf("archive"), result.candidates.map { it.uri })
+        assertEquals(listOf("folder"), result.folderCandidates.map { it.uri })
+    }
+
+    @Test
+    fun newLibraryComicsForDocumentFolderScan_skipsExistingAndRespectsRemainingSlots() {
+        val existing = sampleLibraryComic(
+            path = "content://provider/tree/root/document/existing",
+            sourceType = RecentComicSourceType.DocumentFolder,
+        )
+        val result = newLibraryComicsForDocumentFolderScan(
+            libraryComics = listOf(existing),
+            candidates = listOf(
+                LibraryDocumentFolderScanCandidate(existing.path, "Existing"),
+                LibraryDocumentFolderScanCandidate("content://provider/tree/root/document/new", "New"),
+                LibraryDocumentFolderScanCandidate("content://provider/tree/root/document/extra", "Extra"),
+            ),
+            addedAt = 100L,
+            maxItems = 2,
+        )
+
+        assertEquals(listOf("content://provider/tree/root/document/new"), result.map { it.path })
+        assertEquals(RecentComicSourceType.DocumentFolder, result.single().sourceType)
     }
 
     @Test

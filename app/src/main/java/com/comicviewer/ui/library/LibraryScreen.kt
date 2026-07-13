@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -483,7 +484,7 @@ fun LibraryHeader(
             )
             if (itemCount > 0) {
                 Text(
-                    text = stringResource(R.string.library_item_count, itemCount),
+                    text = pluralStringResource(R.plurals.library_item_count, itemCount, itemCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -692,25 +693,29 @@ fun LibraryAutoScanStatus(
         LibraryAutoScanState.Idle -> null
         LibraryAutoScanState.Scanning -> stringResource(R.string.library_auto_scan_scanning)
         is LibraryAutoScanState.Complete -> when {
-            autoScanState.directoryLimitReached -> stringResource(
-                R.string.library_auto_scan_directory_limit,
+            autoScanState.directoryLimitReached -> pluralStringResource(
+                R.plurals.library_auto_scan_directory_limit,
+                autoScanState.addedCount,
                 autoScanState.addedCount,
                 autoScanState.foundCount,
             )
 
-            autoScanState.libraryLimitReached -> stringResource(
-                R.string.library_auto_scan_library_limit,
+            autoScanState.libraryLimitReached -> pluralStringResource(
+                R.plurals.library_auto_scan_library_limit,
+                autoScanState.addedCount,
                 autoScanState.addedCount,
                 autoScanState.foundCount,
             )
 
-            autoScanState.addedCount == 0 -> stringResource(
-                R.string.library_auto_scan_no_new,
+            autoScanState.addedCount == 0 -> pluralStringResource(
+                R.plurals.library_auto_scan_no_new,
+                autoScanState.foundCount,
                 autoScanState.foundCount,
             )
 
-            else -> stringResource(
-                R.string.library_auto_scan_complete,
+            else -> pluralStringResource(
+                R.plurals.library_auto_scan_complete,
+                autoScanState.addedCount,
                 autoScanState.addedCount,
                 autoScanState.foundCount,
             )

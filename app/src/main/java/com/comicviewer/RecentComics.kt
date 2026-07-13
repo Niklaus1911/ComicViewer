@@ -5,10 +5,12 @@ import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
-const val MAX_RECENT_COMICS = 10
+const val MAX_RECENT_COMICS = 200
 
 private const val RECENT_COMICS_PREFS_NAME = "recent_comics"
 private const val RECENT_COMICS_KEY = "items"
+private const val MAX_PERSISTED_PATH_CHARS = 4_096
+private const val MAX_PERSISTED_COMIC_TEXT_CHARS = 512
 
 enum class RecentComicSourceType(val storageName: String) {
     LocalArchive("local_archive"),
@@ -31,6 +33,7 @@ data class RecentComic(
     val lastPageIndex: Int,
     val pageCount: Int,
     val lastOpenedAt: Long,
+    val completedAt: Long? = null,
 )
 
 fun loadRecentComics(context: Context): List<RecentComic> {
@@ -72,6 +75,9 @@ fun recentComicFor(
         lastPageIndex = coercePageIndex(pageIndex, book.pages.size),
         pageCount = book.pages.size,
         lastOpenedAt = lastOpenedAt,
+        completedAt = lastOpenedAt.takeIf {
+            book.pages.isNotEmpty() && coercePageIndex(pageIndex, book.pages.size) == book.pages.lastIndex
+        },
     )
 }
 
@@ -92,12 +98,16 @@ fun updateRecentComicPage(
     path: String,
     pageIndex: Int,
     pageCount: Int,
+    nowMs: Long = System.currentTimeMillis(),
 ): List<RecentComic> =
     recentComics.map { comic ->
         if (comic.sourceType == sourceType && comic.path == path) {
             comic.copy(
                 lastPageIndex = coercePageIndex(pageIndex, pageCount),
                 pageCount = pageCount,
+                completedAt = comic.completedAt ?: nowMs.takeIf {
+                    pageCount > 0 && coercePageIndex(pageIndex, pageCount) == pageCount - 1
+                },
             )
         } else {
             comic
@@ -154,22 +164,27 @@ internal fun encodeRecentComics(recentComics: List<RecentComic>): String =
                     .put("title", comic.title)
                     .put("lastPageIndex", comic.lastPageIndex)
                     .put("pageCount", comic.pageCount)
-                    .put("lastOpenedAt", comic.lastOpenedAt),
+                    .put("lastOpenedAt", comic.lastOpenedAt)
+                    .put("completedAt", comic.completedAt ?: JSONObject.NULL),
             )
         }
     }.toString()
 
 internal fun decodeRecentComics(storedValue: String): List<RecentComic> {
     val array = JSONArray(storedValue)
-    return (0 until array.length()).mapNotNull { index ->
+    return (0 until minOf(array.length(), MAX_RECENT_COMICS)).mapNotNull { index ->
         val item = array.optJSONObject(index) ?: return@mapNotNull null
         val sourceType = RecentComicSourceType.fromStorageName(item.optString("sourceType"))
             ?: return@mapNotNull null
-        val path = item.optString("path").takeIf { path -> path.isNotBlank() }
+        val path = item.optString("path").takeIf { path ->
+            path.isNotBlank() && path.length <= MAX_PERSISTED_PATH_CHARS
+        }
             ?: return@mapNotNull null
         val displayName = item.optString("displayName").takeIf { name -> name.isNotBlank() }
-            ?: File(path).name.ifBlank { path }
+            ?.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
+            ?: File(path).name.ifBlank { path }.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
         val title = item.optString("title").takeIf { title -> title.isNotBlank() }
+            ?.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
             ?: displayName
         RecentComic(
             sourceType = sourceType,
@@ -179,7 +194,9 @@ internal fun decodeRecentComics(storedValue: String): List<RecentComic> {
             lastPageIndex = item.optInt("lastPageIndex", 0),
             pageCount = item.optInt("pageCount", 0),
             lastOpenedAt = item.optLong("lastOpenedAt", 0L),
+            completedAt = if (item.isNull("completedAt")) null else item.optLong("completedAt", 0L).takeIf { it > 0L },
         ).withValidProgress()
-    }.sortedByDescending { comic -> comic.lastOpenedAt }
+    }.distinctBy { comic -> "${comic.sourceType.storageName}|${comic.path}" }
+        .sortedByDescending { comic -> comic.lastOpenedAt }
         .take(MAX_RECENT_COMICS)
 }

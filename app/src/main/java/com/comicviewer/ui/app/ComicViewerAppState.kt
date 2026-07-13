@@ -18,6 +18,7 @@ import com.comicviewer.GrantedStorageAccess
 import com.comicviewer.R
 import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryComic
+import com.comicviewer.LibraryComicDetails
 import com.comicviewer.LibraryComicMetadata
 import com.comicviewer.ReaderUiState
 import com.comicviewer.RecentComic
@@ -32,7 +33,9 @@ import com.comicviewer.libraryComicForDocumentFolder
 import com.comicviewer.libraryComicForArchive
 import com.comicviewer.libraryComicForFolder
 import com.comicviewer.loadLibraryComics
+import com.comicviewer.loadLibraryComicDetails
 import com.comicviewer.loadLibraryMetadata
+import com.comicviewer.loadLibraryAutomationPreferences
 import com.comicviewer.loadArchiveComic
 import com.comicviewer.loadFolderComic
 import com.comicviewer.loadLocalArchiveComic
@@ -42,6 +45,7 @@ import com.comicviewer.loadWelcomeSeen
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.newLibraryComicsForArchiveScan
 import com.comicviewer.newLibraryComicsForDocumentArchiveScan
+import com.comicviewer.newLibraryComicsForDocumentFolderScan
 import com.comicviewer.recentComicFor
 import com.comicviewer.releasePersistableReadPermission
 import com.comicviewer.removeLibraryComic
@@ -59,6 +63,10 @@ import com.comicviewer.upsertRecentComic
 import com.comicviewer.toggleLibraryFavorite
 import com.comicviewer.setLibraryTags
 import com.comicviewer.pruneLibraryMetadata
+import com.comicviewer.pruneLibraryComicDetails
+import com.comicviewer.inspectLibraryComic
+import com.comicviewer.saveLibraryComicDetails
+import com.comicviewer.upsertLibraryComicDetails
 import com.comicviewer.updateRecentComicPage
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -66,7 +74,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+
+sealed interface ComicDetailsTarget {
+    data class Library(val comic: LibraryComic) : ComicDetailsTarget
+    data class Recent(val comic: RecentComic) : ComicDetailsTarget
+}
 
 class ComicViewerAppState(
     private val appContext: Context,
@@ -78,6 +93,7 @@ class ComicViewerAppState(
     recentComics: List<RecentComic>,
     libraryComics: List<LibraryComic>,
     libraryMetadata: List<LibraryComicMetadata>,
+    libraryDetails: List<LibraryComicDetails>,
     private val storageAccess: GrantedStorageAccess,
     currentDirectoryPath: String,
     val browserRootPath: String,
@@ -98,20 +114,31 @@ class ComicViewerAppState(
         private set
     var libraryMetadata by mutableStateOf(libraryMetadata)
         private set
+    var libraryDetails by mutableStateOf(libraryDetails)
+        private set
+    var selectedComicDetails by mutableStateOf<ComicDetailsTarget?>(null)
+        private set
     var libraryAutoScanState by mutableStateOf<LibraryAutoScanState>(LibraryAutoScanState.Idle)
         private set
     private var loadJob by mutableStateOf<Job?>(null)
+    private var cacheCleanupJob: Job? = null
     private var libraryAutoScanJob: Job? = null
+    private val detailsRefreshSemaphore = Semaphore(permits = 2)
+    private var detailsRefreshGeneration = 0
+    private var autoDeleteTempFiles: Boolean = loadLibraryAutomationPreferences(appContext).autoDeleteTempFiles
 
     init {
         (uiState as? ReaderUiState.Loading)?.let(::launchComicLoad)
     }
 
     val currentTab: AppTab
-        get() = runCatching { AppTab.valueOf(selectedTabName) }.getOrDefault(AppTab.Library)
+        get() = restoredAppTab(selectedTabName)
 
     val rawFileBrowserEnabled: Boolean
         get() = storageAccess is GrantedStorageAccess.RawFiles
+
+    val documentBrowserRootUri: Uri?
+        get() = (storageAccess as? GrantedStorageAccess.DocumentTree)?.uri
 
     val browserBackPath: String?
         get() = if (rawFileBrowserEnabled) {
@@ -125,17 +152,32 @@ class ComicViewerAppState(
 
     val shouldHandleBack: Boolean
         get() = uiState !is ReaderUiState.Empty ||
+            selectedComicDetails != null ||
             isAddingToLibrary ||
-            (currentTab == AppTab.Browse && browserBackPath != null)
+            currentTab == AppTab.Search ||
+            (currentTab == AppTab.Import && browserBackPath != null)
 
     fun selectTab(tab: AppTab) {
         selectedTabName = tab.name
-        if (tab != AppTab.Browse) isAddingToLibrary = false
+        selectedComicDetails = null
+        if (tab != AppTab.Import) isAddingToLibrary = false
     }
 
     fun startAddToLibrary() {
-        selectedTabName = AppTab.Browse.name
+        selectedComicDetails = null
+        selectedTabName = AppTab.Import.name
+        isAddingToLibrary = false
+    }
+
+    fun startArchiveImportBrowser() {
+        selectedComicDetails = null
+        selectedTabName = AppTab.Import.name
         isAddingToLibrary = true
+    }
+
+    fun closeImportBrowser() {
+        isAddingToLibrary = false
+        selectedTabName = AppTab.Import.name
     }
 
     fun dismissWelcome() {
@@ -160,6 +202,7 @@ class ComicViewerAppState(
     }
 
     fun openArchive(uri: Uri) {
+        selectedComicDetails = null
         startComicLoad(
             ReaderUiState.Loading(
                 source = ComicSource.Archive(
@@ -172,6 +215,7 @@ class ComicViewerAppState(
     }
 
     fun openFolder(uri: Uri) {
+        selectedComicDetails = null
         startComicLoad(
             ReaderUiState.Loading(
                 source = ComicSource.Folder(
@@ -184,6 +228,7 @@ class ComicViewerAppState(
     }
 
     fun openLocalArchive(file: File) {
+        selectedComicDetails = null
         startComicLoad(
             ReaderUiState.Loading(
                 source = ComicSource.LocalArchive(
@@ -196,6 +241,7 @@ class ComicViewerAppState(
     }
 
     fun openLocalFolder(folder: File) {
+        selectedComicDetails = null
         startComicLoad(
             ReaderUiState.Loading(
                 source = ComicSource.LocalFolder(
@@ -208,6 +254,15 @@ class ComicViewerAppState(
     }
 
     fun openRecentComic(recentComic: RecentComic) {
+        selectedComicDetails = null
+        readRecentComic(recentComic)
+    }
+
+    fun showRecentComicDetails(recentComic: RecentComic) {
+        selectedComicDetails = ComicDetailsTarget.Recent(recentComic)
+    }
+
+    fun readRecentComic(recentComic: RecentComic) {
         val loading = ReaderUiState.Loading(
             source = recentComic.toComicSource(),
             pageIndex = recentComic.lastPageIndex,
@@ -227,6 +282,12 @@ class ComicViewerAppState(
     }
 
     fun openLibraryComic(libraryComic: LibraryComic) {
+        selectedComicDetails = ComicDetailsTarget.Library(libraryComic)
+        refreshComicDetails(libraryComic)
+    }
+
+    fun readLibraryComic(libraryComic: LibraryComic) {
+        selectedComicDetails = ComicDetailsTarget.Library(libraryComic)
         val recentComic = libraryComic.matchingRecentComic(recentComics)
         startComicLoad(
             loading = ReaderUiState.Loading(
@@ -236,12 +297,64 @@ class ComicViewerAppState(
         )
     }
 
+    fun closeComicDetails() {
+        selectedComicDetails = null
+    }
+
+    fun reloadPersistedLibraryState() {
+        libraryAutoScanJob?.cancel()
+        libraryAutoScanState = LibraryAutoScanState.Idle
+        detailsRefreshGeneration += 1
+        recentComics = loadRecentComics(appContext)
+        libraryComics = loadLibraryComics(appContext)
+        libraryMetadata = loadLibraryMetadata(appContext)
+        libraryDetails = loadLibraryComicDetails(appContext)
+        autoDeleteTempFiles = loadLibraryAutomationPreferences(appContext).autoDeleteTempFiles
+        selectedComicDetails = null
+        isAddingToLibrary = false
+        selectedTabName = AppTab.Library.name
+    }
+
+    fun updateAutoDeleteTempFiles(enabled: Boolean) {
+        autoDeleteTempFiles = enabled
+        if (enabled && uiState is ReaderUiState.Empty) clearArchiveCacheAfter(loadJob)
+    }
+
+    fun refreshComicDetails(libraryComic: LibraryComic) {
+        val refreshGeneration = detailsRefreshGeneration
+        scope.launch {
+            val inspected = detailsRefreshSemaphore.withPermit {
+                try {
+                    inspectLibraryComic(
+                        context = appContext,
+                        comic = libraryComic,
+                        recentComic = libraryComic.matchingRecentComic(recentComics),
+                    )
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Exception) {
+                    null
+                }
+            } ?: return@launch
+            if (refreshGeneration != detailsRefreshGeneration) return@launch
+            if (libraryComics.none { comic ->
+                    comic.sourceType == libraryComic.sourceType && comic.path == libraryComic.path
+                }
+            ) {
+                return@launch
+            }
+            persistLibraryDetails(upsertLibraryComicDetails(libraryDetails, inspected))
+        }
+    }
+
     private fun startComicLoad(
         loading: ReaderUiState.Loading,
         onFailure: (Throwable) -> Unit = { throwable ->
             if (throwable !is CancellationException) showError(throwable)
         },
     ) {
+        cacheCleanupJob?.cancel()
+        cacheCleanupJob = null
         loadJob?.cancel()
         uiState = loading
         launchComicLoad(loading, onFailure)
@@ -263,9 +376,17 @@ class ComicViewerAppState(
     }
 
     private suspend fun loadComic(source: ComicSource): ComicBook = when (source) {
-        is ComicSource.Archive -> loadArchiveComic(appContext, source.uri)
+        is ComicSource.Archive -> loadArchiveComic(
+            context = appContext,
+            uri = source.uri,
+            reuseExtractedPages = !autoDeleteTempFiles,
+        )
         is ComicSource.Folder -> loadFolderComic(appContext, source.uri)
-        is ComicSource.LocalArchive -> loadLocalArchiveComic(appContext, File(source.filePath))
+        is ComicSource.LocalArchive -> loadLocalArchiveComic(
+            context = appContext,
+            archiveFile = File(source.filePath),
+            reuseExtractedPages = !autoDeleteTempFiles,
+        )
         is ComicSource.LocalFolder -> loadLocalFolderComic(File(source.folderPath))
     }
 
@@ -319,16 +440,19 @@ class ComicViewerAppState(
                 newComics = newComics,
             ),
         )
+        newComics.forEach(::refreshComicDetails)
         finishAddingToLibrary()
     }
 
     fun addFolderToLibrary(folder: File) {
+        val comic = libraryComicForFolder(folder, addedAt = System.currentTimeMillis())
         persistLibraryComics(
             upsertLibraryComic(
                 libraryComics = libraryComics,
-                libraryComic = libraryComicForFolder(folder, addedAt = System.currentTimeMillis()),
+                libraryComic = comic,
             ),
         )
+        refreshComicDetails(comic)
         finishAddingToLibrary()
     }
 
@@ -354,6 +478,7 @@ class ComicViewerAppState(
                     newComics = newComics,
                 ),
             )
+            newComics.forEach(::refreshComicDetails)
             finishAddingToLibrary()
             documents.forEach { document -> releasePermissionIfUnused(document.uri) }
         }
@@ -362,23 +487,25 @@ class ComicViewerAppState(
     fun addFolderDocumentToLibrary(uri: Uri) {
         scope.launch {
             val document = withContext(Dispatchers.IO) { folderDocumentFor(appContext, uri) }
+            val comic = libraryComicForDocumentFolder(
+                uri = document.uri.toString(),
+                displayName = document.displayName,
+                addedAt = System.currentTimeMillis(),
+            )
             persistLibraryComics(
                 upsertLibraryComic(
                     libraryComics = libraryComics,
-                    libraryComic = libraryComicForDocumentFolder(
-                        uri = document.uri.toString(),
-                        displayName = document.displayName,
-                        addedAt = System.currentTimeMillis(),
-                    ),
+                    libraryComic = comic,
                 ),
             )
+            refreshComicDetails(comic)
             finishAddingToLibrary()
         }
     }
 
     private fun finishAddingToLibrary() {
         dismissWelcome()
-        selectedTabName = AppTab.Library.name
+        selectedTabName = AppTab.Import.name
         isAddingToLibrary = false
     }
 
@@ -390,6 +517,11 @@ class ComicViewerAppState(
         )
         persistLibraryComics(nextLibraryComics)
         persistLibraryMetadata(pruneLibraryMetadata(libraryMetadata, nextLibraryComics))
+        persistLibraryDetails(pruneLibraryComicDetails(libraryDetails, nextLibraryComics))
+        val target = selectedComicDetails as? ComicDetailsTarget.Library
+        if (target?.comic?.sourceType == libraryComic.sourceType && target.comic.path == libraryComic.path) {
+            selectedComicDetails = null
+        }
     }
 
     fun toggleFavorite(libraryComic: LibraryComic) {
@@ -414,12 +546,20 @@ class ComicViewerAppState(
     }
 
     fun autoScanLibraryArchives() {
+        startLibraryAutoScan(rootUri = null)
+    }
+
+    fun autoScanLibraryFolder(rootUri: Uri) {
+        startLibraryAutoScan(rootUri = rootUri)
+    }
+
+    private fun startLibraryAutoScan(rootUri: Uri?) {
         if (libraryAutoScanState is LibraryAutoScanState.Scanning) return
 
         libraryAutoScanJob?.cancel()
         libraryAutoScanState = LibraryAutoScanState.Scanning
         libraryAutoScanJob = scope.launch {
-            runCatching { performLibraryAutoScan() }
+            runCatching { performLibraryAutoScan(rootUri) }
                 .onSuccess { result ->
                     if (result.newComics.isNotEmpty()) {
                         persistLibraryComics(
@@ -428,6 +568,7 @@ class ComicViewerAppState(
                                 newComics = result.newComics,
                             ),
                         )
+                        result.newComics.forEach(::refreshComicDetails)
                     }
                     libraryAutoScanState = LibraryAutoScanState.Complete(
                         foundCount = result.foundCount,
@@ -457,8 +598,49 @@ class ComicViewerAppState(
         }
     }
 
-    private suspend fun performLibraryAutoScan(): LibraryScanSummary = when (val access = storageAccess) {
-        is GrantedStorageAccess.RawFiles -> {
+    private suspend fun performLibraryAutoScan(rootUri: Uri?): LibraryScanSummary = when {
+        rootUri != null -> {
+            val scanResult = scanLibraryDocumentArchives(appContext, rootUri)
+            val existingArchiveUris = libraryComics
+                .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
+                .mapTo(mutableSetOf()) { comic -> comic.path }
+            val existingFolderUris = libraryComics
+                .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentFolder }
+                .mapTo(mutableSetOf()) { comic -> comic.path }
+            val newArchiveCandidateCount = scanResult.candidates
+                .map { candidate -> candidate.uri }
+                .distinct()
+                .count { uri -> uri !in existingArchiveUris }
+            val newFolderCandidateCount = scanResult.folderCandidates
+                .map { candidate -> candidate.uri }
+                .distinct()
+                .count { uri -> uri !in existingFolderUris }
+            val addedAt = System.currentTimeMillis()
+            val newArchives = newLibraryComicsForDocumentArchiveScan(
+                libraryComics = libraryComics,
+                candidates = scanResult.candidates,
+                addedAt = addedAt,
+            )
+            val newFolders = newLibraryComicsForDocumentFolderScan(
+                libraryComics = libraryComics + newArchives,
+                candidates = scanResult.folderCandidates,
+                addedAt = addedAt + newArchives.size,
+            )
+            val newComics = newArchives + newFolders
+            val foundCount = scanResult.candidates.size + scanResult.folderCandidates.size
+            val newCandidateCount = newArchiveCandidateCount + newFolderCandidateCount
+            LibraryScanSummary(
+                foundCount = foundCount,
+                skippedExistingCount = foundCount - newCandidateCount,
+                scannedDirectoryCount = scanResult.scannedDirectoryCount,
+                libraryLimitReached = scanResult.candidateLimitReached || newCandidateCount > newComics.size,
+                directoryLimitReached = scanResult.directoryLimitReached,
+                newComics = newComics,
+            )
+        }
+
+        storageAccess is GrantedStorageAccess.RawFiles -> {
+            val access = storageAccess
             val scanResult = scanLibraryArchives(File(access.rootPath))
             val existingPaths = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.LocalArchive }
@@ -482,7 +664,8 @@ class ComicViewerAppState(
             )
         }
 
-        is GrantedStorageAccess.DocumentTree -> {
+        storageAccess is GrantedStorageAccess.DocumentTree -> {
+            val access = storageAccess
             val scanResult = scanLibraryDocumentArchives(appContext, access.uri)
             val existingUris = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
@@ -505,6 +688,8 @@ class ComicViewerAppState(
                 newComics = newComics,
             )
         }
+
+        else -> error("Unsupported storage access")
     }
 
     fun previousPage() {
@@ -530,9 +715,10 @@ class ComicViewerAppState(
 
     fun closeComic() {
         val source = uiState.comicSourceOrNull()
-        loadJob?.cancel()
-        clearArchiveCache(appContext)
+        val closingJob = loadJob
+        closingJob?.cancel()
         uiState = ReaderUiState.Empty
+        if (autoDeleteTempFiles) clearArchiveCacheAfter(closingJob)
         source?.documentUriOrNull()?.let(::releasePermissionIfUnused)
     }
 
@@ -541,11 +727,19 @@ class ComicViewerAppState(
     fun handleBack() {
         when (uiState) {
             ReaderUiState.Empty -> {
+                if (selectedComicDetails != null) {
+                    selectedComicDetails = null
+                    return
+                }
                 val backPath = browserBackPath
-                if (isAddingToLibrary) {
+                if (isAddingToLibrary && backPath != null) {
+                    currentDirectoryPath = backPath
+                } else if (isAddingToLibrary) {
                     isAddingToLibrary = false
+                    selectedTabName = AppTab.Import.name
+                } else if (currentTab == AppTab.Search) {
                     selectedTabName = AppTab.Library.name
-                } else if (currentTab == AppTab.Browse && backPath != null) {
+                } else if (currentTab == AppTab.Import && backPath != null) {
                     currentDirectoryPath = backPath
                 }
             }
@@ -588,13 +782,26 @@ class ComicViewerAppState(
         saveLibraryMetadata(appContext, nextLibraryMetadata)
     }
 
+    private fun persistLibraryDetails(nextDetails: List<LibraryComicDetails>) {
+        libraryDetails = nextDetails
+        saveLibraryComicDetails(appContext, nextDetails)
+    }
+
     private fun rememberOpenedComic(book: ComicBook, pageIndex: Int) {
         val recentComic = recentComicFor(
             book = book,
             pageIndex = pageIndex,
             lastOpenedAt = System.currentTimeMillis(),
         ) ?: return
-        persistRecentComics(upsertRecentComic(recentComics, recentComic))
+        val existing = recentComics.firstOrNull {
+            it.sourceType == recentComic.sourceType && it.path == recentComic.path
+        }
+        persistRecentComics(
+            upsertRecentComic(
+                recentComics,
+                recentComic.copy(completedAt = existing?.completedAt ?: recentComic.completedAt),
+            ),
+        )
     }
 
     private fun updateRecentPage(ready: ReaderUiState.Ready, pageIndex: Int) {
@@ -623,6 +830,20 @@ class ComicViewerAppState(
     private fun releasePermissionsNoLongerUsed(previousDocumentUris: Set<String>) {
         val noLongerUsed = previousDocumentUris - persistedDocumentUris()
         noLongerUsed.forEach { uri -> releasePermissionIfUnused(uri.toUri()) }
+    }
+
+    private fun clearArchiveCacheAfter(job: Job?) {
+        cacheCleanupJob?.cancel()
+        cacheCleanupJob = scope.launch {
+            if (job != null && !job.isCompleted) job.join()
+            if (
+                autoDeleteTempFiles &&
+                uiState is ReaderUiState.Empty &&
+                (job == null || loadJob === job)
+            ) {
+                clearArchiveCache(appContext)
+            }
+        }
     }
 
     private fun releasePermissionIfUnused(uri: Uri) {
@@ -659,6 +880,7 @@ fun rememberComicViewerAppState(
     val recentComics = remember { loadRecentComics(appContext) }
     val libraryComics = remember { loadLibraryComics(appContext) }
     val libraryMetadata = remember { loadLibraryMetadata(appContext) }
+    val libraryDetails = remember { loadLibraryComicDetails(appContext) }
     val showWelcome = remember {
         shouldShowWelcome(
             welcomeSeen = loadWelcomeSeen(appContext),
@@ -677,6 +899,7 @@ fun rememberComicViewerAppState(
             recentComics = recentComics,
             libraryComics = libraryComics,
             libraryMetadata = libraryMetadata,
+            libraryDetails = libraryDetails,
             storageAccess = storageAccess,
             currentDirectoryPath = currentDirectoryPath.value,
             browserRootPath = browserRootPath,

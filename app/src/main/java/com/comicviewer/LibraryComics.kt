@@ -7,6 +7,8 @@ import org.json.JSONObject
 
 private const val LIBRARY_COMICS_PREFS_NAME = "library_comics"
 private const val LIBRARY_COMICS_KEY = "items"
+private const val MAX_PERSISTED_PATH_CHARS = 4_096
+private const val MAX_PERSISTED_COMIC_TEXT_CHARS = 512
 
 const val MAX_LIBRARY_COMICS = 1_000
 
@@ -141,16 +143,20 @@ internal fun encodeLibraryComics(libraryComics: List<LibraryComic>): String =
 
 internal fun decodeLibraryComics(storedValue: String): List<LibraryComic> {
     val array = JSONArray(storedValue)
-    return (0 until array.length()).mapNotNull { index ->
+    return (0 until minOf(array.length(), MAX_LIBRARY_COMICS)).mapNotNull { index ->
         val item = array.optJSONObject(index) ?: return@mapNotNull null
         val sourceType = RecentComicSourceType.fromStorageName(item.optString("sourceType"))
             ?: return@mapNotNull null
-        val path = item.optString("path").takeIf { path -> path.isNotBlank() }
+        val path = item.optString("path").takeIf { path ->
+            path.isNotBlank() && path.length <= MAX_PERSISTED_PATH_CHARS
+        }
             ?: return@mapNotNull null
         val displayName = item.optString("displayName").takeIf { name -> name.isNotBlank() }
-            ?: File(path).name.ifBlank { path }
+            ?.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
+            ?: File(path).name.ifBlank { path }.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
         val title = item.optString("title").takeIf { title -> title.isNotBlank() }
-            ?: displayName.withoutComicExtension()
+            ?.take(MAX_PERSISTED_COMIC_TEXT_CHARS)
+            ?: displayName.withoutComicExtension().take(MAX_PERSISTED_COMIC_TEXT_CHARS)
         LibraryComic(
             sourceType = sourceType,
             path = path,
@@ -158,9 +164,10 @@ internal fun decodeLibraryComics(storedValue: String): List<LibraryComic> {
             title = title,
             addedAt = item.optLong("addedAt", 0L),
         )
-    }.sortedByDescending { comic -> comic.addedAt }
+    }.distinctBy { comic -> "${comic.sourceType.storageName}|${comic.path}" }
+        .sortedByDescending { comic -> comic.addedAt }
         .take(MAX_LIBRARY_COMICS)
 }
 
 private fun String.withoutComicExtension(): String =
-    substringBeforeLast('.', missingDelimiterValue = this)
+    substringBeforeLast('.', missingDelimiterValue = this).ifBlank { this }

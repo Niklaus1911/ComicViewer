@@ -25,9 +25,16 @@ enum class ReaderReadingDirection(val preferenceValue: String) {
     RightToLeft("right_to_left"),
 }
 
+enum class ReaderPageMode(val preferenceValue: String) {
+    SinglePage("single_page"),
+    TwoPage("two_page"),
+}
+
 enum class ReaderPageFitMode(val preferenceValue: String) {
     FitScreen("fit_screen"),
     FitWidth("fit_width"),
+    FitHeight("fit_height"),
+    Original("original"),
 }
 
 enum class ReaderBackground(val preferenceValue: String) {
@@ -38,9 +45,22 @@ enum class ReaderBackground(val preferenceValue: String) {
 }
 
 data class ReaderPreferences(
+    val pageMode: ReaderPageMode = ReaderPageMode.SinglePage,
     val readingDirection: ReaderReadingDirection = ReaderReadingDirection.LeftToRight,
     val pageFitMode: ReaderPageFitMode = ReaderPageFitMode.FitScreen,
     val background: ReaderBackground = ReaderBackground.Black,
+    val brightness: Float? = null,
+    val marginDp: Int = 0,
+    val keepScreenOn: Boolean = true,
+    val showPageNumber: Boolean = true,
+)
+
+data class LibraryAutomationPreferences(
+    val importFolderUri: String? = null,
+    val importFolderName: String? = null,
+    val autoScanEnabled: Boolean = false,
+    val lastAutoScanAt: Long = 0L,
+    val autoDeleteTempFiles: Boolean = true,
 )
 
 private const val APP_PREFERENCES_NAME = "comic_viewer_app_preferences"
@@ -51,9 +71,20 @@ private const val DYNAMIC_COLOR_KEY = "dynamic_color"
 private const val ACCENT_COLOR_KEY = "accent_color"
 private const val THEME_PRESET_KEY = "theme_preset"
 private const val WELCOME_SEEN_KEY = "welcome_seen"
+private const val READER_PAGE_MODE_KEY = "reader_page_mode"
 private const val READER_READING_DIRECTION_KEY = "reader_reading_direction"
 private const val READER_PAGE_FIT_MODE_KEY = "reader_page_fit_mode"
 private const val READER_BACKGROUND_KEY = "reader_background"
+private const val READER_BRIGHTNESS_ENABLED_KEY = "reader_brightness_enabled"
+private const val READER_BRIGHTNESS_KEY = "reader_brightness"
+private const val READER_MARGIN_DP_KEY = "reader_margin_dp"
+private const val READER_KEEP_SCREEN_ON_KEY = "reader_keep_screen_on"
+private const val READER_SHOW_PAGE_NUMBER_KEY = "reader_show_page_number"
+private const val IMPORT_FOLDER_URI_KEY = "import_folder_uri"
+private const val IMPORT_FOLDER_NAME_KEY = "import_folder_name"
+private const val AUTO_SCAN_LIBRARY_KEY = "auto_scan_library"
+private const val LAST_AUTO_SCAN_AT_KEY = "last_auto_scan_at"
+private const val AUTO_DELETE_TEMP_FILES_KEY = "auto_delete_temp_files"
 private const val DEBUG_PRO_UNLOCK_KEY = "debug_pro_unlock"
 
 fun loadAppLanguage(context: Context): AppLanguage {
@@ -79,8 +110,8 @@ fun saveAmoledThemeEnabled(context: Context, enabled: Boolean) {
 }
 
 fun loadThemeMode(context: Context): AppThemeMode {
-    val value = appPreferences(context).getString(THEME_MODE_KEY, AppThemeMode.System.preferenceValue)
-    return AppThemeMode.entries.firstOrNull { it.preferenceValue == value } ?: AppThemeMode.System
+    val value = appPreferences(context).getString(THEME_MODE_KEY, AppThemeMode.Dark.preferenceValue)
+    return AppThemeMode.entries.firstOrNull { it.preferenceValue == value } ?: AppThemeMode.Dark
 }
 
 fun saveThemeMode(context: Context, mode: AppThemeMode) {
@@ -91,7 +122,7 @@ fun saveThemeMode(context: Context, mode: AppThemeMode) {
 }
 
 fun loadDynamicColorEnabled(context: Context): Boolean =
-    appPreferences(context).getBoolean(DYNAMIC_COLOR_KEY, true)
+    appPreferences(context).getBoolean(DYNAMIC_COLOR_KEY, false)
 
 fun saveDynamicColorEnabled(context: Context, enabled: Boolean) {
     appPreferences(context)
@@ -101,8 +132,8 @@ fun saveDynamicColorEnabled(context: Context, enabled: Boolean) {
 }
 
 fun loadAccentColor(context: Context): AppColor {
-    val value = appPreferences(context).getString(ACCENT_COLOR_KEY, AppColor.BLUE.name)
-    return AppColor.entries.firstOrNull { it.name == value } ?: AppColor.BLUE
+    val value = appPreferences(context).getString(ACCENT_COLOR_KEY, AppColor.PURPLE.name)
+    return AppColor.entries.firstOrNull { it.name == value } ?: AppColor.PURPLE
 }
 
 fun saveAccentColor(context: Context, color: AppColor) {
@@ -139,6 +170,11 @@ fun themePresetForDynamicColorSelection(
 fun loadReaderPreferences(context: Context): ReaderPreferences {
     val preferences = appPreferences(context)
     return ReaderPreferences(
+        pageMode = preferences.enumValue(
+            key = READER_PAGE_MODE_KEY,
+            defaultValue = ReaderPageMode.SinglePage,
+            storageValue = ReaderPageMode::preferenceValue,
+        ),
         readingDirection = preferences.enumValue(
             key = READER_READING_DIRECTION_KEY,
             defaultValue = ReaderReadingDirection.LeftToRight,
@@ -154,15 +190,35 @@ fun loadReaderPreferences(context: Context): ReaderPreferences {
             defaultValue = ReaderBackground.Black,
             storageValue = ReaderBackground::preferenceValue,
         ),
+        brightness = if (preferences.getBoolean(READER_BRIGHTNESS_ENABLED_KEY, false)) {
+            preferences.getFloat(READER_BRIGHTNESS_KEY, 0.5f)
+                .takeIf(Float::isFinite)
+                ?.coerceIn(0.05f, 1f)
+                ?: 0.5f
+        } else {
+            null
+        },
+        marginDp = preferences.getInt(READER_MARGIN_DP_KEY, 0).coerceIn(0, 32),
+        keepScreenOn = preferences.getBoolean(READER_KEEP_SCREEN_ON_KEY, true),
+        showPageNumber = preferences.getBoolean(READER_SHOW_PAGE_NUMBER_KEY, true),
     )
 }
 
 fun saveReaderPreferences(context: Context, readerPreferences: ReaderPreferences) {
+    val brightness = readerPreferences.brightness
+        ?.takeIf(Float::isFinite)
+        ?.coerceIn(0.05f, 1f)
     appPreferences(context)
         .edit()
+        .putString(READER_PAGE_MODE_KEY, readerPreferences.pageMode.preferenceValue)
         .putString(READER_READING_DIRECTION_KEY, readerPreferences.readingDirection.preferenceValue)
         .putString(READER_PAGE_FIT_MODE_KEY, readerPreferences.pageFitMode.preferenceValue)
         .putString(READER_BACKGROUND_KEY, readerPreferences.background.preferenceValue)
+        .putBoolean(READER_BRIGHTNESS_ENABLED_KEY, brightness != null)
+        .putFloat(READER_BRIGHTNESS_KEY, brightness ?: 0.5f)
+        .putInt(READER_MARGIN_DP_KEY, readerPreferences.marginDp.coerceIn(0, 32))
+        .putBoolean(READER_KEEP_SCREEN_ON_KEY, readerPreferences.keepScreenOn)
+        .putBoolean(READER_SHOW_PAGE_NUMBER_KEY, readerPreferences.showPageNumber)
         .apply()
 }
 
@@ -173,8 +229,54 @@ fun resolvedReaderPreferences(
     if (isProUnlocked) {
         readerPreferences
     } else {
-        ReaderPreferences()
+        readerPreferences.copy(
+            pageMode = ReaderPageMode.SinglePage,
+            readingDirection = ReaderReadingDirection.LeftToRight,
+            pageFitMode = ReaderPageFitMode.FitScreen,
+            background = ReaderBackground.Black,
+            brightness = null,
+            marginDp = 0,
+        )
     }
+
+fun loadLibraryAutomationPreferences(context: Context): LibraryAutomationPreferences {
+    val preferences = appPreferences(context)
+    return LibraryAutomationPreferences(
+        importFolderUri = preferences.getString(IMPORT_FOLDER_URI_KEY, null)?.takeIf(String::isNotBlank),
+        importFolderName = preferences.getString(IMPORT_FOLDER_NAME_KEY, null)?.takeIf(String::isNotBlank),
+        autoScanEnabled = preferences.getBoolean(AUTO_SCAN_LIBRARY_KEY, false),
+        lastAutoScanAt = preferences.getLong(LAST_AUTO_SCAN_AT_KEY, 0L).coerceAtLeast(0L),
+        autoDeleteTempFiles = preferences.getBoolean(AUTO_DELETE_TEMP_FILES_KEY, true),
+    )
+}
+
+fun saveLibraryAutomationPreferences(
+    context: Context,
+    preferences: LibraryAutomationPreferences,
+) {
+    appPreferences(context)
+        .edit()
+        .putString(IMPORT_FOLDER_URI_KEY, preferences.importFolderUri)
+        .putString(IMPORT_FOLDER_NAME_KEY, preferences.importFolderName)
+        .putBoolean(AUTO_SCAN_LIBRARY_KEY, preferences.autoScanEnabled)
+        .putLong(LAST_AUTO_SCAN_AT_KEY, preferences.lastAutoScanAt.coerceAtLeast(0L))
+        .putBoolean(AUTO_DELETE_TEMP_FILES_KEY, preferences.autoDeleteTempFiles)
+        .apply()
+}
+
+internal fun shouldRunAutomaticLibraryScan(
+    enabled: Boolean,
+    lastScanAt: Long,
+    nowMs: Long,
+    intervalMs: Long = 24L * 60L * 60L * 1_000L,
+): Boolean {
+    if (!enabled) return false
+    val normalizedLastScanAt = lastScanAt.coerceAtLeast(0L)
+    val normalizedNow = nowMs.coerceAtLeast(0L)
+    val normalizedInterval = intervalMs.coerceAtLeast(0L)
+    if (normalizedNow < normalizedLastScanAt) return false
+    return normalizedNow - normalizedLastScanAt >= normalizedInterval
+}
 
 fun effectiveProUnlocked(
     billingUnlocked: Boolean,

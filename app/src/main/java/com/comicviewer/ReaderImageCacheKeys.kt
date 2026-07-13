@@ -2,13 +2,20 @@ package com.comicviewer
 
 import java.io.File
 
-fun comicPageImageCacheKey(source: ComicSource, page: ComicPage): String =
-    comicPageImageCacheKey(
+fun comicPageImageCacheKey(source: ComicSource, page: ComicPage): String {
+    val baseKey = comicPageImageCacheKey(
         source = source,
         pageIndex = page.index,
         relativePath = page.relativePath,
         imageUri = page.imageUri.toString(),
     )
+    val localPageFile = page.imageUri.path?.let(::File)?.takeIf(File::isFile)
+    return if (localPageFile == null) {
+        baseKey
+    } else {
+        "$baseKey|file:${localPageFile.lastModified()}:${localPageFile.length()}"
+    }
+}
 
 fun comicPageImageCacheKey(
     source: ComicSource,

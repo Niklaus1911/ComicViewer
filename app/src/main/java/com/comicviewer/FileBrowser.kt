@@ -3,6 +3,9 @@ package com.comicviewer
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import java.io.File
@@ -12,8 +15,12 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -22,6 +29,7 @@ private const val BROWSER_THUMBNAIL_CACHE_DIR_NAME = "browser_thumbnails"
 private const val LIBRARY_THUMBNAIL_CACHE_DIR_NAME = "library_thumbnails"
 private const val MAX_ARCHIVE_THUMBNAIL_ENTRY_COUNT = 10_000
 private const val MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES = 64L * 1024L * 1024L
+private const val MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES = 256L * 1024L * 1024L
 private const val MAX_THUMBNAIL_DIMENSION_PX = 1_024
 private const val MAX_THUMBNAIL_OUTPUT_BYTES = 8L * 1024L * 1024L
 private const val MAX_THUMBNAIL_CACHE_BYTES = 128L * 1024L * 1024L
@@ -45,6 +53,8 @@ data class BrowserEntry(
     val path: String,
     val type: BrowserEntryType,
     val thumbnailUri: android.net.Uri?,
+    val sizeBytes: Long? = null,
+    val lastModifiedAt: Long? = null,
 ) {
     val canOpen: Boolean
         get() = type == BrowserEntryType.Directory ||
@@ -141,9 +151,21 @@ private suspend fun loadComicThumbnailUri(
 
             RecentComicSourceType.LocalFolder -> firstLocalFolderCoverFile(File(path))?.toUri()
 
-            RecentComicSourceType.DocumentArchive,
-            RecentComicSourceType.DocumentFolder,
-            -> null
+            RecentComicSourceType.DocumentArchive -> {
+                val cacheDir = File(context.cacheDir, LIBRARY_THUMBNAIL_CACHE_DIR_NAME).apply { mkdirs() }
+                context.extractDocumentArchiveThumbnailTo(path.toUri(), cacheDir)?.toUri()
+            }
+
+            RecentComicSourceType.DocumentFolder -> listDocumentChildren(context, path.toUri())
+                .asSequence()
+                .filter { entry ->
+                    entry.isFile &&
+                        !isHiddenComicPath(entry.displayName) &&
+                        isSupportedImageName(entry.displayName)
+                }
+                .sortedWith { left, right -> compareComicPageNames(left.displayName, right.displayName) }
+                .firstOrNull()
+                ?.uri
         }
     }
 
@@ -177,34 +199,137 @@ private fun File.toBrowserEntry(): BrowserEntry {
         path = absolutePath,
         type = type,
         thumbnailUri = thumbnailFile?.toUri(),
+        sizeBytes = length().takeIf { isFile && it >= 0L },
+        lastModifiedAt = lastModified().takeIf { it > 0L },
     )
 }
 
 private suspend fun File.extractArchiveThumbnailTo(cacheDir: File): File? {
+    val coroutineContext = currentCoroutineContext()
+    val sourceLength = length()
+    val sourceLastModified = lastModified()
+    val cacheReusable = sourceLength >= 0L && sourceLastModified > 0L
     val cacheKey = thumbnailCacheIdentity(
         sourcePath = absolutePath,
-        sourceLength = length(),
-        sourceLastModified = lastModified(),
+        sourceLength = sourceLength,
+        sourceLastModified = sourceLastModified,
         cacheVersion = THUMBNAIL_CACHE_VERSION,
     )
-    findCachedThumbnailFile(cacheDir, cacheKey)?.let { cachedFile -> return cachedFile }
+    if (cacheReusable) {
+        findCachedThumbnailFile(cacheDir, cacheKey)?.let { cachedFile -> return cachedFile }
+    } else {
+        synchronized(thumbnailCacheLock) {
+            cachedThumbnailFiles(cacheDir, cacheKey).forEach(File::delete)
+        }
+    }
 
     return thumbnailGenerationSemaphore.withPermit {
-        findCachedThumbnailFile(cacheDir, cacheKey) ?: runCatching {
+        (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
             ZipFile(this).use { zipFile ->
-                val candidate = zipFile.firstSupportedImageEntry() ?: return@use null
+                val candidate = zipFile.firstSupportedImageEntry {
+                    coroutineContext.isActive
+                } ?: return@use null
                 zipFile.writeThumbnail(candidate.entry, cacheDir, cacheKey)
             }
-        }.getOrNull()
+        }.getOrElse { throwable ->
+            if (throwable is CancellationException) throw throwable
+            null
+        }
     }
 }
 
-private fun ZipFile.firstSupportedImageEntry(): ArchiveThumbnailCandidate? {
+private suspend fun Context.extractDocumentArchiveThumbnailTo(
+    uri: Uri,
+    cacheDir: File,
+): File? {
+    val coroutineContext = currentCoroutineContext()
+    val sourceLength = queryDocumentLong(uri, OpenableColumns.SIZE)
+    val sourceLastModified = queryDocumentLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+    val cacheReusable = sourceLength != null && sourceLastModified?.let { it > 0L } == true
+    val cacheKey = thumbnailCacheIdentity(
+        sourcePath = uri.toString(),
+        sourceLength = sourceLength ?: -1L,
+        sourceLastModified = sourceLastModified ?: -1L,
+        cacheVersion = THUMBNAIL_CACHE_VERSION,
+    )
+    if (cacheReusable) {
+        findCachedThumbnailFile(cacheDir, cacheKey)?.let { return it }
+    } else {
+        synchronized(thumbnailCacheLock) {
+            cachedThumbnailFiles(cacheDir, cacheKey).forEach(File::delete)
+        }
+    }
+
+    return thumbnailGenerationSemaphore.withPermit {
+        (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
+            val source = contentResolver.openInputStream(uri) ?: return@runCatching null
+            ZipInputStream(
+                LimitedInputStream(
+                    inputStream = source.buffered(),
+                    maxBytes = MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES,
+                ),
+            ).use { archive ->
+                var visitedEntries = 0
+                var bestEntryName: String? = null
+                var bestPageFile: File? = null
+                try {
+                    while (true) {
+                        if (!coroutineContext.isActive) throw CancellationException()
+                        val entry = archive.nextEntry ?: break
+                        visitedEntries += 1
+                        if (visitedEntries > MAX_ARCHIVE_THUMBNAIL_ENTRY_COUNT) return@use null
+                        val entryName = entry.name.replace('\\', '/')
+                        if (entry.isDirectory || isHiddenComicPath(entryName)) continue
+                        if (entry.size > MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES) continue
+                        val currentBestName = bestEntryName
+                        if (currentBestName != null && compareComicPageNames(entryName, currentBestName) >= 0) {
+                            continue
+                        }
+
+                        val header = readImageHeader(archive)
+                        if (detectImageFormat(header) == null) continue
+                        val pageFile = File.createTempFile("document_cover_", ".img", cacheDir)
+                        val validPage = try {
+                            copyDocumentArchiveEntry(
+                                header = header,
+                                input = archive,
+                                outputFile = pageFile,
+                                shouldContinue = { coroutineContext.isActive },
+                            ) && detectImageInfo(pageFile) != null
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (validPage) {
+                            bestPageFile?.delete()
+                            bestPageFile = pageFile
+                            bestEntryName = entryName
+                        } else {
+                            pageFile.delete()
+                        }
+                    }
+                    bestPageFile?.writeThumbnail(cacheDir, cacheKey)
+                } finally {
+                    bestPageFile?.delete()
+                }
+            }
+        }.getOrElse { throwable ->
+            if (throwable is CancellationException) throw throwable
+            null
+        }
+    }
+}
+
+private fun ZipFile.firstSupportedImageEntry(
+    shouldContinue: () -> Boolean = { true },
+): ArchiveThumbnailCandidate? {
     var bestCandidate: ArchiveThumbnailCandidate? = null
     val entries = entries()
     var visitedEntries = 0
 
     while (entries.hasMoreElements()) {
+        if (!shouldContinue()) throw CancellationException()
         val entry = entries.nextElement()
         visitedEntries += 1
         if (visitedEntries > MAX_ARCHIVE_THUMBNAIL_ENTRY_COUNT) return null
@@ -234,9 +359,28 @@ private fun ZipFile.writeThumbnail(
     entry: ZipEntry,
     cacheDir: File,
     cacheKey: String,
+): File? = writeThumbnail(
+    cacheDir = cacheDir,
+    cacheKey = cacheKey,
+    openInput = { getThumbnailInputStream(entry) },
+)
+
+private fun File.writeThumbnail(
+    cacheDir: File,
+    cacheKey: String,
+): File? = writeThumbnail(
+    cacheDir = cacheDir,
+    cacheKey = cacheKey,
+    openInput = { inputStream() },
+)
+
+private fun writeThumbnail(
+    cacheDir: File,
+    cacheKey: String,
+    openInput: () -> InputStream,
 ): File? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    getThumbnailInputStream(entry).use { input ->
+    openInput().use { input ->
         BitmapFactory.decodeStream(input, null, bounds)
     }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -247,7 +391,7 @@ private fun ZipFile.writeThumbnail(
             height = bounds.outHeight,
         )
     }
-    val bitmap = getThumbnailInputStream(entry).use { input ->
+    val bitmap = openInput().use { input ->
         BitmapFactory.decodeStream(input, null, options)
     } ?: return null
     val outputDimensions = thumbnailOutputDimensions(
@@ -306,6 +450,59 @@ private fun ZipFile.writeThumbnail(
         temporaryFile?.delete()
     }
 }
+
+private fun copyDocumentArchiveEntry(
+    header: ByteArray,
+    input: InputStream,
+    outputFile: File,
+    shouldContinue: () -> Boolean = { true },
+): Boolean {
+    val buffer = ByteArray(64 * 1024)
+    var copied = header.size.toLong()
+    var withinLimit = true
+    val copiedSuccessfully = try {
+        outputFile.outputStream().buffered().use { output ->
+            output.write(header)
+            while (true) {
+                if (!shouldContinue()) throw CancellationException()
+                val read = input.read(buffer)
+                if (read < 0) break
+                if (read == 0) {
+                    val value = input.read()
+                    if (value < 0) break
+                    if (copied >= MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES) {
+                        withinLimit = false
+                        break
+                    }
+                    output.write(value)
+                    copied += 1
+                    continue
+                }
+                if (copied > MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES - read) {
+                    withinLimit = false
+                    break
+                }
+                output.write(buffer, 0, read)
+                copied += read
+            }
+        }
+        withinLimit
+    } catch (cancellation: CancellationException) {
+        outputFile.delete()
+        throw cancellation
+    } catch (_: Exception) {
+        false
+    }
+    if (!copiedSuccessfully) outputFile.delete()
+    return copiedSuccessfully
+}
+
+private fun Context.queryDocumentLong(uri: Uri, column: String): Long? = runCatching {
+    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(column)
+        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
+    }
+}.getOrNull()?.takeIf { it >= 0L }
 
 private fun ZipFile.getThumbnailInputStream(entry: ZipEntry): InputStream =
     LimitedInputStream(

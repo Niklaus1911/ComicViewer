@@ -17,13 +17,16 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -31,17 +34,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.BrightnessHigh
+import androidx.compose.material.icons.filled.BrightnessLow
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +66,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -61,6 +78,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -82,8 +100,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -103,6 +125,7 @@ import com.comicviewer.ComicPage
 import com.comicviewer.ComicSource
 import com.comicviewer.ReaderBackground
 import com.comicviewer.ReaderPageFitMode
+import com.comicviewer.ReaderPageMode
 import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.coercePageIndex
@@ -127,6 +150,75 @@ private const val EDGE_SWIPE_RESISTANCE = 0.28f
 internal enum class ReaderSwipeDirection {
     Previous,
     Next,
+}
+
+internal fun readerSpreadStartIndex(pageIndex: Int, pageCount: Int): Int {
+    val clamped = coercePageIndex(pageIndex, pageCount)
+    if (clamped == 0 || pageCount <= 1) return 0
+    return 1 + ((clamped - 1) / 2) * 2
+}
+
+internal fun readerSpreadPageIndices(pageIndex: Int, pageCount: Int): List<Int> {
+    if (pageCount <= 0) return emptyList()
+    val start = readerSpreadStartIndex(pageIndex, pageCount)
+    if (start == 0) return listOf(0)
+    return listOfNotNull(start, (start + 1).takeIf { it < pageCount })
+}
+
+internal fun readerSpreadVisualPageIndices(
+    pageIndex: Int,
+    pageCount: Int,
+    readingDirection: ReaderReadingDirection,
+): List<Int> {
+    val indices = readerSpreadPageIndices(pageIndex, pageCount)
+    return if (readingDirection == ReaderReadingDirection.RightToLeft && indices.size > 1) {
+        indices.reversed()
+    } else {
+        indices
+    }
+}
+
+internal fun readerSpreadTargetIndex(
+    currentPageIndex: Int,
+    pageCount: Int,
+    direction: ReaderSwipeDirection,
+): Int? {
+    if (pageCount <= 0) return null
+    val start = readerSpreadStartIndex(currentPageIndex, pageCount)
+    return when (direction) {
+        ReaderSwipeDirection.Previous -> when {
+            start == 0 -> null
+            start == 1 -> 0
+            else -> (start - 2).coerceAtLeast(1)
+        }
+        ReaderSwipeDirection.Next -> when {
+            start == 0 && pageCount > 1 -> 1
+            start == 0 -> null
+            start + 2 < pageCount -> start + 2
+            else -> null
+        }
+    }
+}
+
+internal fun readerTargetPageIndex(
+    currentPageIndex: Int,
+    pageCount: Int,
+    direction: ReaderSwipeDirection,
+    pageMode: ReaderPageMode,
+): Int? = when (pageMode) {
+    ReaderPageMode.SinglePage -> readerSwipeTargetIndex(currentPageIndex, pageCount, direction)
+    ReaderPageMode.TwoPage -> readerSpreadTargetIndex(currentPageIndex, pageCount, direction)
+}
+
+internal fun readerReportedPageIndex(
+    visualPageIndex: Int,
+    pageCount: Int,
+    pageMode: ReaderPageMode,
+): Int = when (pageMode) {
+    ReaderPageMode.SinglePage -> coercePageIndex(visualPageIndex, pageCount)
+    ReaderPageMode.TwoPage -> readerSpreadPageIndices(visualPageIndex, pageCount)
+        .lastOrNull()
+        ?: coercePageIndex(visualPageIndex, pageCount)
 }
 
 internal fun readerSwipeTargetIndex(
@@ -191,6 +283,7 @@ internal fun readerSwipeCommitDirection(
     distanceFraction: Float = READER_SWIPE_DISTANCE_FRACTION,
     velocityThresholdPx: Float,
     readingDirection: ReaderReadingDirection = ReaderReadingDirection.LeftToRight,
+    pageMode: ReaderPageMode = ReaderPageMode.SinglePage,
 ): ReaderSwipeDirection? {
     val physicalVelocityDirection = readerPhysicalSwipeCommitDirection(
         offsetX = 0f,
@@ -203,10 +296,11 @@ internal fun readerSwipeCommitDirection(
         velocityThresholdPx = velocityThresholdPx,
     ) ?: return null
     val direction = readerLogicalDirectionForPhysicalDirection(physicalDirection, readingDirection)
-    val targetIndex = readerSwipeTargetIndex(
+    val targetIndex = readerTargetPageIndex(
         currentPageIndex = currentPageIndex,
         pageCount = pageCount,
         direction = direction,
+        pageMode = pageMode,
     ) ?: return null
     val distanceThreshold = viewportWidth * distanceFraction
     val velocityCommits = physicalVelocityDirection != null
@@ -221,20 +315,23 @@ internal fun resistedReaderSwipeOffset(
     pageCount: Int,
     edgeResistance: Float = EDGE_SWIPE_RESISTANCE,
     readingDirection: ReaderReadingDirection = ReaderReadingDirection.LeftToRight,
+    pageMode: ReaderPageMode = ReaderPageMode.SinglePage,
 ): Float = when {
     rawOffsetX > 0f &&
-        readerSwipeTargetIndex(
-            currentPageIndex,
-            pageCount,
-            readerLogicalDirectionForPhysicalDirection(ReaderSwipeDirection.Previous, readingDirection),
+        readerTargetPageIndex(
+            currentPageIndex = currentPageIndex,
+            pageCount = pageCount,
+            direction = readerLogicalDirectionForPhysicalDirection(ReaderSwipeDirection.Previous, readingDirection),
+            pageMode = pageMode,
         ) == null ->
         rawOffsetX * edgeResistance
 
     rawOffsetX < 0f &&
-        readerSwipeTargetIndex(
-            currentPageIndex,
-            pageCount,
-            readerLogicalDirectionForPhysicalDirection(ReaderSwipeDirection.Next, readingDirection),
+        readerTargetPageIndex(
+            currentPageIndex = currentPageIndex,
+            pageCount = pageCount,
+            direction = readerLogicalDirectionForPhysicalDirection(ReaderSwipeDirection.Next, readingDirection),
+            pageMode = pageMode,
         ) == null ->
         rawOffsetX * edgeResistance
 
@@ -251,18 +348,6 @@ internal fun readerIncomingPageOffsetAfterCommit(
         ReaderSwipeDirection.Previous -> (currentOffsetX - viewportWidth).coerceIn(-viewportWidth, 0f)
         ReaderSwipeDirection.Next -> (currentOffsetX + viewportWidth).coerceIn(0f, viewportWidth)
     }
-}
-
-private fun adjacentPageIndexForOffset(
-    visualPageIndex: Int,
-    pageCount: Int,
-    offsetX: Float,
-    activeSwipeDirection: ReaderSwipeDirection?,
-    readingDirection: ReaderReadingDirection,
-): Int? = readerSwipeAdjacentDirection(activeSwipeDirection, offsetX)?.let { direction ->
-    val logicalDirection = activeSwipeDirection
-        ?: readerLogicalDirectionForPhysicalDirection(direction, readingDirection)
-    readerSwipeTargetIndex(visualPageIndex, pageCount, logicalDirection)
 }
 
 internal fun readerSwipeDirectionForOffset(offsetX: Float): ReaderSwipeDirection? = when {
@@ -309,6 +394,43 @@ internal fun readerFitWidthScaleMultiplier(
     return (viewportWidth.toFloat() / fitScreenSize.width).coerceAtLeast(1f)
 }
 
+internal fun readerFitHeightScaleMultiplier(
+    pageWidth: Int,
+    pageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+): Float {
+    if (pageWidth <= 0 || pageHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return 1f
+    val fitScreenSize = fitPageSizeInViewport(
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight,
+    )
+    if (fitScreenSize.height <= 0f) return 1f
+    return (viewportHeight.toFloat() / fitScreenSize.height).coerceAtLeast(1f)
+}
+
+internal fun readerOriginalScaleMultiplier(
+    pageWidth: Int,
+    pageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+): Float {
+    if (pageWidth <= 0 || pageHeight <= 0 || viewportWidth <= 0 || viewportHeight <= 0) return 1f
+    val fitScreenSize = fitPageSizeInViewport(
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight,
+    )
+    if (fitScreenSize.width <= 0f || fitScreenSize.height <= 0f) return 1f
+    return minOf(
+        pageWidth.toFloat() / fitScreenSize.width,
+        pageHeight.toFloat() / fitScreenSize.height,
+    ).coerceAtLeast(1f)
+}
+
 internal fun readerEffectivePageScale(
     pageFitMode: ReaderPageFitMode,
     pageWidth: Int,
@@ -325,8 +447,38 @@ internal fun readerEffectivePageScale(
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight,
         )
+        ReaderPageFitMode.FitHeight -> readerFitHeightScaleMultiplier(
+            pageWidth = pageWidth,
+            pageHeight = pageHeight,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+        )
+        ReaderPageFitMode.Original -> readerOriginalScaleMultiplier(
+            pageWidth = pageWidth,
+            pageHeight = pageHeight,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+        )
     }
     return baseScale * userScale.coerceIn(MIN_PAGE_SCALE, MAX_PAGE_SCALE)
+}
+
+internal fun readerHorizontalSwipeEnabled(
+    pageWidth: Int,
+    pageHeight: Int,
+    viewportWidth: Int,
+    viewportHeight: Int,
+    effectiveScale: Float,
+    userScale: Float,
+): Boolean {
+    if (viewportWidth <= 0 || viewportHeight <= 0 || userScale > MIN_PAGE_SCALE) return false
+    val fitSize = fitPageSizeInViewport(
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        viewportWidth = viewportWidth,
+        viewportHeight = viewportHeight,
+    )
+    return fitSize.width * effectiveScale <= viewportWidth + 0.5f
 }
 
 private data class RememberedPagePainter(
@@ -420,19 +572,33 @@ fun ComicReaderScreen(
     onPageSelected: (Int) -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
+    favorite: Boolean? = null,
+    onToggleFavorite: () -> Unit = {},
 ) {
     val activeReaderPreferences = resolvedReaderPreferences(
         readerPreferences = readerPreferences,
         isProUnlocked = isProUnlocked,
     )
     val context = LocalContext.current
+    val resources = LocalResources.current
     val density = LocalDensity.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
-    var visualPageIndex by remember(book) { mutableStateOf(currentIndex) }
+    val requestedVisualIndex = if (activeReaderPreferences.pageMode == ReaderPageMode.TwoPage) {
+        readerSpreadStartIndex(currentIndex, book.pages.size)
+    } else {
+        currentIndex
+    }
+    var visualPageIndex by remember(book) { mutableIntStateOf(requestedVisualIndex) }
     val visualPage = book.pages[coercePageIndex(visualPageIndex, book.pages.size)]
+    val spreadIndices = if (activeReaderPreferences.pageMode == ReaderPageMode.TwoPage) {
+        readerSpreadPageIndices(visualPageIndex, book.pages.size)
+    } else {
+        listOf(visualPage.index)
+    }
+    val secondSpreadPage = spreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
     val currentRequest = remember(book.source, visualPage.imageUri, visualPage.relativePath) {
         visualPage.imageRequest(context = context, source = book.source)
     }
@@ -442,27 +608,67 @@ fun ComicReaderScreen(
         contentScale = ContentScale.Fit,
     )
     val painterState by painter.state.collectAsState()
+    val secondPainter = rememberAsyncImagePainter(
+        model = remember(book.source, secondSpreadPage?.imageUri, secondSpreadPage?.relativePath) {
+            secondSpreadPage?.imageRequest(context = context, source = book.source)
+        },
+        imageLoader = imageLoader,
+        contentScale = ContentScale.Fit,
+    )
+    val secondPainterState by secondPainter.state.collectAsState()
     var lastSuccessfulPainter by remember(book) { mutableStateOf<RememberedPagePainter?>(null) }
-    var pageLoadError by remember(visualPage.imageUri) { mutableStateOf<String?>(null) }
+    var primaryPageLoadError by remember(visualPage.imageUri) { mutableStateOf<String?>(null) }
+    var secondaryPageLoadError by remember(secondSpreadPage?.imageUri) { mutableStateOf<String?>(null) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    var pageScale by remember(visualPage.imageUri) { mutableFloatStateOf(MIN_PAGE_SCALE) }
-    var pageOffset by remember(visualPage.imageUri) { mutableStateOf(Offset.Zero) }
+    var pageScale by remember(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+    ) { mutableFloatStateOf(MIN_PAGE_SCALE) }
+    var pageOffset by remember(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+    ) { mutableStateOf(Offset.Zero) }
     var controlsVisible by remember(book) { mutableStateOf(true) }
     var showReaderSettings by remember(book) { mutableStateOf(false) }
+    var showPageGrid by remember(book) { mutableStateOf(false) }
     var showProDialog by remember(book) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
     var activeSwipeDirection by remember { mutableStateOf<ReaderSwipeDirection?>(null) }
     var swipeSettleJob by remember(book) { mutableStateOf<Job?>(null) }
-    val adjacentPageDirection = readerSwipeAdjacentDirection(activeSwipeDirection, swipeOffsetX)
-    val adjacentPageIndex = adjacentPageIndexForOffset(
-        visualPageIndex = visualPage.index,
-        pageCount = book.pages.size,
-        offsetX = swipeOffsetX,
-        activeSwipeDirection = activeSwipeDirection,
-        readingDirection = activeReaderPreferences.readingDirection,
-    )
+    val adjacentLogicalDirection = activeSwipeDirection
+        ?: readerSwipeDirectionForOffset(swipeOffsetX)?.let { physicalDirection ->
+            readerLogicalDirectionForPhysicalDirection(
+                physicalDirection = physicalDirection,
+                readingDirection = activeReaderPreferences.readingDirection,
+            )
+        }
+    val adjacentPageIndex = adjacentLogicalDirection?.let { direction ->
+        if (activeReaderPreferences.pageMode == ReaderPageMode.TwoPage) {
+            readerSpreadTargetIndex(
+                currentPageIndex = visualPage.index,
+                pageCount = book.pages.size,
+                direction = direction,
+            )
+        } else {
+            readerSwipeTargetIndex(
+                currentPageIndex = visualPage.index,
+                pageCount = book.pages.size,
+                direction = direction,
+            )
+        }
+    }
     val adjacentPage = adjacentPageIndex?.let(book.pages::getOrNull)
+    val adjacentSpreadIndices = if (
+        adjacentPageIndex != null && activeReaderPreferences.pageMode == ReaderPageMode.TwoPage
+    ) {
+        readerSpreadPageIndices(adjacentPageIndex, book.pages.size)
+    } else {
+        listOfNotNull(adjacentPageIndex)
+    }
+    val adjacentSecondPage = adjacentSpreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
     val adjacentRequest = remember(book.source, adjacentPage?.imageUri, adjacentPage?.relativePath) {
         adjacentPage?.imageRequest(context = context, source = book.source)
     }
@@ -471,8 +677,15 @@ fun ComicReaderScreen(
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
     )
+    val adjacentSecondPainter = rememberAsyncImagePainter(
+        model = remember(book.source, adjacentSecondPage?.imageUri, adjacentSecondPage?.relativePath) {
+            adjacentSecondPage?.imageRequest(context = context, source = book.source)
+        },
+        imageLoader = imageLoader,
+        contentScale = ContentScale.Fit,
+    )
 
-    DisposableEffect(view) {
+    DisposableEffect(view, activeReaderPreferences.keepScreenOn, activeReaderPreferences.brightness) {
         val window = view.context.findActivity()?.window
         if (window == null) {
             onDispose { }
@@ -480,13 +693,24 @@ fun ComicReaderScreen(
             val controller = WindowCompat.getInsetsController(window, view)
             val previousSystemBarsBehavior = controller.systemBarsBehavior
             val hadKeepScreenOn = window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            val previousBrightness = window.attributes.screenBrightness
+            if (activeReaderPreferences.keepScreenOn) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else if (!hadKeepScreenOn) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            activeReaderPreferences.brightness?.let { brightness ->
+                window.attributes = window.attributes.apply {
+                    screenBrightness = brightness.coerceIn(0.05f, 1f)
+                }
+            }
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.statusBars())
 
             onDispose {
                 controller.show(WindowInsetsCompat.Type.statusBars())
                 controller.systemBarsBehavior = previousSystemBarsBehavior
+                window.attributes = window.attributes.apply { screenBrightness = previousBrightness }
                 if (!hadKeepScreenOn) {
                     window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 }
@@ -500,10 +724,10 @@ fun ComicReaderScreen(
         }
     }
 
-    LaunchedEffect(book, currentIndex) {
-        if (currentIndex != visualPageIndex) {
+    LaunchedEffect(book, requestedVisualIndex, activeReaderPreferences.pageMode) {
+        if (requestedVisualIndex != visualPageIndex) {
             swipeSettleJob?.cancel()
-            visualPageIndex = currentIndex
+            visualPageIndex = requestedVisualIndex
             swipeOffsetX = 0f
             swipeDragStartOffsetX = 0f
             activeSwipeDirection = null
@@ -515,6 +739,31 @@ fun ComicReaderScreen(
         swipeDragStartOffsetX = 0f
         activeSwipeDirection = null
         swipeSettleJob = null
+    }
+
+    fun targetPageFor(direction: ReaderSwipeDirection): Int? = readerTargetPageIndex(
+        currentPageIndex = visualPage.index,
+        pageCount = book.pages.size,
+        direction = direction,
+        pageMode = activeReaderPreferences.pageMode,
+    )
+
+    fun reportVisiblePage(visualIndex: Int) {
+        onPageSelected(
+            readerReportedPageIndex(
+                visualPageIndex = visualIndex,
+                pageCount = book.pages.size,
+                pageMode = activeReaderPreferences.pageMode,
+            ),
+        )
+    }
+
+    fun navigate(direction: ReaderSwipeDirection) {
+        val target = targetPageFor(direction) ?: return
+        visualPageIndex = target
+        pageScale = MIN_PAGE_SCALE
+        pageOffset = Offset.Zero
+        reportVisiblePage(target)
     }
 
     fun startSwipeDrag(direction: ReaderSwipeDirection) {
@@ -538,6 +787,7 @@ fun ComicReaderScreen(
             currentPageIndex = visualPage.index,
             pageCount = book.pages.size,
             readingDirection = activeReaderPreferences.readingDirection,
+            pageMode = activeReaderPreferences.pageMode,
         )
     }
 
@@ -569,14 +819,9 @@ fun ComicReaderScreen(
             pageCount = book.pages.size,
             velocityThresholdPx = velocityThreshold,
             readingDirection = activeReaderPreferences.readingDirection,
+            pageMode = activeReaderPreferences.pageMode,
         )
-        val targetPageIndex = direction?.let {
-            readerSwipeTargetIndex(
-                currentPageIndex = visualPage.index,
-                pageCount = book.pages.size,
-                direction = it,
-            )
-        }
+        val targetPageIndex = direction?.let(::targetPageFor)
 
         if (direction != null && targetPageIndex != null) {
             val incomingOffsetX = readerIncomingPageOffsetAfterCommit(
@@ -589,7 +834,7 @@ fun ComicReaderScreen(
             swipeOffsetX = incomingOffsetX
             swipeDragStartOffsetX = 0f
             activeSwipeDirection = null
-            onPageSelected(targetPageIndex)
+            reportVisiblePage(targetPageIndex)
             swipeSettleJob = scope.launch {
                 animateSwipeRelease(0f)
                 resetSwipeState()
@@ -612,35 +857,75 @@ fun ComicReaderScreen(
         )
     }
 
-    LaunchedEffect(painterState, visualPage.imageUri) {
+    LaunchedEffect(painterState, visualPage.imageUri, resources) {
         when (val state = painterState) {
             is AsyncImagePainter.State.Success -> {
                 lastSuccessfulPainter = RememberedPagePainter(
                     imageUri = visualPage.imageUri.toString(),
                     painter = state.painter,
                 )
-                pageLoadError = null
+                primaryPageLoadError = null
             }
 
             is AsyncImagePainter.State.Error -> {
-                pageLoadError = context.getString(R.string.page_image_error, visualPage.displayName)
+                primaryPageLoadError = resources.getString(R.string.page_image_error, visualPage.displayName)
             }
 
             else -> Unit
         }
     }
 
+    LaunchedEffect(secondPainterState, secondSpreadPage?.imageUri, resources) {
+        secondaryPageLoadError = when {
+            secondSpreadPage == null -> null
+            secondPainterState is AsyncImagePainter.State.Error -> resources.getString(
+                R.string.page_image_error,
+                secondSpreadPage.displayName,
+            )
+            secondPainterState is AsyncImagePainter.State.Success -> null
+            else -> secondaryPageLoadError
+        }
+    }
+
+    val layoutPageWidth = if (secondSpreadPage != null) {
+        visualPage.width.coerceAtLeast(0) + secondSpreadPage.width.coerceAtLeast(0)
+    } else {
+        visualPage.width
+    }
+    val layoutPageHeight = if (secondSpreadPage != null) {
+        maxOf(visualPage.height, secondSpreadPage.height)
+    } else {
+        visualPage.height
+    }
     val effectivePageScale = readerEffectivePageScale(
         pageFitMode = activeReaderPreferences.pageFitMode,
-        pageWidth = visualPage.width,
-        pageHeight = visualPage.height,
+        pageWidth = layoutPageWidth,
+        pageHeight = layoutPageHeight,
         viewportWidth = viewportSize.width,
         viewportHeight = viewportSize.height,
         userScale = pageScale,
     )
+    val horizontalSwipeEnabled = readerHorizontalSwipeEnabled(
+        pageWidth = layoutPageWidth,
+        pageHeight = layoutPageHeight,
+        viewportWidth = viewportSize.width,
+        viewportHeight = viewportSize.height,
+        effectiveScale = effectivePageScale,
+        userScale = pageScale,
+    )
 
-    LaunchedEffect(visualPage.imageUri, viewportSize, effectivePageScale) {
-        pageOffset = pageOffset.clampedFor(page = visualPage, scale = effectivePageScale, viewportSize = viewportSize)
+    LaunchedEffect(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        viewportSize,
+        effectivePageScale,
+    ) {
+        pageOffset = pageOffset.clampedFor(
+            pageWidth = layoutPageWidth,
+            pageHeight = layoutPageHeight,
+            scale = effectivePageScale,
+            viewportSize = viewportSize,
+        )
     }
 
     Box(
@@ -651,6 +936,7 @@ fun ComicReaderScreen(
         Box(
             modifier = Modifier
                 .matchParentSize()
+                .padding(activeReaderPreferences.marginDp.dp)
                 .clipToBounds()
                 .onSizeChanged { viewportSize = it }
                 .pointerInput(
@@ -660,9 +946,12 @@ fun ComicReaderScreen(
                     pageScale,
                     activeReaderPreferences.readingDirection,
                     activeReaderPreferences.pageFitMode,
+                    activeReaderPreferences.pageMode,
+                    activeReaderPreferences.marginDp,
+                    horizontalSwipeEnabled,
                 ) {
                     detectPageGestures(
-                        swipingEnabled = pageScale == MIN_PAGE_SCALE,
+                        swipingEnabled = horizontalSwipeEnabled,
                         onTap = { tapOffset ->
                             when (
                                 readerNavigationDirectionForTap(
@@ -671,8 +960,8 @@ fun ComicReaderScreen(
                                     readingDirection = activeReaderPreferences.readingDirection,
                                 )
                             ) {
-                                ReaderSwipeDirection.Previous -> onPrevious()
-                                ReaderSwipeDirection.Next -> onNext()
+                                ReaderSwipeDirection.Previous -> navigate(ReaderSwipeDirection.Previous)
+                                ReaderSwipeDirection.Next -> navigate(ReaderSwipeDirection.Next)
                                 null -> controlsVisible = !controlsVisible
                             }
                         },
@@ -708,11 +997,12 @@ fun ComicReaderScreen(
 
                         pageScale = nextScale
                         pageOffset = nextOffset.clampedFor(
-                            page = visualPage,
+                            pageWidth = layoutPageWidth,
+                            pageHeight = layoutPageHeight,
                             scale = readerEffectivePageScale(
                                 pageFitMode = activeReaderPreferences.pageFitMode,
-                                pageWidth = visualPage.width,
-                                pageHeight = visualPage.height,
+                                pageWidth = layoutPageWidth,
+                                pageHeight = layoutPageHeight,
                                 viewportWidth = viewportSize.width,
                                 viewportHeight = viewportSize.height,
                                 userScale = nextScale,
@@ -724,17 +1014,31 @@ fun ComicReaderScreen(
         ) {
             val viewportWidth = viewportSize.width.toFloat()
             val targetPage = adjacentPage
-            val targetPageDirection = adjacentPageDirection
-            if (targetPage != null && targetPageDirection != null && swipeOffsetX != 0f) {
-                SwipeTargetPageImage(
-                    painter = adjacentPainter,
-                    contentDescription = targetPage.displayName,
-                    translationX = adjacentPageTranslationX(
-                        offsetX = swipeOffsetX,
-                        viewportWidth = viewportWidth,
-                        direction = readerSwipeDirectionForOffset(swipeOffsetX) ?: targetPageDirection,
-                    ),
+            val physicalTargetDirection = readerSwipeDirectionForOffset(swipeOffsetX)
+            if (targetPage != null && physicalTargetDirection != null && swipeOffsetX != 0f) {
+                val translationX = adjacentPageTranslationX(
+                    offsetX = swipeOffsetX,
+                    viewportWidth = viewportWidth,
+                    direction = physicalTargetDirection,
                 )
+                if (adjacentSecondPage != null) {
+                    ZoomableSpreadImages(
+                        firstPainter = adjacentPainter,
+                        secondPainter = adjacentSecondPainter,
+                        firstDescription = targetPage.displayName,
+                        secondDescription = adjacentSecondPage.displayName,
+                        readingDirection = activeReaderPreferences.readingDirection,
+                        scale = MIN_PAGE_SCALE,
+                        offset = Offset.Zero,
+                        swipeOffsetX = translationX,
+                    )
+                } else {
+                    SwipeTargetPageImage(
+                        painter = adjacentPainter,
+                        contentDescription = targetPage.displayName,
+                        translationX = translationX,
+                    )
+                }
             }
 
             val fallbackPainter = lastSuccessfulPainter
@@ -742,44 +1046,85 @@ fun ComicReaderScreen(
                 ?.painter
             val displayedPainter = if (painterState is AsyncImagePainter.State.Success) painter else fallbackPainter
             displayedPainter?.let { pagePainter ->
-                ZoomablePageImage(
-                    painter = pagePainter,
-                    contentDescription = visualPage.displayName,
-                    scale = effectivePageScale,
-                    offset = pageOffset,
-                    swipeOffsetX = swipeOffsetX,
-                )
+                if (secondSpreadPage != null) {
+                    ZoomableSpreadImages(
+                        firstPainter = pagePainter,
+                        secondPainter = secondPainter,
+                        firstDescription = visualPage.displayName,
+                        secondDescription = secondSpreadPage.displayName,
+                        readingDirection = activeReaderPreferences.readingDirection,
+                        scale = effectivePageScale,
+                        offset = pageOffset,
+                        swipeOffsetX = swipeOffsetX,
+                    )
+                } else {
+                    ZoomablePageImage(
+                        painter = pagePainter,
+                        contentDescription = visualPage.displayName,
+                        scale = effectivePageScale,
+                        offset = pageOffset,
+                        swipeOffsetX = swipeOffsetX,
+                    )
+                }
             }
         }
 
+        val pageLoadError = primaryPageLoadError ?: secondaryPageLoadError
         pageLoadError?.let { message ->
             PageImageError(
                 message = message,
-                relativePath = visualPage.relativePath,
+                relativePath = if (primaryPageLoadError != null) {
+                    visualPage.relativePath
+                } else {
+                    secondSpreadPage?.relativePath.orEmpty()
+                },
                 modifier = Modifier.align(Alignment.Center),
             )
+        }
+
+        val lastVisiblePageIndex = spreadIndices.lastOrNull() ?: visualPage.index
+        val displayPageText = if (spreadIndices.size > 1) {
+            "${spreadIndices.first() + 1}–${spreadIndices.last() + 1} / ${book.pages.size}"
+        } else {
+            "${visualPage.index + 1} / ${book.pages.size}"
+        }
+        val progressPercent = if (book.pages.isEmpty()) 0 else {
+            (((lastVisiblePageIndex + 1).toFloat() / book.pages.size) * 100).roundToInt().coerceIn(0, 100)
         }
 
         if (controlsVisible) {
             ReaderTopBar(
                 title = book.title,
-                pageText = "${visualPage.index + 1} / ${book.pages.size}",
+                pageText = if (activeReaderPreferences.showPageNumber) {
+                    "$progressPercent%  •  $displayPageText"
+                } else {
+                    "$progressPercent%"
+                },
                 onOpenSettings = { showReaderSettings = true },
                 onCloseComic = onCloseComic,
+                favorite = favorite,
+                onToggleFavorite = {
+                    if (isProUnlocked) onToggleFavorite() else showProDialog = true
+                },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .systemBarsPadding()
-                    .padding(12.dp),
+                    .systemBarsPadding(),
             )
 
             ReaderPageScrubber(
                 currentPageIndex = visualPage.index,
                 pageCount = book.pages.size,
-                onPageSelected = onPageSelected,
+                onPageSelected = ::reportVisiblePage,
+                pageText = displayPageText,
+                showPageNumber = activeReaderPreferences.showPageNumber,
+                progressPageIndex = lastVisiblePageIndex,
+                onPrevious = { navigate(ReaderSwipeDirection.Previous) },
+                onNext = { navigate(ReaderSwipeDirection.Next) },
+                onOpenSettings = { showReaderSettings = true },
+                onOpenGrid = { showPageGrid = true },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .systemBarsPadding()
-                    .padding(12.dp),
+                    .systemBarsPadding(),
             )
         }
 
@@ -791,6 +1136,18 @@ fun ComicReaderScreen(
                 onReaderPreferencesChanged = onReaderPreferencesChanged,
                 onRequestPro = { showProDialog = true },
                 onDismiss = { showReaderSettings = false },
+            )
+        }
+
+        if (showPageGrid) {
+            ReaderPageGrid(
+                book = book,
+                currentPageIndex = visualPage.index,
+                onPageSelected = { selected ->
+                    reportVisiblePage(selected)
+                    showPageGrid = false
+                },
+                onDismiss = { showPageGrid = false },
             )
         }
 
@@ -814,8 +1171,8 @@ fun ZoomablePageImage(
     contentDescription: String?,
     scale: Float,
     offset: Offset,
-    swipeOffsetX: Float = 0f,
     modifier: Modifier = Modifier,
+    swipeOffsetX: Float = 0f,
 ) {
     Image(
         painter = painter,
@@ -830,6 +1187,47 @@ fun ZoomablePageImage(
                 translationY = offset.y
             },
     )
+}
+
+@Composable
+private fun ZoomableSpreadImages(
+    firstPainter: Painter,
+    secondPainter: Painter,
+    firstDescription: String?,
+    secondDescription: String?,
+    readingDirection: ReaderReadingDirection,
+    scale: Float,
+    offset: Offset,
+    swipeOffsetX: Float,
+) {
+    val pages = if (readingDirection == ReaderReadingDirection.RightToLeft) {
+        listOf(secondPainter to secondDescription, firstPainter to firstDescription)
+    } else {
+        listOf(firstPainter to firstDescription, secondPainter to secondDescription)
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x + swipeOffsetX
+                translationY = offset.y
+            },
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        pages.forEach { (pagePainter, description) ->
+            Image(
+                painter = pagePainter,
+                contentDescription = description,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+            )
+        }
+    }
 }
 
 @Composable
@@ -984,34 +1382,25 @@ private fun ComicPage.imageRequest(context: Context, source: ComicSource): Image
 }
 
 private fun Offset.clampedFor(
-    page: ComicPage,
+    pageWidth: Int,
+    pageHeight: Int,
     scale: Float,
     viewportSize: IntSize,
 ): Offset {
     if (viewportSize.width <= 0 || viewportSize.height <= 0) return Offset.Zero
 
-    val fitSize = page.fitSizeIn(viewportSize)
+    val fitSize = fitPageSizeInViewport(
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        viewportWidth = viewportSize.width,
+        viewportHeight = viewportSize.height,
+    )
     val maxX = max(0f, (fitSize.width * scale - viewportSize.width) / 2f)
     val maxY = max(0f, (fitSize.height * scale - viewportSize.height) / 2f)
 
     return Offset(
         x = x.coerceIn(-maxX, maxX),
         y = y.coerceIn(-maxY, maxY),
-    )
-}
-
-private fun ComicPage.fitSizeIn(viewportSize: IntSize): Size {
-    val viewportWidth = viewportSize.width.toFloat()
-    val viewportHeight = viewportSize.height.toFloat()
-    if (viewportWidth <= 0f || viewportHeight <= 0f || width <= 0 || height <= 0) {
-        return Size(viewportWidth, viewportHeight)
-    }
-
-    return fitPageSizeInViewport(
-        pageWidth = width,
-        pageHeight = height,
-        viewportWidth = viewportSize.width,
-        viewportHeight = viewportSize.height,
     )
 }
 
@@ -1041,9 +1430,16 @@ private fun ReaderReadingDirection.labelRes(): Int = when (this) {
     ReaderReadingDirection.RightToLeft -> R.string.reader_direction_rtl
 }
 
+private fun ReaderPageMode.labelRes(): Int = when (this) {
+    ReaderPageMode.SinglePage -> R.string.reader_single_page
+    ReaderPageMode.TwoPage -> R.string.reader_two_page
+}
+
 private fun ReaderPageFitMode.labelRes(): Int = when (this) {
-    ReaderPageFitMode.FitScreen -> R.string.reader_fit_screen
+    ReaderPageFitMode.FitScreen -> R.string.reader_fit_page
     ReaderPageFitMode.FitWidth -> R.string.reader_fit_width
+    ReaderPageFitMode.FitHeight -> R.string.reader_fit_height
+    ReaderPageFitMode.Original -> R.string.reader_original_size
 }
 
 private fun ReaderBackground.labelRes(): Int = when (this) {
@@ -1101,21 +1497,29 @@ fun ReaderTopBar(
     onOpenSettings: () -> Unit,
     onCloseComic: () -> Unit,
     modifier: Modifier = Modifier,
+    favorite: Boolean? = null,
+    onToggleFavorite: () -> Unit = {},
 ) {
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color.Black.copy(alpha = 0.58f),
-        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF101820).copy(alpha = 0.96f),
     ) {
         Row(
-            modifier = Modifier.padding(start = 14.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
+            modifier = Modifier.padding(start = 8.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            IconButton(onClick = onCloseComic) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.reader_close_action),
+                    tint = Color.White,
+                )
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1126,17 +1530,21 @@ fun ReaderTopBar(
                     color = Color.White.copy(alpha = 0.78f),
                 )
             }
+            if (favorite != null) {
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (favorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                        contentDescription = stringResource(
+                            if (favorite) R.string.library_remove_favorite else R.string.library_add_favorite,
+                        ),
+                        tint = Color.White,
+                    )
+                }
+            }
             IconButton(onClick = onOpenSettings) {
                 Icon(
-                    imageVector = Icons.Filled.Settings,
+                    imageVector = Icons.Filled.MoreVert,
                     contentDescription = stringResource(R.string.reader_settings),
-                    tint = Color.White,
-                )
-            }
-            IconButton(onClick = onCloseComic) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.reader_close_action),
                     tint = Color.White,
                 )
             }
@@ -1160,44 +1568,50 @@ fun ReaderSettingsDialog(
         sheetState = sheetState,
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
+        dragHandle = null,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 620.dp)
+                .heightIn(max = 760.dp)
                 .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Settings,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .padding(10.dp)
-                            .size(22.dp),
-                    )
+                Text(
+                    text = stringResource(R.string.reader_settings),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, stringResource(R.string.cancel))
                 }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.reader_settings),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = stringResource(R.string.reader_settings_pro_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            }
+
+            ReaderSettingsSection(
+                title = stringResource(R.string.reader_reading_mode),
+                icon = Icons.Filled.AutoStories,
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReaderPageMode.entries.forEach { mode ->
+                        ReaderChoiceChip(
+                            label = stringResource(mode.labelRes()),
+                            selected = activeReaderPreferences.pageMode == mode,
+                            locked = !isProUnlocked && mode == ReaderPageMode.TwoPage,
+                            onClick = { onReaderPreferencesChanged(readerPreferences.copy(pageMode = mode)) },
+                            onLockedClick = onRequestPro,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
 
@@ -1205,54 +1619,167 @@ fun ReaderSettingsDialog(
                 title = stringResource(R.string.reader_reading_direction),
                 icon = Icons.Filled.AutoStories,
             ) {
-                ReaderReadingDirection.entries.forEach { direction ->
-                    ReaderOptionCard(
-                        label = stringResource(direction.labelRes()),
-                        selected = activeReaderPreferences.readingDirection == direction,
-                        locked = !isProUnlocked && direction != ReaderReadingDirection.LeftToRight,
-                        onClick = {
-                            onReaderPreferencesChanged(readerPreferences.copy(readingDirection = direction))
-                        },
-                        onLockedClick = onRequestPro,
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReaderReadingDirection.entries.forEach { direction ->
+                        ReaderChoiceChip(
+                            label = stringResource(direction.labelRes()),
+                            selected = activeReaderPreferences.readingDirection == direction,
+                            locked = !isProUnlocked && direction != ReaderReadingDirection.LeftToRight,
+                            onClick = {
+                                onReaderPreferencesChanged(readerPreferences.copy(readingDirection = direction))
+                            },
+                            onLockedClick = onRequestPro,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
             ReaderSettingsSection(
                 title = stringResource(R.string.reader_page_fit),
                 icon = Icons.Filled.AspectRatio,
             ) {
-                ReaderPageFitMode.entries.forEach { fitMode ->
-                    ReaderOptionCard(
-                        label = stringResource(fitMode.labelRes()),
-                        selected = activeReaderPreferences.pageFitMode == fitMode,
-                        locked = !isProUnlocked && fitMode != ReaderPageFitMode.FitScreen,
-                        onClick = {
-                            onReaderPreferencesChanged(readerPreferences.copy(pageFitMode = fitMode))
-                        },
-                        onLockedClick = onRequestPro,
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReaderPageFitMode.entries.forEach { fitMode ->
+                        ReaderChoiceChip(
+                            label = stringResource(fitMode.labelRes()),
+                            selected = activeReaderPreferences.pageFitMode == fitMode,
+                            locked = !isProUnlocked && fitMode != ReaderPageFitMode.FitScreen,
+                            onClick = {
+                                onReaderPreferencesChanged(readerPreferences.copy(pageFitMode = fitMode))
+                            },
+                            onLockedClick = onRequestPro,
+                        )
+                    }
                 }
             }
             ReaderSettingsSection(
                 title = stringResource(R.string.reader_background),
                 icon = Icons.Filled.Palette,
             ) {
-                ReaderBackground.entries.forEach { background ->
-                    ReaderOptionCard(
-                        label = stringResource(background.labelRes()),
-                        selected = activeReaderPreferences.background == background,
-                        locked = !isProUnlocked && background != ReaderBackground.Black,
-                        leading = {
-                            ReaderBackgroundSwatch(background = background)
-                        },
-                        onClick = {
-                            onReaderPreferencesChanged(readerPreferences.copy(background = background))
-                        },
-                        onLockedClick = onRequestPro,
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ReaderBackground.entries.forEach { background ->
+                        ReaderChoiceChip(
+                            label = stringResource(background.labelRes()),
+                            selected = activeReaderPreferences.background == background,
+                            locked = !isProUnlocked && background != ReaderBackground.Black,
+                            leading = { ReaderBackgroundSwatch(background = background) },
+                            onClick = {
+                                onReaderPreferencesChanged(readerPreferences.copy(background = background))
+                            },
+                            onLockedClick = onRequestPro,
+                        )
+                    }
                 }
             }
+
+            ReaderSettingsSection(
+                title = stringResource(R.string.reader_brightness),
+                icon = Icons.Filled.BrightnessHigh,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isProUnlocked, onClick = onRequestPro),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(Icons.Filled.BrightnessLow, null, modifier = Modifier.size(20.dp))
+                    Slider(
+                        value = (activeReaderPreferences.brightness ?: 0.5f).coerceIn(0.05f, 1f),
+                        onValueChange = { onReaderPreferencesChanged(readerPreferences.copy(brightness = it)) },
+                        valueRange = 0.05f..1f,
+                        enabled = isProUnlocked,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(Icons.Filled.BrightnessHigh, null, modifier = Modifier.size(20.dp))
+                    if (!isProUnlocked) LockedProBadge()
+                }
+            }
+
+            ReaderSettingsSection(
+                title = stringResource(R.string.reader_margins),
+                icon = Icons.Filled.AspectRatio,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = !isProUnlocked, onClick = onRequestPro),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text("0", style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = activeReaderPreferences.marginDp.toFloat(),
+                        onValueChange = { onReaderPreferencesChanged(readerPreferences.copy(marginDp = it.roundToInt())) },
+                        valueRange = 0f..32f,
+                        steps = 31,
+                        enabled = isProUnlocked,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${activeReaderPreferences.marginDp}dp", style = MaterialTheme.typography.bodySmall)
+                    if (!isProUnlocked) LockedProBadge()
+                }
+            }
+
+            ReaderToggleRow(
+                label = stringResource(R.string.reader_keep_screen_on),
+                checked = activeReaderPreferences.keepScreenOn,
+                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
+            )
+            ReaderToggleRow(
+                label = stringResource(R.string.reader_show_page_number),
+                checked = activeReaderPreferences.showPageNumber,
+                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(showPageNumber = it)) },
+            )
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onReaderPreferencesChanged(ReaderPreferences()) },
+                shape = RoundedCornerShape(14.dp),
+                color = Color.Transparent,
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Text(
+                    text = stringResource(R.string.reader_reset_defaults),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(15.dp),
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun ReaderToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1284,13 +1811,14 @@ private fun ReaderSettingsSection(
 }
 
 @Composable
-private fun ReaderOptionCard(
+private fun ReaderChoiceChip(
     label: String,
     selected: Boolean,
     locked: Boolean,
-    leading: @Composable (() -> Unit)? = null,
     onClick: () -> Unit,
     onLockedClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    leading: @Composable (() -> Unit)? = null,
 ) {
     val borderColor = when {
         selected -> MaterialTheme.colorScheme.primary
@@ -1303,27 +1831,29 @@ private fun ReaderOptionCard(
         else -> MaterialTheme.colorScheme.surfaceContainerLow
     }
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .border(1.dp, borderColor, RoundedCornerShape(14.dp))
-            .clickable(onClick = if (locked) onLockedClick else onClick),
+            .semantics { this.selected = selected }
+            .clickable(
+                role = Role.RadioButton,
+                onClick = if (locked) onLockedClick else onClick,
+            ),
         shape = RoundedCornerShape(14.dp),
         color = containerColor,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 11.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 11.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (leading != null) {
                 leading()
             } else {
                 Icon(
-                    imageVector = if (selected) Icons.Filled.Check else Icons.Filled.Settings,
+                    imageVector = if (selected) Icons.Filled.Check else Icons.Filled.RadioButtonUnchecked,
                     contentDescription = null,
                     tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
@@ -1333,7 +1863,6 @@ private fun ReaderOptionCard(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Start,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1392,38 +1921,126 @@ private fun ReaderBackgroundSwatch(background: ReaderBackground) {
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderPageGrid(
+    book: ComicBook,
+    currentPageIndex: Int,
+    onPageSelected: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    val imageLoader = remember(context) { SingletonImageLoader.get(context) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 680.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.reader_page_grid),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, stringResource(R.string.cancel))
+                }
+            }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(88.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(book.pages, key = ComicPage::index) { page ->
+                    Column(
+                        modifier = Modifier.clickable { onPageSelected(page.index) },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.72f),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            border = if (page.index == currentPageIndex) {
+                                androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                            } else {
+                                null
+                            },
+                        ) {
+                            Image(
+                                painter = rememberAsyncImagePainter(
+                                    model = page.imageRequest(context, book.source),
+                                    imageLoader = imageLoader,
+                                ),
+                                contentDescription = page.displayName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = (page.index + 1).toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (page.index == currentPageIndex) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun ReaderPageScrubber(
     currentPageIndex: Int,
     pageCount: Int,
     onPageSelected: (Int) -> Unit,
+    pageText: String,
+    showPageNumber: Boolean,
+    progressPageIndex: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenGrid: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val clampedPageIndex = coercePageIndex(currentPageIndex, pageCount)
     var scrubberValue by remember(clampedPageIndex, pageCount) {
         mutableFloatStateOf(clampedPageIndex.toFloat())
     }
-    val targetPageIndex = coercePageIndex(scrubberValue.roundToInt(), pageCount)
+    val progressPercent = if (pageCount <= 0) {
+        0
+    } else {
+        (((coercePageIndex(progressPageIndex, pageCount) + 1).toFloat() / pageCount) * 100)
+            .roundToInt()
+            .coerceIn(0, 100)
+    }
     val sliderMax = max(pageCount - 1, 0).toFloat()
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = Color.Black.copy(alpha = 0.58f),
-        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF101820).copy(alpha = 0.97f),
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
     ) {
         Column(
-            modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = if (pageCount <= 0) {
-                    stringResource(R.string.page_progress_spaced, 1, 1)
-                } else {
-                    stringResource(R.string.page_progress_spaced, targetPageIndex + 1, pageCount)
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.86f),
-            )
             if (pageCount > 1) {
                 Slider(
                     value = scrubberValue.coerceIn(0f, sliderMax),
@@ -1434,6 +2051,43 @@ fun ReaderPageScrubber(
                     valueRange = 0f..sliderMax,
                     steps = max(pageCount - 2, 0),
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = onPrevious) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.NavigateBefore,
+                        stringResource(R.string.reader_previous_page),
+                        tint = Color.White,
+                    )
+                }
+                IconButton(onClick = onOpenSettings) {
+                    Icon(Icons.Filled.BrightnessHigh, stringResource(R.string.reader_settings), tint = Color.White)
+                }
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White.copy(alpha = 0.08f),
+                ) {
+                    Text(
+                        text = if (showPageNumber) pageText else "$progressPercent%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    )
+                }
+                IconButton(onClick = onOpenGrid) {
+                    Icon(Icons.Filled.GridView, stringResource(R.string.reader_page_grid), tint = Color.White)
+                }
+                IconButton(onClick = onNext) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.NavigateNext,
+                        stringResource(R.string.reader_next_page),
+                        tint = Color.White,
+                    )
+                }
             }
         }
     }

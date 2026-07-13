@@ -6,6 +6,10 @@ import org.json.JSONObject
 
 private const val LIBRARY_METADATA_PREFS_NAME = "library_metadata"
 private const val LIBRARY_METADATA_KEY = "items"
+private const val MAX_LIBRARY_METADATA_RECORDS = MAX_LIBRARY_COMICS
+private const val MAX_LIBRARY_TAGS = 64
+private const val MAX_LIBRARY_TAG_CHARS = 128
+private const val MAX_PERSISTED_PATH_CHARS = 4_096
 
 data class LibraryComicMetadata(
     val sourceType: RecentComicSourceType,
@@ -126,11 +130,13 @@ internal fun encodeLibraryMetadata(metadata: List<LibraryComicMetadata>): String
 
 internal fun decodeLibraryMetadata(storedValue: String): List<LibraryComicMetadata> {
     val array = JSONArray(storedValue)
-    return (0 until array.length()).mapNotNull { index ->
+    return (0 until minOf(array.length(), MAX_LIBRARY_METADATA_RECORDS)).mapNotNull { index ->
         val item = array.optJSONObject(index) ?: return@mapNotNull null
         val sourceType = RecentComicSourceType.fromStorageName(item.optString("sourceType"))
             ?: return@mapNotNull null
-        val path = item.optString("path").takeIf { path -> path.isNotBlank() }
+        val path = item.optString("path").takeIf { path ->
+            path.isNotBlank() && path.length <= MAX_PERSISTED_PATH_CHARS
+        }
             ?: return@mapNotNull null
         LibraryComicMetadata(
             sourceType = sourceType,
@@ -144,15 +150,17 @@ internal fun decodeLibraryMetadata(storedValue: String): List<LibraryComicMetada
 }
 
 private fun decodeTags(array: JSONArray): List<String> =
-    (0 until array.length()).mapNotNull { index ->
-        array.optString(index).takeIf { tag -> tag.isNotBlank() }
+    (0 until minOf(array.length(), MAX_LIBRARY_TAGS)).mapNotNull { index ->
+        array.optString(index).takeIf { tag -> tag.isNotBlank() }?.take(MAX_LIBRARY_TAG_CHARS)
     }
 
 private fun normalizeLibraryTags(tags: List<String>): List<String> =
     tags.map { tag -> tag.trim() }
         .filter { tag -> tag.isNotEmpty() }
+        .map { tag -> tag.take(MAX_LIBRARY_TAG_CHARS) }
         .distinctBy { tag -> tag.lowercase() }
         .sortedWith { left, right -> compareComicPageNames(left, right) }
+        .take(MAX_LIBRARY_TAGS)
 
 private fun LibraryComicMetadata.normalized(): LibraryComicMetadata =
     copy(tags = normalizeLibraryTags(tags))

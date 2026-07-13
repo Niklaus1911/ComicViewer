@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -30,18 +31,24 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -81,6 +89,8 @@ import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.common.softPress
 import com.comicviewer.ui.common.subtitleText
+import com.comicviewer.ui.common.absoluteDateText
+import com.comicviewer.ui.common.fileSizeText
 import java.io.File
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -106,9 +116,11 @@ fun FileBrowserScreen(
     onOpenRecentComic: (RecentComic) -> Unit,
     onAddLocalArchivesToLibrary: (List<File>) -> Unit,
     onAddLocalFolderToLibrary: (File) -> Unit,
+    onCancelImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     var searchQuery by remember(currentDirectoryPath) { mutableStateOf("") }
     var browserState by remember(currentDirectoryPath) {
         mutableStateOf<FileBrowserUiState>(FileBrowserUiState.Loading)
@@ -134,7 +146,8 @@ fun FileBrowserScreen(
             .onSuccess { directory -> browserState = FileBrowserUiState.Loaded(directory) }
             .onFailure { throwable ->
                 browserState = FileBrowserUiState.Error(
-                    throwable.message?.takeIf { it.isNotBlank() } ?: context.getString(R.string.folder_not_readable),
+                    throwable.message?.takeIf { it.isNotBlank() }
+                        ?: resources.getString(R.string.folder_not_readable),
                 )
             }
     }
@@ -161,19 +174,15 @@ fun FileBrowserScreen(
                     ?.hasDirectImageEntry()
                     ?: false,
                 searchQuery = searchQuery,
-                selectedArchiveCount = selectedArchivePaths.size,
                 onSearchQueryChange = { query -> searchQuery = query },
                 onDirectoryChange = onDirectoryChange,
+                onBack = onCancelImport,
                 onOpenCurrentFolderAsComic = {
                     if (isAddingToLibrary) {
                         onAddLocalFolderToLibrary(File(currentDirectoryPath))
                     } else {
                         onOpenLocalFolder(File(currentDirectoryPath))
                     }
-                },
-                onAddSelectedArchives = {
-                    onAddLocalArchivesToLibrary(selectedArchivePaths.sorted().map(::File))
-                    selectedArchivePaths = emptySet()
                 },
                 onReload = ::reload,
             )
@@ -218,6 +227,34 @@ fun FileBrowserScreen(
                     )
                 }
             }
+
+            if (isAddingToLibrary) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = onCancelImport,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                    ) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                    Button(
+                        onClick = {
+                            onAddLocalArchivesToLibrary(selectedArchivePaths.sorted().map(::File))
+                            selectedArchivePaths = emptySet()
+                        },
+                        enabled = selectedArchivePaths.isNotEmpty(),
+                        modifier = Modifier.weight(1.15f),
+                        shape = RoundedCornerShape(24.dp),
+                    ) {
+                        Text(stringResource(R.string.import_selected, selectedArchivePaths.size))
+                    }
+                }
+            }
         }
     }
 }
@@ -230,18 +267,19 @@ fun FileBrowserHeader(
     parentPath: String?,
     canOpenCurrentFolderAsComic: Boolean,
     searchQuery: String,
-    selectedArchiveCount: Int,
     onSearchQueryChange: (String) -> Unit,
     onDirectoryChange: (String) -> Unit,
+    onBack: () -> Unit,
     onOpenCurrentFolderAsComic: () -> Unit,
-    onAddSelectedArchives: () -> Unit,
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val throttledParentClick = rememberThrottledAction { if (parentPath != null) onDirectoryChange(parentPath) }
+    val throttledParentClick = rememberThrottledAction {
+        if (parentPath != null) onDirectoryChange(parentPath) else onBack()
+    }
     val throttledOpenFolder = rememberThrottledAction(action = onOpenCurrentFolderAsComic)
     val throttledReload = rememberThrottledAction(action = onReload)
-    val throttledAddSelected = rememberThrottledAction(action = onAddSelectedArchives)
+    var menuExpanded by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -253,26 +291,63 @@ fun FileBrowserHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = if (isAddingToLibrary) stringResource(R.string.browser_title_add_to_library) else stringResource(R.string.browser_title_file),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
             IconButton(
                 onClick = throttledParentClick,
-                enabled = parentPath != null,
+                enabled = parentPath != null || isAddingToLibrary,
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.browser_up_action),
+                    contentDescription = stringResource(
+                        if (parentPath != null) R.string.browser_up_action else R.string.back,
+                    ),
                 )
             }
-            IconButton(onClick = throttledReload) {
-                Icon(
-                    imageVector = Icons.Filled.Refresh,
-                    contentDescription = stringResource(R.string.browser_refresh_action),
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (isAddingToLibrary) stringResource(R.string.browser_choose_file) else stringResource(R.string.browser_title_file),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
+                if (isAddingToLibrary) {
+                    Text(
+                        text = stringResource(R.string.browser_archive_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (isAddingToLibrary) {
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, stringResource(R.string.more_options))
+                    }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.browser_refresh_action)) },
+                            leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                throttledReload()
+                            },
+                        )
+                        if (canOpenCurrentFolderAsComic) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.browser_add_folder)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    throttledOpenFolder()
+                                },
+                            )
+                        }
+                    }
+                }
+            } else {
+                IconButton(onClick = throttledReload) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = stringResource(R.string.browser_refresh_action),
+                    )
+                }
             }
         }
         FileBrowserBreadcrumbs(
@@ -281,49 +356,43 @@ fun FileBrowserHeader(
             onDirectoryChange = onDirectoryChange,
             modifier = Modifier.fillMaxWidth(),
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                onClick = throttledOpenFolder,
-                enabled = canOpenCurrentFolderAsComic,
-                modifier = Modifier.weight(1f),
+        if (!isAddingToLibrary) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(if (isAddingToLibrary) stringResource(R.string.browser_add_folder) else stringResource(R.string.browser_open_as_comic))
-            }
-            if (isAddingToLibrary && selectedArchiveCount > 0) {
                 Button(
-                    onClick = throttledAddSelected,
+                    onClick = throttledOpenFolder,
+                    enabled = canOpenCurrentFolderAsComic,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(stringResource(R.string.browser_add_selected, selectedArchiveCount))
+                    Text(stringResource(R.string.browser_open_as_comic))
                 }
             }
-        }
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Filled.Search,
-                    contentDescription = null,
-                )
-            },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { onSearchQueryChange("") }) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.browser_clear_search),
-                        )
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Filled.Search,
+                        contentDescription = null,
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onSearchQueryChange("") }) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.browser_clear_search),
+                            )
+                        }
                     }
-                }
-            },
-            label = { Text(stringResource(R.string.browser_search_label)) },
-        )
+                },
+                label = { Text(stringResource(R.string.browser_search_label)) },
+            )
+        }
     }
 }
 
@@ -435,6 +504,9 @@ fun FileBrowserContent(
     modifier: Modifier = Modifier,
 ) {
     val entries = filterBrowserEntries(directory.entries, searchQuery)
+        .filter { entry ->
+            !isAddingToLibrary || entry.type == BrowserEntryType.Directory || entry.type == BrowserEntryType.Archive
+        }
     val showRecentComics = !isAddingToLibrary && searchQuery.isBlank() && recentComics.isNotEmpty()
     val recentsCount = if (showRecentComics) recentComics.size else 0
 
@@ -652,7 +724,21 @@ fun FileBrowserRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        FileBrowserThumbnail(entry = entry)
+        if (isAddingToLibrary) {
+            Surface(
+                shape = RoundedCornerShape(9.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+                Icon(
+                    imageVector = entry.type.icon(),
+                    contentDescription = null,
+                    modifier = Modifier.padding(9.dp).size(22.dp),
+                )
+            }
+        } else {
+            FileBrowserThumbnail(entry = entry)
+        }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = entry.name,
@@ -661,11 +747,15 @@ fun FileBrowserRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val facts = listOfNotNull(
+                entry.lastModifiedAt?.let { absoluteDateText(it) },
+                fileSizeText(entry.sizeBytes),
+            ).joinToString("  •  ")
             Text(
-                text = if (isSelected) {
-                    "${entry.type.labelText()} • ${stringResource(R.string.browser_selected)}"
-                } else {
-                    entry.type.labelText()
+                text = when {
+                    isSelected -> "${entry.type.labelText()} • ${stringResource(R.string.browser_selected)}"
+                    facts.isNotEmpty() -> facts
+                    else -> entry.type.labelText()
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -673,13 +763,16 @@ fun FileBrowserRow(
             )
         }
         if (isSelectableArchive) {
-            Checkbox(
-                checked = isSelected,
-                onCheckedChange = { onClick() },
-                modifier = Modifier.semantics {
-                    contentDescription = checkboxContentDescription
-                },
-            )
+            IconButton(
+                onClick = onClick,
+                modifier = Modifier.semantics { contentDescription = checkboxContentDescription },
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         } else if (canClick) {
             Icon(
                 imageVector = Icons.Filled.ChevronRight,

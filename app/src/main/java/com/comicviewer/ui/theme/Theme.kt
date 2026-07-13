@@ -48,15 +48,43 @@ private val RedLightColorScheme = lightColorScheme(
 )
 
 private val PurpleDarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleSecondary80,
-    tertiary = PurpleTertiary80
+    primary = Color(0xFFBA93FC),
+    onPrimary = Color(0xFF211238),
+    primaryContainer = Color(0xFF382B50),
+    onPrimaryContainer = Color(0xFFE9DCFF),
+    secondary = Color(0xFFD0C2E8),
+    tertiary = Color(0xFFF2B8C6),
+    background = Color(0xFF10151C),
+    onBackground = Color(0xFFF3EFF8),
+    surface = Color(0xFF10151C),
+    onSurface = Color(0xFFF3EFF8),
+    surfaceVariant = Color(0xFF242B34),
+    onSurfaceVariant = Color(0xFFC7C0CE),
+    surfaceContainerLowest = Color(0xFF0B1016),
+    surfaceContainerLow = Color(0xFF141A21),
+    surfaceContainer = Color(0xFF171D24),
+    surfaceContainerHigh = Color(0xFF1E232A),
+    surfaceContainerHighest = Color(0xFF242B34),
+    outline = Color(0xFF626A76),
+    outlineVariant = Color(0xFF303741),
 )
 
 private val PurpleLightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleSecondary40,
-    tertiary = PurpleTertiary40
+    primary = Color(0xFF7044B8),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFEBDDFF),
+    onPrimaryContainer = Color(0xFF281244),
+    secondary = Color(0xFF675A70),
+    tertiary = PurpleTertiary40,
+    background = Color(0xFFFBF8FF),
+    onBackground = Color(0xFF1D1A20),
+    surface = Color(0xFFFBF8FF),
+    onSurface = Color(0xFF1D1A20),
+    surfaceContainerLow = Color(0xFFF5F0FA),
+    surfaceContainer = Color(0xFFEFEAF4),
+    surfaceContainerHigh = Color(0xFFE9E4EE),
+    surfaceContainerHighest = Color(0xFFE3DEE8),
+    outlineVariant = Color(0xFFCDC6D2),
 )
 
 private val OrangeDarkColorScheme = darkColorScheme(

@@ -136,8 +136,14 @@ data class LibraryDocumentArchiveScanCandidate(
     val displayName: String,
 )
 
+data class LibraryDocumentFolderScanCandidate(
+    val uri: String,
+    val displayName: String,
+)
+
 data class LibraryDocumentArchiveScanResult(
     val candidates: List<LibraryDocumentArchiveScanCandidate>,
+    val folderCandidates: List<LibraryDocumentFolderScanCandidate>,
     val scannedDirectoryCount: Int,
     val directoryLimitReached: Boolean,
     val candidateLimitReached: Boolean,
@@ -179,6 +185,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
     val pendingDirectories = ArrayDeque<Pair<ArchiveDocumentNode, Boolean>>()
     val visitedDirectoryUris = mutableSetOf<String>()
     val candidates = mutableListOf<LibraryDocumentArchiveScanCandidate>()
+    val folderCandidates = mutableListOf<LibraryDocumentFolderScanCandidate>()
     var scannedDirectoryCount = 0
     var directoryLimitReached = false
     var candidateLimitReached = false
@@ -206,6 +213,22 @@ internal suspend fun scanLibraryDocumentArchiveTree(
             .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
         if (!shouldContinue()) throw CancellationException()
 
+        if (children.any { child ->
+                child.isFile &&
+                    !isHiddenComicPath(child.name) &&
+                    isSupportedImageName(child.name)
+            }
+        ) {
+            folderCandidates += LibraryDocumentFolderScanCandidate(
+                uri = directory.uri,
+                displayName = directory.name,
+            )
+            if (candidates.size + folderCandidates.size >= maxCandidates.coerceAtLeast(1)) {
+                candidateLimitReached = true
+                break@scanLoop
+            }
+        }
+
         for (child in children) {
             if (!shouldContinue()) throw CancellationException()
             when {
@@ -220,7 +243,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
                         uri = child.uri,
                         displayName = child.name,
                     )
-                    if (candidates.size >= maxCandidates.coerceAtLeast(1)) {
+                    if (candidates.size + folderCandidates.size >= maxCandidates.coerceAtLeast(1)) {
                         candidateLimitReached = true
                         break@scanLoop
                     }
@@ -231,6 +254,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
 
     return LibraryDocumentArchiveScanResult(
         candidates = candidates.distinctBy(LibraryDocumentArchiveScanCandidate::uri),
+        folderCandidates = folderCandidates.distinctBy(LibraryDocumentFolderScanCandidate::uri),
         scannedDirectoryCount = scannedDirectoryCount,
         directoryLimitReached = directoryLimitReached,
         candidateLimitReached = candidateLimitReached,
@@ -283,6 +307,33 @@ fun newLibraryComicsForDocumentArchiveScan(
         .take(availableSlots)
         .mapIndexed { index, candidate ->
             libraryComicForDocumentArchive(
+                uri = candidate.uri,
+                displayName = candidate.displayName,
+                addedAt = addedAt + index,
+            )
+        }
+        .toList()
+}
+
+fun newLibraryComicsForDocumentFolderScan(
+    libraryComics: List<LibraryComic>,
+    candidates: List<LibraryDocumentFolderScanCandidate>,
+    addedAt: Long,
+    maxItems: Int = MAX_LIBRARY_COMICS,
+): List<LibraryComic> {
+    val existingFolderUris = libraryComics
+        .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentFolder }
+        .mapTo(mutableSetOf()) { comic -> comic.path }
+    val seenCandidateUris = mutableSetOf<String>()
+    val availableSlots = (maxItems - libraryComics.size).coerceAtLeast(0)
+
+    return candidates
+        .asSequence()
+        .filter { candidate -> seenCandidateUris.add(candidate.uri) }
+        .filterNot { candidate -> candidate.uri in existingFolderUris }
+        .take(availableSlots)
+        .mapIndexed { index, candidate ->
+            libraryComicForDocumentFolder(
                 uri = candidate.uri,
                 displayName = candidate.displayName,
                 addedAt = addedAt + index,

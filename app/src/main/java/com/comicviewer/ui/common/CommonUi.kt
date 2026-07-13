@@ -15,6 +15,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -36,7 +37,7 @@ fun rememberThrottledAction(
     throttleMs: Long = TAP_THROTTLE_MS,
     action: () -> Unit,
 ): () -> Unit {
-    var lastClickAt by remember { mutableStateOf(0L) }
+    var lastClickAt by remember { mutableLongStateOf(0L) }
     return remember(throttleMs, action) {
         {
             val now = System.currentTimeMillis()
@@ -53,7 +54,7 @@ fun rememberThrottledPageAction(
     throttleMs: Long = TAP_THROTTLE_MS,
     action: (Int) -> Unit,
 ): (Int) -> Unit {
-    var lastClickAt by remember { mutableStateOf(0L) }
+    var lastClickAt by remember { mutableLongStateOf(0L) }
     return remember(throttleMs, action) {
         { value ->
             val now = System.currentTimeMillis()

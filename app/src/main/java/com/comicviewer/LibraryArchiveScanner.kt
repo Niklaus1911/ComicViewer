@@ -152,12 +152,14 @@ data class LibraryDocumentArchiveScanResult(
 suspend fun scanLibraryDocumentArchives(
     context: Context,
     rootUri: Uri,
+    includeImageFolders: Boolean,
 ): LibraryDocumentArchiveScanResult = withContext(Dispatchers.IO) {
     val rootDocument = DocumentFile.fromTreeUri(context, rootUri)
         ?: throw IllegalArgumentException("Storage folder is not readable")
     val documentsByUri = mutableMapOf(rootDocument.uri.toString() to rootDocument)
     scanLibraryDocumentArchiveTree(
         root = rootDocument.toArchiveDocumentNode(),
+        includeImageFolders = includeImageFolders,
         listChildren = { node ->
             documentsByUri[node.uri]
                 ?.safeListFiles()
@@ -179,6 +181,7 @@ suspend fun scanLibraryDocumentArchives(
 
 internal suspend fun scanLibraryDocumentArchiveTree(
     root: ArchiveDocumentNode,
+    includeImageFolders: Boolean,
     listChildren: suspend (ArchiveDocumentNode) -> List<ArchiveDocumentNode>,
     archiveContainsSupportedImage: suspend (ArchiveDocumentNode) -> Boolean,
     imageIsSupported: suspend (ArchiveDocumentNode) -> Boolean = { true },
@@ -217,33 +220,35 @@ internal suspend fun scanLibraryDocumentArchiveTree(
             .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
         if (!shouldContinue()) throw CancellationException()
 
-        var containsSupportedDirectImage = false
-        for (child in children) {
-            if (!shouldContinue()) throw CancellationException()
-            if (
-                child.isFile &&
-                !isHiddenComicPath(child.name) &&
-                isSupportedImageName(child.name)
-            ) {
-                containsSupportedDirectImage = try {
-                    imageIsSupported(child)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Exception) {
-                    false
+        if (includeImageFolders) {
+            var containsSupportedDirectImage = false
+            for (child in children) {
+                if (!shouldContinue()) throw CancellationException()
+                if (
+                    child.isFile &&
+                    !isHiddenComicPath(child.name) &&
+                    isSupportedImageName(child.name)
+                ) {
+                    containsSupportedDirectImage = try {
+                        imageIsSupported(child)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        false
+                    }
+                    if (containsSupportedDirectImage) break
                 }
-                if (containsSupportedDirectImage) break
             }
-        }
 
-        if (containsSupportedDirectImage) {
-            folderCandidates += LibraryDocumentFolderScanCandidate(
-                uri = directory.uri,
-                displayName = directory.name,
-            )
-            if (candidates.size + folderCandidates.size >= maxCandidates.coerceAtLeast(1)) {
-                candidateLimitReached = true
-                break@scanLoop
+            if (containsSupportedDirectImage) {
+                folderCandidates += LibraryDocumentFolderScanCandidate(
+                    uri = directory.uri,
+                    displayName = directory.name,
+                )
+                if (candidates.size + folderCandidates.size >= maxCandidates.coerceAtLeast(1)) {
+                    candidateLimitReached = true
+                    break@scanLoop
+                }
             }
         }
 
@@ -261,7 +266,9 @@ internal suspend fun scanLibraryDocumentArchiveTree(
                         uri = child.uri,
                         displayName = child.name,
                     )
-                    if (candidates.size + folderCandidates.size >= maxCandidates.coerceAtLeast(1)) {
+                    val collectedCandidateCount = candidates.size +
+                        if (includeImageFolders) folderCandidates.size else 0
+                    if (collectedCandidateCount >= maxCandidates.coerceAtLeast(1)) {
                         candidateLimitReached = true
                         break@scanLoop
                     }

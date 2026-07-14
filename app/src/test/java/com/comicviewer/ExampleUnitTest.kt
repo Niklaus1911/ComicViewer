@@ -25,6 +25,7 @@ import com.comicviewer.ui.reader.readerLogicalDirectionForPhysicalDirection
 import com.comicviewer.ui.reader.readerNavigationDirectionForTap
 import com.comicviewer.ui.reader.readerHorizontalSwipeEnabled
 import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
+import com.comicviewer.ui.reader.readerPageGridInitialItemIndex
 import com.comicviewer.ui.reader.readerReportedPageIndex
 import com.comicviewer.ui.reader.readerResolvedPageDimension
 import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
@@ -941,6 +942,7 @@ class ExampleUnitTest {
 
         val result = scanLibraryDocumentArchiveTree(
             root = root,
+            includeImageFolders = false,
             listChildren = { node -> children[node.uri].orEmpty() },
             archiveContainsSupportedImage = { node -> node.uri != skippedArchive.uri },
         )
@@ -960,12 +962,14 @@ class ExampleUnitTest {
 
         val directoryLimited = scanLibraryDocumentArchiveTree(
             root = root,
+            includeImageFolders = false,
             listChildren = { node -> if (node.uri == root.uri) listOf(folder) else emptyList() },
             archiveContainsSupportedImage = { true },
             maxDirectories = 1,
         )
         val candidateLimited = scanLibraryDocumentArchiveTree(
             root = root,
+            includeImageFolders = false,
             listChildren = { node -> if (node.uri == root.uri) listOf(one, two) else emptyList() },
             archiveContainsSupportedImage = { true },
             maxCandidates = 1,
@@ -984,6 +988,7 @@ class ExampleUnitTest {
             runBlocking {
                 scanLibraryDocumentArchiveTree(
                     root = root,
+                    includeImageFolders = false,
                     listChildren = { throw CancellationException() },
                     archiveContainsSupportedImage = { true },
                 )
@@ -2485,6 +2490,52 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun readerPageGridInitialItemIndex_resolvesCurrentPageAndSafeFallbacks() {
+        assertEquals(
+            2,
+            readerPageGridInitialItemIndex(
+                pageIndices = listOf(0, 1, 2, 3),
+                currentPageIndex = 2,
+            ),
+        )
+        assertEquals(
+            1,
+            readerPageGridInitialItemIndex(
+                pageIndices = listOf(10, 30, 50),
+                currentPageIndex = 30,
+            ),
+        )
+        assertEquals(
+            1,
+            readerPageGridInitialItemIndex(
+                pageIndices = listOf(10, 30, 50),
+                currentPageIndex = 1,
+            ),
+        )
+        assertEquals(
+            0,
+            readerPageGridInitialItemIndex(
+                pageIndices = listOf(10, 30, 50),
+                currentPageIndex = -1,
+            ),
+        )
+        assertEquals(
+            2,
+            readerPageGridInitialItemIndex(
+                pageIndices = listOf(10, 30, 50),
+                currentPageIndex = 99,
+            ),
+        )
+        assertEquals(
+            0,
+            readerPageGridInitialItemIndex(
+                pageIndices = emptyList(),
+                currentPageIndex = 99,
+            ),
+        )
+    }
+
+    @Test
     fun readerReportedPageIndex_reportsLastVisiblePageForSpreads() {
         assertEquals(
             0,
@@ -2635,6 +2686,7 @@ class ExampleUnitTest {
 
         val result = scanLibraryDocumentArchiveTree(
             root = root,
+            includeImageFolders = true,
             listChildren = { node -> children[node.uri].orEmpty() },
             archiveContainsSupportedImage = { true },
         )
@@ -2655,12 +2707,86 @@ class ExampleUnitTest {
 
         val result = scanLibraryDocumentArchiveTree(
             root = root,
+            includeImageFolders = true,
             listChildren = { node -> children[node.uri].orEmpty() },
             archiveContainsSupportedImage = { false },
             imageIsSupported = { false },
         )
 
         assertTrue(result.folderCandidates.isEmpty())
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_archiveOnlySkipsImageValidationAndPreservesArchiveBudget() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val folder = archiveDocumentNode("folder", "Batman", isDirectory = true)
+        val image = archiveDocumentNode("image", "001.jpg", isFile = true)
+        val archive = archiveDocumentNode("archive", "Annual.cbz", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(folder),
+            folder.uri to listOf(image, archive),
+        )
+        var imageValidationCount = 0
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            includeImageFolders = false,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { true },
+            imageIsSupported = {
+                imageValidationCount += 1
+                true
+            },
+            maxCandidates = 1,
+        )
+
+        assertEquals(0, imageValidationCount)
+        assertEquals(listOf("archive"), result.candidates.map { it.uri })
+        assertTrue(result.folderCandidates.isEmpty())
+        assertTrue(result.candidateLimitReached)
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_combinedModeSharesCandidateLimit() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val folder = archiveDocumentNode("folder", "Batman", isDirectory = true)
+        val image = archiveDocumentNode("image", "001.jpg", isFile = true)
+        val archive = archiveDocumentNode("archive", "Annual.cbz", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(folder),
+            folder.uri to listOf(image, archive),
+        )
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            includeImageFolders = true,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { true },
+            imageIsSupported = { true },
+            maxCandidates = 1,
+        )
+
+        assertTrue(result.candidates.isEmpty())
+        assertEquals(listOf("folder"), result.folderCandidates.map { it.uri })
+        assertTrue(result.candidateLimitReached)
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_combinedModePreservesImageValidationCancellation() {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val image = archiveDocumentNode("image", "001.jpg", isFile = true)
+
+        assertThrows(CancellationException::class.java) {
+            runBlocking {
+                scanLibraryDocumentArchiveTree(
+                    root = root,
+                    includeImageFolders = true,
+                    listChildren = { listOf(image) },
+                    archiveContainsSupportedImage = { true },
+                    imageIsSupported = { throw CancellationException() },
+                )
+            }
+        }
     }
 
     @Test

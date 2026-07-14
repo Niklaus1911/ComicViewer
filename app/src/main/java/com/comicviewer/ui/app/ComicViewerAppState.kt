@@ -637,7 +637,11 @@ class ComicViewerAppState(
 
     private suspend fun performLibraryAutoScan(rootUri: Uri?): LibraryScanSummary = when {
         rootUri != null -> {
-            val scanResult = scanLibraryDocumentArchives(appContext, rootUri)
+            val scanResult = scanLibraryDocumentArchives(
+                context = appContext,
+                rootUri = rootUri,
+                includeImageFolders = true,
+            )
             val existingArchiveUris = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
                 .mapTo(mutableSetOf()) { comic -> comic.path }
@@ -703,7 +707,11 @@ class ComicViewerAppState(
 
         storageAccess is GrantedStorageAccess.DocumentTree -> {
             val access = storageAccess
-            val scanResult = scanLibraryDocumentArchives(appContext, access.uri)
+            val scanResult = scanLibraryDocumentArchives(
+                context = appContext,
+                rootUri = access.uri,
+                includeImageFolders = false,
+            )
             val existingUris = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
                 .mapTo(mutableSetOf()) { comic -> comic.path }

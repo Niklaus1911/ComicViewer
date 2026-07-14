@@ -172,6 +172,19 @@ internal enum class ReaderSwipeDirection {
     Next,
 }
 
+internal fun readerPageGridInitialItemIndex(
+    pageIndices: List<Int>,
+    currentPageIndex: Int,
+): Int {
+    if (pageIndices.isEmpty()) return 0
+    val matchingItemIndex = pageIndices.indexOf(currentPageIndex)
+    return if (matchingItemIndex >= 0) {
+        matchingItemIndex
+    } else {
+        currentPageIndex.coerceIn(0, pageIndices.lastIndex)
+    }
+}
+
 internal fun readerSpreadStartIndex(pageIndex: Int, pageCount: Int): Int {
     val clamped = coercePageIndex(pageIndex, pageCount)
     if (clamped == 0 || pageCount <= 1) return 0
@@ -1991,8 +2004,18 @@ private fun ReaderPageGrid(
     onPageSelected: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val compactGridState = rememberLazyGridState()
-    val fullScreenGridState = rememberLazyGridState()
+    val initialGridItemIndex = remember(book.pages, currentPageIndex) {
+        readerPageGridInitialItemIndex(
+            pageIndices = book.pages.map(ComicPage::index),
+            currentPageIndex = currentPageIndex,
+        )
+    }
+    val compactGridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = initialGridItemIndex,
+    )
+    val fullScreenGridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = initialGridItemIndex,
+    )
     val modalSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val fullScreenVisibility = remember(book) { MutableTransitionState(false) }
     var fullScreenDialogComposed by remember(book) { mutableStateOf(false) }

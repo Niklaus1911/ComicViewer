@@ -53,6 +53,8 @@
     <string name="comic_read_progress">Avanzamento lettura</string>
     <string name="comic_metadata_unavailable">Nessun metadato incorporato disponibile.</string>
     <string name="reader_page_grid">Miniature pagine</string>
+    <string name="reader_page_grid_expand">Mostra le miniature a schermo intero</string>
+    <string name="reader_page_grid_collapse">Riporta le miniature nel pannello</string>
     <string name="reader_previous_page">Pagina precedente</string>
     <string name="reader_next_page">Pagina successiva</string>
     <string name="reader_toggle_controls">Mostra o nascondi i controlli</string>

@@ -14,6 +14,10 @@ app in Play Console (Users and permissions). Keep the key outside the repo.
   # Staged production rollout to 20% of users:
   scripts/play_publish.py --key ~/keys/play.json --track production --rollout 0.2 \
       --notes it-IT=notes/it.txt --notes en-US=notes/en.txt
+
+  # Put an already uploaded build on another track without re-uploading:
+  scripts/play_publish.py --key ~/keys/play.json --track internal --version-code 18 \
+      --notes it-IT=notes/it.txt --notes en-US=notes/en.txt
 """
 
 import argparse
@@ -170,25 +174,29 @@ def build_release(args: argparse.Namespace, version_code: int, notes: list[dict]
 def publish(client: PlayClient, args: argparse.Namespace) -> None:
     if not 0 < args.rollout <= 1:
         raise PlayError("--rollout must be greater than 0 and at most 1")
-    if not args.bundle.is_file():
+    if args.version_code is None and not args.bundle.is_file():
         raise PlayError(f"Bundle not found: {args.bundle}. Run ./gradlew bundleRelease first.")
     notes = parse_notes(args.notes)
 
     edit_id = client.insert_edit()
     committed = False
     try:
-        print(f"Uploading {args.bundle} ...")
-        version_code = client.upload(f"{client.upload_base}/edits/{edit_id}/bundles", args.bundle)["versionCode"]
-        print(f"Uploaded bundle with version code {version_code}")
+        if args.version_code is not None:
+            version_code = args.version_code
+            print(f"Using already uploaded version code {version_code}")
+        else:
+            print(f"Uploading {args.bundle} ...")
+            version_code = client.upload(f"{client.upload_base}/edits/{edit_id}/bundles", args.bundle)["versionCode"]
+            print(f"Uploaded bundle with version code {version_code}")
 
-        if args.mapping and args.mapping.is_file():
-            client.upload(
-                f"{client.upload_base}/edits/{edit_id}/apks/{version_code}/deobfuscationFiles/proguard",
-                args.mapping,
-            )
-            print(f"Uploaded R8 mapping {args.mapping}")
-        elif args.mapping:
-            print(f"No mapping file at {args.mapping}; skipping deobfuscation upload")
+            if args.mapping and args.mapping.is_file():
+                client.upload(
+                    f"{client.upload_base}/edits/{edit_id}/apks/{version_code}/deobfuscationFiles/proguard",
+                    args.mapping,
+                )
+                print(f"Uploaded R8 mapping {args.mapping}")
+            elif args.mapping:
+                print(f"No mapping file at {args.mapping}; skipping deobfuscation upload")
 
         release = build_release(args, version_code, notes)
         client.call(
@@ -223,6 +231,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--check", action="store_true", help="verify access and list tracks, then exit")
     parser.add_argument("--track", help="internal, alpha, beta, production or a custom track")
     parser.add_argument("--bundle", type=Path, default=DEFAULT_BUNDLE)
+    parser.add_argument(
+        "--version-code",
+        type=int,
+        help="assign an already uploaded version code to the track instead of uploading the bundle",
+    )
     parser.add_argument("--mapping", type=Path, default=DEFAULT_MAPPING, help="R8 mapping.txt to attach")
     parser.add_argument("--no-mapping", dest="mapping", action="store_const", const=None)
     parser.add_argument("--rollout", type=float, default=1.0, help="user fraction, e.g. 0.2 for 20%%")

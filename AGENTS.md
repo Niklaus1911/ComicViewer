@@ -2,29 +2,55 @@
 
 ## Project Structure & Module Organization
 
-This is a single-module Android project. The app module lives in `app/`, with Kotlin source under `app/src/main/java/com/comicviewer/`. Core comic loading and browsing logic is split across files such as `ComicLoader.kt`, `FileBrowser.kt`, `RecentComics.kt`, and `LibraryComics.kt`; most Compose UI currently lives in `MainActivity.kt`. Unit tests are in `app/src/test/java/com/comicviewer/`, and instrumented tests are in `app/src/androidTest/java/com/comicviewer/`. Android resources, themes, strings, icons, and XML backup rules are in `app/src/main/res/`.
+This is a single-module Android app in `app/` (namespace and Play application ID `com.comicviewer`). Kotlin sources live under `app/src/main/java/com/comicviewer/`:
+
+- Root package: domain, storage, and archive code such as `ComicLoader.kt`, `LibraryArchiveScanner.kt`, `StorageAccess.kt`, `DocumentAccess.kt`, `AppPreferences.kt`, and `AppBackup.kt`.
+- Archives are read in place, never extracted: `ZipArchiveReader.kt` does random-access ZIP/ZIP64 reads, `ComicArchiveAccess.kt` opens files and picked documents (copying only when a provider cannot seek), and reader pages are `comic-archive:` URIs that `ComicArchivePageFetcher` streams through Coil (registered in `ComicViewerApplication`).
+- `billing/`: the Pro in-app purchase flow (`ProBillingRepository`, `ProPurchaseAcknowledgeWorker`).
+- `ui/`: Compose UI by feature: `app` (root scaffold, tabs, app state), `library`, `reader`, `browser`, `importer`, `search`, `history`, `settings`, `welcome`, plus shared `common` components and `theme`. `MainActivity.kt` is the entry point.
+
+Unit tests are in `app/src/test/` (currently all in `ExampleUnitTest.kt`), instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play. `new-gui-images/` contains visual references; `play-store-dashboard-assets/` contains upload-ready store artwork and screenshots.
+
+## Toolchain
+
+Gradle 9.6 wrapper, AGP 9.3 with built-in Kotlin (only the `kotlin.compose` plugin is applied; do not add `org.jetbrains.kotlin.android`), compileSdk 36.1, targetSdk 36, minSdk 24. Declare dependency and plugin versions in `gradle/libs.versions.toml`, not inline. Version code and name are the `appVersionCode` / `appVersionName` values at the top of `app/build.gradle.kts`.
 
 ## Build, Test, and Development Commands
 
-- `./gradlew assembleDebug` builds a debug APK and validates Kotlin/Android compilation.
-- `./gradlew testDebugUnitTest` runs local JVM unit tests.
-- `./gradlew connectedDebugAndroidTest` runs instrumented tests on a connected emulator/device.
-- `./gradlew clean` removes generated build outputs when Gradle state appears stale.
+- `./gradlew assembleDebug` builds the debug APK and validates Kotlin/Android compilation.
+- `./gradlew testDebugUnitTest` runs local JUnit tests.
+- `./gradlew connectedDebugAndroidTest` runs tests on a connected emulator or device.
+- `./gradlew bundleRelease` generates the signed release AAB in `app/build/outputs/bundle/release/` and the R8 mapping in `app/build/outputs/mapping/release/`; signing requires a valid local `keystore.properties` (see `keystore.properties.example`).
+- `./gradlew clean` removes generated outputs when Gradle state is stale.
 
-Use Android Studio for emulator launch, manual UI checks, and APK installation during development.
+Use Android Studio for emulator launch and manual UI checks. GitHub Actions runs `testDebugUnitTest` and `assembleDebug` on every push and pull request; pushing a `v*` tag also attaches a debug APK to a GitHub release (it does not publish to Google Play).
 
 ## Coding Style & Naming Conventions
 
-Use Kotlin with 4-space indentation and idiomatic Compose patterns. Keep functions small where practical, prefer immutable `val`, and avoid unrelated refactors. Name composables with PascalCase nouns, for example `LibraryScreen` or `ReaderTopBar`. Name helpers with clear verbs or domain phrases, for example `loadLocalArchiveComic` or `compareComicPageNames`. Keep user-facing Italian strings consistent with existing UI text unless a feature intentionally changes language style.
+Use Kotlin with 4-space indentation and idiomatic Compose patterns. Prefer immutable `val`, small focused functions, and feature-local UI files. Name composables with PascalCase nouns (`LibraryScreen`, `ReaderTopBar`) and helpers with clear verbs or domain phrases (`loadLocalArchiveComic`). Put user-facing text in `res/values/strings.xml` and keep `values-it/` translations aligned. Avoid unrelated refactors.
+
+## UI & Store Asset Fidelity
+
+Before and during GUI work, inspect the relevant files in `new-gui-images/` and compare emulator captures against them. Preserve navigation, storage, reader, billing, and import behavior unless a feature change is explicitly requested. Do not edit the reference images. Keep Play Store screenshots, icon, and feature graphic within the dimensions documented in `play-store-dashboard-assets/README.md`; use only original or licensed demo artwork.
 
 ## Testing Guidelines
 
-Unit tests use JUnit 4 in `ExampleUnitTest.kt`. Add tests for pure helpers, persistence encoding/decoding, sorting, cache keys, and boundary behavior. Prefer descriptive test names using the existing pattern: `functionName_expectedBehavior`, such as `upsertLibraryComic_dedupesAndKeepsRecentlyAddedFirst`. Run `./gradlew testDebugUnitTest assembleDebug` before handing off substantive changes.
+Unit tests use JUnit 4. Add tests for pure helpers, persistence encoding/decoding, sorting, cache keys, and boundary behavior. Use descriptive `functionName_expectedBehavior` names such as `upsertLibraryComic_dedupesAndKeepsRecentlyAddedFirst`. Run `./gradlew testDebugUnitTest assembleDebug` before handoff, plus device tests when Compose interaction or storage access changes. Release builds are minified with R8 and resource shrinking, so also run `./gradlew bundleRelease` after adding libraries, reflection, or serialization, and add keep rules to `app/proguard-rules.pro` when needed.
+
+## Releasing to Google Play
+
+1. Bump `appVersionCode` and `appVersionName` in `app/build.gradle.kts`. The version code must be higher than every code already uploaded to any track (internal, alpha, beta, production); Play never accepts a reused code. `scripts/play_publish.py --key <key.json> --check` lists what is on each track without changing anything.
+2. Run `./gradlew testDebugUnitTest bundleRelease`.
+3. Validate first: `scripts/play_publish.py --key <key.json> --track production --notes en-US=<file> --notes it-IT=<file> --dry-run`. It uploads the AAB and R8 mapping, has Play validate the edit, then discards it.
+4. Rerun without `--dry-run` to publish. Use `--rollout 0.2` for a staged rollout or `--draft` for a draft release. To put an already uploaded build on another track (for example `internal`), pass `--version-code <code>` instead of uploading it again. Release notes are limited to 500 characters per language; `en-US` is the default listing language and the fallback for other listing languages.
+5. Commit the version bump.
+
+Publishing reaches real users: run the script without `--dry-run` only when the user has explicitly asked for that release, track, and rollout.
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use short imperative summaries, such as `Add reader page scrubber` and `Harden comic archive handling`. Keep commit subjects concise and focused on the user-visible or architectural change. Pull requests should include a brief summary, validation commands run, screenshots or screen recordings for UI changes, and notes about storage, permissions, or cache behavior when relevant.
+Use short imperative commit subjects, matching history such as `Overhaul comic viewer interface` and `Fix GUI overhaul regressions`. Pull requests should include a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
 
 ## Security & Configuration Tips
 
-The app reads local comic archives and folders, so preserve bounded archive extraction and cache cleanup behavior. Do not weaken file validation, hidden-path filtering, or copy-size checks without adding tests. Avoid committing generated build outputs, local IDE state, or device-specific paths.
+Preserve SAF access controls, archive bounds (entry count, per-page size, inflated output capped at the declared entry size), image header validation, hidden-path filtering, free-space checks for fallback copies, and cache cleanup behavior. Never commit `keystore.properties`, signing keys, generated build outputs, IDE state, or device-specific paths. The Google Play service account JSON key stays outside the repository (`.gitignore` does not exclude `.json` files); pass its path to the publish script, and never copy it into the project or print its contents.

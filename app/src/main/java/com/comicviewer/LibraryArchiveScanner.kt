@@ -7,7 +7,6 @@ import androidx.documentfile.provider.DocumentFile
 import java.io.File
 import java.io.FilterInputStream
 import java.io.InputStream
-import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -372,23 +371,9 @@ internal fun archiveContainsSupportedImage(
     maxEntries: Int = MAX_ARCHIVE_SCAN_ENTRY_COUNT,
 ): Boolean =
     runCatching {
-        var scannedEntries = 0
-        ZipFile(archiveFile).use { zipFile ->
-            val entries = zipFile.entries()
-            while (entries.hasMoreElements()) {
-                val entry = entries.nextElement()
-                val entryName = entry.name.replace('\\', '/')
-                scannedEntries += 1
-                if (scannedEntries > maxEntries) return@runCatching false
-                if (entry.isDirectory || isHiddenComicPath(entryName)) continue
-
-                val format = zipFile.getInputStream(entry).use { input ->
-                    detectImageFormat(readImageHeader(input))
-                }
-                if (format != null) return@runCatching true
-            }
+        openLocalComicArchive(archiveFile).use { archive ->
+            archive.reader.containsComicImage(maxVisitedEntries = maxEntries)
         }
-        false
     }.getOrDefault(false)
 
 private fun documentArchiveContainsSupportedImage(
@@ -396,6 +381,10 @@ private fun documentArchiveContainsSupportedImage(
     uri: String,
     maxEntries: Int = MAX_ARCHIVE_SCAN_ENTRY_COUNT,
 ): Boolean = runCatching {
+    openSeekableDocumentComicArchive(context, uri.toUri())?.use { archive ->
+        return@runCatching archive.reader.containsComicImage(maxVisitedEntries = maxEntries)
+    }
+    // Stream-only providers: read from the start, within the source limit.
     val source = context.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching false
     ZipInputStream(
         ScanLimitedInputStream(

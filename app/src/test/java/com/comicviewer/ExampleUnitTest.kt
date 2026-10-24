@@ -16,7 +16,9 @@ import com.comicviewer.ui.library.currentRecentComicForDetails
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
+import java.util.zip.CRC32
 import java.util.zip.ZipEntry
+import java.util.zip.ZipException
 import java.util.zip.ZipOutputStream
 import com.comicviewer.ui.reader.ReaderSwipeDirection
 import com.comicviewer.ui.reader.readerEffectivePageScale
@@ -192,15 +194,156 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun archiveExtractionFailureFor_preservesCancellationException() {
-        val cancellationException = CancellationException("Cancelled")
+    fun zipArchiveReader_readsStoredAndDeflatedEntriesInPlace() {
+        val archive = File(temporaryFolder.root, "Mixed.cbz")
+        val storedPage = sampleJpegHeader() + ByteArray(4_096) { (it % 251).toByte() }
+        val deflatedPage = samplePngHeader() + ByteArray(64 * 1024) { (it % 7).toByte() }
+        writeZipArchive(
+            archive,
+            linkedMapOf("pages/001.jpg" to storedPage, "pages/002.png" to deflatedPage),
+            storedNames = setOf("pages/001.jpg"),
+        )
 
-        assertSame(cancellationException, archiveExtractionFailureFor(cancellationException))
+        openLocalComicArchive(archive).use { opened ->
+            val reader = opened.reader
+            assertEquals(listOf("pages/001.jpg", "pages/002.png"), reader.entries.map { it.name })
+            assertArrayEquals(storedPage, reader.openEntry(reader.entries[0]).use { it.readBytes() })
+            assertArrayEquals(deflatedPage, reader.openEntry(reader.entries[1]).use { it.readBytes() })
+            assertTrue(reader.entries[1].compressedSize < reader.entries[1].size)
+        }
     }
 
     @Test
-    fun archiveExtractionFailureFor_mapsStorageFailuresToReadableMessage() {
-        val exception = archiveExtractionFailureFor(IOException("Disk full"))
+    fun zipArchiveReader_handlesPrependedDataAndArchiveComments() {
+        val plain = File(temporaryFolder.root, "Plain.cbz")
+        writeZipArchive(plain, linkedMapOf("001.jpg" to sampleJpegHeader()), comment = "Scanned by someone")
+        val prefixed = File(temporaryFolder.root, "Prefixed.cbz")
+        prefixed.writeBytes(ByteArray(1_000) { 0x42 } + plain.readBytes())
+
+        listOf(plain, prefixed).forEach { archive ->
+            openLocalComicArchive(archive).use { opened ->
+                val entry = opened.reader.entries.single()
+                assertArrayEquals(sampleJpegHeader(), opened.reader.openEntry(entry).use { it.readBytes() })
+            }
+        }
+    }
+
+    @Test
+    fun zipArchiveReader_readsZip64ArchivesWithManyEntries() {
+        val archive = File(temporaryFolder.root, "Omnibus.cbz")
+        val entryCount = 70_000
+        ZipOutputStream(archive.outputStream().buffered()).use { output ->
+            repeat(entryCount) { index ->
+                output.putNextEntry(ZipEntry("p/$index"))
+                if (index == entryCount - 1) output.write(sampleJpegHeader())
+                output.closeEntry()
+            }
+        }
+
+        openLocalComicArchive(archive).use { opened ->
+            assertEquals(entryCount, opened.reader.entries.size)
+            val last = opened.reader.entries.last()
+            assertEquals("p/${entryCount - 1}", last.name)
+            assertArrayEquals(sampleJpegHeader(), opened.reader.openEntry(last).use { it.readBytes() })
+        }
+    }
+
+    @Test
+    fun zipArchiveReader_enforcesEntryLimitAndRejectsCorruptArchives() {
+        val archive = File(temporaryFolder.root, "Limited.cbz")
+        writeZipArchive(archive, linkedMapOf("001.jpg" to sampleJpegHeader(), "002.jpg" to sampleJpegHeader()))
+        val limitFailure = assertThrows(ZipEntryLimitExceededException::class.java) {
+            openLocalComicArchive(archive, maxEntries = 1)
+        }
+        assertEquals(1, limitFailure.limit)
+        assertEquals(
+            ComicLoadError.ArchiveTooLarge,
+            (archiveReadFailureFor(limitFailure) as ComicLoadException).error,
+        )
+
+        val notZip = File(temporaryFolder.root, "Not a zip.cbz").apply { writeBytes(ByteArray(4_096) { 7 }) }
+        assertThrows(ZipException::class.java) { openLocalComicArchive(notZip) }
+        val truncated = File(temporaryFolder.root, "Truncated.cbz").apply {
+            writeBytes(archive.readBytes().copyOf(archive.length().toInt() - 10))
+        }
+        assertThrows(ZipException::class.java) { openLocalComicArchive(truncated) }
+    }
+
+    @Test
+    fun scanComicPages_listsValidImagesNaturallyWithoutExtracting() {
+        val archive = File(temporaryFolder.root, "Scan.cbz")
+        writeZipArchive(
+            archive,
+            linkedMapOf(
+                "Chapter 10/page 1.jpg" to sampleJpegHeader(),
+                "Chapter 2/page 1.png" to samplePngHeader(),
+                "Chapter 2/notes.txt" to "not an image".encodeToByteArray(),
+                "ComicInfo.xml" to "<ComicInfo/>".encodeToByteArray(),
+                "__MACOSX/Chapter 2/._page 1.png" to samplePngHeader(),
+                "Chapter 2/" to ByteArray(0),
+                "Chapter 2/no extension" to sampleJpegHeader(),
+            ),
+        )
+
+        val scan = openLocalComicArchive(archive).use { opened -> opened.reader.scanComicPages() }
+
+        assertEquals(
+            listOf("Chapter 2/no extension", "Chapter 2/page 1.png", "Chapter 10/page 1.jpg"),
+            scan.pages.map { it.name },
+        )
+        assertEquals("ComicInfo.xml", scan.comicInfoEntry?.name)
+        assertEquals(listOf("notes.txt"), scan.rejectedExamples)
+        assertEquals(5, scan.scannedEntries)
+    }
+
+    @Test
+    fun scanComicPages_rejectsOversizedPagesAndReportsEmptyArchives() {
+        val archive = File(temporaryFolder.root, "Oversized.cbz")
+        writeZipArchive(archive, linkedMapOf("001.jpg" to sampleJpegHeader() + ByteArray(100)))
+        val oversized = assertThrows(ComicLoadException::class.java) {
+            openLocalComicArchive(archive).use { opened -> opened.reader.scanComicPages(maxPageBytes = 10L) }
+        }
+        assertEquals(ComicLoadError.ArchivePageTooLarge, oversized.error)
+
+        val empty = File(temporaryFolder.root, "Empty.cbz")
+        writeZipArchive(empty, linkedMapOf("readme.txt" to "hello".encodeToByteArray()))
+        val scan = openLocalComicArchive(empty).use { opened -> opened.reader.scanComicPages() }
+        assertTrue(scan.pages.isEmpty())
+        assertEquals(ComicLoadError.NoValidImagesFoundWithExamples, scan.emptyException().error)
+    }
+
+    @Test
+    fun firstComicPageEntry_picksFirstValidImageInReadingOrder() {
+        val archive = File(temporaryFolder.root, "Cover.cbz")
+        writeZipArchive(
+            archive,
+            linkedMapOf(
+                "010.jpg" to sampleJpegHeader(),
+                "001.jpg" to "corrupt".encodeToByteArray(),
+                "002.jpg" to sampleJpegHeader() + ByteArray(1_000),
+                "003.jpg" to sampleJpegHeader(),
+            ),
+        )
+
+        openLocalComicArchive(archive).use { opened ->
+            assertEquals("002.jpg", opened.reader.firstComicPageEntry(maxPageBytes = 2_000L)?.name)
+            assertEquals("003.jpg", opened.reader.firstComicPageEntry(maxPageBytes = 100L)?.name)
+            assertThrows(CancellationException::class.java) {
+                opened.reader.firstComicPageEntry(maxPageBytes = 100L, shouldContinue = { false })
+            }
+        }
+    }
+
+    @Test
+    fun archiveReadFailureFor_preservesCancellationException() {
+        val cancellationException = CancellationException("Cancelled")
+
+        assertSame(cancellationException, archiveReadFailureFor(cancellationException))
+    }
+
+    @Test
+    fun archiveReadFailureFor_mapsStorageFailuresToReadableMessage() {
+        val exception = archiveReadFailureFor(IOException("Disk full"))
 
         assertTrue(exception is ComicLoadException)
         assertEquals(ComicLoadError.ArchiveExtractionFailed.defaultMessage(), exception.message)
@@ -672,14 +815,14 @@ class ExampleUnitTest {
         val decoded = decodeRecentComics(
             """
             [
-              {"sourceType":"local_archive","path":"/one.cbz","displayName":"one.cbz","title":"One","lastPageIndex":99999,"pageCount":99999,"lastOpenedAt":-5},
+              {"sourceType":"local_archive","path":"/one.cbz","displayName":"one.cbz","title":"One","lastPageIndex":250000,"pageCount":250000,"lastOpenedAt":-5},
               {"sourceType":"local_archive","path":"/two.cbz","displayName":"two.cbz","title":"Two","lastPageIndex":5,"pageCount":-10,"lastOpenedAt":10}
             ]
             """.trimIndent(),
         )
 
-        assertEquals(10_000, decoded.first { it.path == "/one.cbz" }.pageCount)
-        assertEquals(9_999, decoded.first { it.path == "/one.cbz" }.lastPageIndex)
+        assertEquals(100_000, decoded.first { it.path == "/one.cbz" }.pageCount)
+        assertEquals(99_999, decoded.first { it.path == "/one.cbz" }.lastPageIndex)
         assertEquals(0L, decoded.first { it.path == "/one.cbz" }.lastOpenedAt)
         assertEquals(0, decoded.first { it.path == "/two.cbz" }.pageCount)
         assertEquals(0, decoded.first { it.path == "/two.cbz" }.lastPageIndex)
@@ -2111,43 +2254,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun archiveEntryCopyLimit_distinguishesPageTotalAndStorageLimits() {
-        assertEquals(
-            ArchiveCopyLimit(
-                maxBytes = 100L,
-                limitError = ComicLoadError.ArchivePageTooLarge,
-            ),
-            archiveEntryCopyLimit(
-                remainingTotalBytes = 1_000L,
-                cacheWritableBytes = 5_000L,
-                maxEntryBytes = 100L,
-            ),
-        )
-        assertEquals(
-            ArchiveCopyLimit(
-                maxBytes = 50L,
-                limitError = ComicLoadError.ArchiveContentsTooLarge,
-            ),
-            archiveEntryCopyLimit(
-                remainingTotalBytes = 50L,
-                cacheWritableBytes = 5_000L,
-                maxEntryBytes = 100L,
-            ),
-        )
-        assertEquals(
-            ArchiveCopyLimit(
-                maxBytes = 40L,
-                limitError = ComicLoadError.NotEnoughArchiveSpace,
-            ),
-            archiveEntryCopyLimit(
-                remainingTotalBytes = 1_000L,
-                cacheWritableBytes = 40L,
-                maxEntryBytes = 100L,
-            ),
-        )
-    }
-
-    @Test
     fun copyToFileBounded_reportsConfiguredLogicalLimit() {
         val outputFile = File(temporaryFolder.root, "oversized-page.bin")
 
@@ -2911,6 +3017,9 @@ private fun sampleBrowserEntries(): List<BrowserEntry> = listOf(
 private fun sampleJpegHeader(): ByteArray =
     byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x00, 0x00, 0x00)
 
+private fun samplePngHeader(): ByteArray =
+    byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D)
+
 private fun archiveDocumentNode(
     uri: String,
     name: String,
@@ -2928,11 +3037,20 @@ private fun archiveDocumentNode(
 private fun writeZipArchive(
     file: File,
     entries: Map<String, ByteArray>,
+    storedNames: Set<String> = emptySet(),
+    comment: String? = null,
 ) {
     file.parentFile?.mkdirs()
     ZipOutputStream(file.outputStream()).use { output ->
+        comment?.let(output::setComment)
         entries.forEach { (name, bytes) ->
-            output.putNextEntry(ZipEntry(name))
+            val entry = ZipEntry(name)
+            if (name in storedNames) {
+                entry.method = ZipEntry.STORED
+                entry.size = bytes.size.toLong()
+                entry.crc = CRC32().apply { update(bytes) }.value
+            }
+            output.putNextEntry(entry)
             output.write(bytes)
             output.closeEntry()
         }

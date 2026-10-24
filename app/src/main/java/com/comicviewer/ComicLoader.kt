@@ -1,43 +1,27 @@
 package com.comicviewer
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import java.io.BufferedInputStream
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.InputStream
 import java.io.IOException
-import java.security.MessageDigest
-import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipException
-import java.util.zip.ZipFile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
 
-private const val ARCHIVE_CACHE_DIR_NAME = "current_comic_pages"
-private const val ARCHIVE_CACHE_MANIFEST_NAME = "pages.json"
-private const val ARCHIVE_CACHE_MANIFEST_VERSION = 1
-private const val MAX_ARCHIVE_CACHE_MANIFEST_BYTES = 8L * 1024L * 1024L
-private const val MAX_REJECTION_EXAMPLES = 4
+private const val LEGACY_ARCHIVE_PAGE_CACHE_DIR_NAME = "current_comic_pages"
 private const val IMAGE_HEADER_BYTE_COUNT = 12
 private const val STREAM_BUFFER_SIZE = 64 * 1024
-private const val MAX_ARCHIVE_ENTRY_COUNT = 10_000
-private const val ARCHIVE_CACHE_RESERVE_BYTES = 128L * 1024L * 1024L
-private const val MAX_ARCHIVE_SOURCE_BYTES = 1024L * 1024L * 1024L
-private const val MAX_ARCHIVE_PAGE_BYTES = 64L * 1024L * 1024L
-private const val MAX_ARCHIVE_CACHE_BYTES = 2L * 1024L * 1024L * 1024L
-private val archiveCacheMutex = Mutex()
+private val legacyArchivePageCacheCleared = AtomicBoolean(false)
 
 class ComicLoadException(
     val error: ComicLoadError,
@@ -51,9 +35,7 @@ enum class ComicLoadError {
     FolderReadPermissionUnavailable,
     ArchiveNotReadable,
     ArchiveTooLarge,
-    ArchiveFileTooLarge,
     ArchivePageTooLarge,
-    ArchiveContentsTooLarge,
     InvalidArchive,
     ArchiveExtractionFailed,
     NotEnoughArchiveSpace,
@@ -66,12 +48,10 @@ enum class ComicLoadError {
         FolderReadPermissionUnavailable -> "Folder read permission is not available."
         ArchiveNotReadable -> "Archive not readable."
         ArchiveTooLarge -> "Archive too large: it contains more than ${args[0]} files."
-        ArchiveFileTooLarge -> "Archive file exceeds the supported size limit."
         ArchivePageTooLarge -> "An archive page exceeds the supported size limit."
-        ArchiveContentsTooLarge -> "Archive contents exceed the supported extraction limit."
         InvalidArchive -> "Select a valid .zip or .cbz archive."
-        ArchiveExtractionFailed -> "Archive not readable or extraction interrupted."
-        NotEnoughArchiveSpace -> "Not enough space to extract this archive."
+        ArchiveExtractionFailed -> "Archive read failed or was interrupted."
+        NotEnoughArchiveSpace -> "Not enough free space to open this archive."
         NoSupportedImagesFound -> "No supported images found."
         NoValidImagesFound -> "No valid images found. Scanned ${args[0]} files."
         NoValidImagesFoundWithExamples -> "No valid images found. Scanned ${args[0]} files. Rejected examples: ${args[1]}."
@@ -84,9 +64,7 @@ enum class ComicLoadError {
         ArchiveTooLarge -> (args[0] as Number).toInt().let { count ->
             context.resources.getQuantityString(R.plurals.archive_too_large, count, count)
         }
-        ArchiveFileTooLarge -> context.getString(R.string.archive_file_too_large)
         ArchivePageTooLarge -> context.getString(R.string.archive_page_too_large)
-        ArchiveContentsTooLarge -> context.getString(R.string.archive_contents_too_large)
         InvalidArchive -> context.getString(R.string.invalid_archive)
         ArchiveExtractionFailed -> context.getString(R.string.archive_extraction_failed)
         NotEnoughArchiveSpace -> context.getString(R.string.not_enough_archive_space)
@@ -117,50 +95,71 @@ data class ImageInfo(
     val height: Int,
 )
 
-suspend fun loadArchiveComic(
+suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
+    val displayName = context.displayNameFor(uri) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
+    loadZipComic(
+        context = context,
+        location = ComicArchiveLocation.Document(uri),
+        title = displayName.withoutComicExtension(),
+        source = ComicSource.Archive(uri = uri, displayName = displayName),
+        sourceFingerprint = context.documentArchiveFingerprint(uri),
+    )
+}
+
+suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBook = withContext(Dispatchers.IO) {
+    if (!archiveFile.isFile || !archiveFile.canRead()) {
+        throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
+    }
+    val displayName = archiveFile.name
+    loadZipComic(
+        context = context,
+        location = ComicArchiveLocation.LocalFile(archiveFile.absolutePath),
+        title = displayName.withoutComicExtension(),
+        source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName),
+        sourceFingerprint = "${archiveFile.length()}:${archiveFile.lastModified()}",
+    )
+}
+
+/**
+ * Builds the page list from the archive's central directory without copying or extracting anything;
+ * each page is streamed from the archive by [ComicArchivePageFetcher] when it is displayed.
+ */
+private suspend fun loadZipComic(
     context: Context,
-    uri: Uri,
-    reuseExtractedPages: Boolean = false,
-): ComicBook = withContext(Dispatchers.IO) {
-    archiveCacheMutex.withLock {
-        val coroutineContext = currentCoroutineContext()
-        val shouldContinue = { coroutineContext.isActive }
-        val displayName = context.displayNameFor(uri) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
-        val sourceKey = if (reuseExtractedPages) context.documentArchiveCacheKey(uri) else null
-        val existingCacheDir = File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME)
-        readCachedArchivePages(existingCacheDir, sourceKey)?.let { pages ->
-            return@withLock ComicBook(
-                title = displayName.withoutComicExtension(),
-                source = ComicSource.Archive(uri = uri, displayName = displayName),
-                pages = pages,
-            )
-        }
-        val cacheDir = resetArchiveCache(context)
-
-        val archiveFile = copyArchiveToCache(
+    location: ComicArchiveLocation,
+    title: String,
+    source: ComicSource,
+    sourceFingerprint: String?,
+): ComicBook {
+    deleteLegacyArchivePageCache(context)
+    val coroutineContext = currentCoroutineContext()
+    val shouldContinue = { coroutineContext.isActive }
+    val scan = try {
+        ComicArchiveSessions.acquire(
             context = context,
-            uri = uri,
-            displayName = displayName,
-            cacheDir = cacheDir,
+            location = location,
+            reopen = true,
             shouldContinue = shouldContinue,
-        )
-        val pages = try {
-            archiveFile.extractComicPagesTo(
-                cacheDir = cacheDir,
-                maxExtractionBytes = MAX_ARCHIVE_CACHE_BYTES - archiveFile.length(),
-                shouldContinue = shouldContinue,
-            )
-        } finally {
-            archiveFile.delete()
+        ).use { lease ->
+            lease.reader.scanComicPages(shouldContinue = shouldContinue)
         }
-        if (sourceKey != null) writeArchiveCacheManifest(cacheDir, sourceKey, pages)
+    } catch (exception: Exception) {
+        throw archiveReadFailureFor(exception)
+    }
+    if (scan.pages.isEmpty()) throw scan.emptyException()
 
-        ComicBook(
-            title = displayName.withoutComicExtension(),
-            source = ComicSource.Archive(uri = uri, displayName = displayName),
-            pages = pages,
+    val pages = scan.pages.mapIndexed { index, entry ->
+        ComicPage(
+            index = index,
+            displayName = entry.name.substringAfterLast('/'),
+            relativePath = entry.name,
+            imageUri = comicArchivePageUri(location, entry),
+            width = 0,
+            height = 0,
+            cacheFingerprint = sourceFingerprint,
         )
     }
+    return ComicBook(title = title, source = source, pages = pages)
 }
 
 suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
@@ -201,43 +200,6 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
     )
 }
 
-suspend fun loadLocalArchiveComic(
-    context: Context,
-    archiveFile: File,
-    reuseExtractedPages: Boolean = false,
-): ComicBook = withContext(Dispatchers.IO) {
-    archiveCacheMutex.withLock {
-        if (!archiveFile.isFile || !archiveFile.canRead()) {
-            throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
-        }
-        val coroutineContext = currentCoroutineContext()
-        val shouldContinue = { coroutineContext.isActive }
-        val displayName = archiveFile.name
-        val sourceKey = if (reuseExtractedPages) archiveFile.localArchiveCacheKey() else null
-        val existingCacheDir = File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME)
-        readCachedArchivePages(existingCacheDir, sourceKey)?.let { pages ->
-            return@withLock ComicBook(
-                title = displayName.withoutComicExtension(),
-                source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName),
-                pages = pages,
-            )
-        }
-        val cacheDir = resetArchiveCache(context)
-        val pages = archiveFile.extractComicPagesTo(
-            cacheDir = cacheDir,
-            maxExtractionBytes = MAX_ARCHIVE_CACHE_BYTES,
-            shouldContinue = shouldContinue,
-        )
-        if (sourceKey != null) writeArchiveCacheManifest(cacheDir, sourceKey, pages)
-
-        ComicBook(
-            title = displayName.withoutComicExtension(),
-            source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName),
-            pages = pages,
-        )
-    }
-}
-
 suspend fun loadLocalFolderComic(folder: File): ComicBook = withContext(Dispatchers.IO) {
     if (!folder.isDirectory || !folder.canRead()) {
         throw ComicLoadException(ComicLoadError.FolderNotReadable)
@@ -274,272 +236,33 @@ suspend fun loadLocalFolderComic(folder: File): ComicBook = withContext(Dispatch
 }
 
 suspend fun clearArchiveCache(context: Context) = withContext(Dispatchers.IO) {
-    archiveCacheMutex.withLock {
-        File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME).deleteRecursively()
+    ComicArchiveSessions.closeAll()
+    File(context.cacheDir, LEGACY_ARCHIVE_PAGE_CACHE_DIR_NAME).deleteRecursively()
+    deleteArchiveCopies(context)
+}
+
+suspend fun closeComicArchives() = withContext(Dispatchers.IO) {
+    ComicArchiveSessions.closeAll()
+}
+
+/** Older versions extracted every page into this folder; it can hold gigabytes, so drop it once. */
+private fun deleteLegacyArchivePageCache(context: Context) {
+    if (legacyArchivePageCacheCleared.compareAndSet(false, true)) {
+        File(context.cacheDir, LEGACY_ARCHIVE_PAGE_CACHE_DIR_NAME).deleteRecursively()
     }
 }
 
-private fun File.extractComicPagesTo(
-    cacheDir: File,
-    maxExtractionBytes: Long,
-    shouldContinue: () -> Boolean = { true },
-): List<ComicPage> {
-    if (maxExtractionBytes <= 0L) {
-        cacheDir.deleteRecursively()
-        throw ComicLoadException(ComicLoadError.ArchiveContentsTooLarge)
-    }
-    val extraction = try {
-        extractArchivePages(this, cacheDir, maxExtractionBytes, shouldContinue)
-    } catch (exception: Exception) {
-        cacheDir.deleteRecursively()
-        throw archiveExtractionFailureFor(exception)
-    }
-    val extractedPages = extraction.pages
-        .sortedWith { left, right -> compareComicPageNames(left.entryName, right.entryName) }
-
-    if (extractedPages.isEmpty()) {
-        cacheDir.deleteRecursively()
-        throw extraction.emptyException()
-    }
-
-    return extractedPages.mapIndexed { index, extracted ->
-        ComicPage(
-            index = index,
-            displayName = extracted.entryName.substringAfterLast('/'),
-            relativePath = extracted.entryName,
-            imageUri = extracted.file.toUri(),
-            width = extracted.info.width,
-            height = extracted.info.height,
-        )
-    }
-}
-
-private fun extractArchivePages(
-    archiveFile: File,
-    cacheDir: File,
-    maxExtractionBytes: Long,
-    shouldContinue: () -> Boolean,
-): ArchiveExtraction {
-    val extractedPages = mutableListOf<ExtractedPage>()
-    val rejectedEntries = mutableListOf<String>()
-    var scannedEntries = 0
-    var visitedEntries = 0
-    var processedImageBytes = 0L
-
-    ZipFile(archiveFile).use { zipFile ->
-        val entries = zipFile.entries()
-        while (entries.hasMoreElements()) {
-            if (!shouldContinue()) throw CancellationException()
-            val entry = entries.nextElement()
-            val entryName = entry.name.replace('\\', '/')
-            visitedEntries += 1
-            if (visitedEntries > MAX_ARCHIVE_ENTRY_COUNT) {
-                throw ComicLoadException(ComicLoadError.ArchiveTooLarge, MAX_ARCHIVE_ENTRY_COUNT)
-            }
-
-            if (!entry.isDirectory && !isHiddenComicPath(entryName)) {
-                scannedEntries += 1
-                val imageFormat = zipFile.getInputStream(entry).use { input ->
-                    detectImageFormat(readImageHeader(input))
-                }
-
-                if (entry.size == 0L || imageFormat == null) {
-                    if (rejectedEntries.size < MAX_REJECTION_EXAMPLES) {
-                        rejectedEntries += entryName.substringAfterLast('/')
-                    }
-                    continue
-                }
-
-                val copyLimit = archiveEntryCopyLimit(
-                    remainingTotalBytes = maxExtractionBytes - processedImageBytes,
-                    cacheWritableBytes = cacheWritableBytes(cacheDir),
-                )
-                if (entry.size > copyLimit.maxBytes) {
-                    throw ComicLoadException(copyLimit.limitError)
-                }
-                val outputFile = File(
-                    cacheDir,
-                    safeCachePageName(extractedPages.size, imageFormat),
-                )
-                val copiedBytes = zipFile.getInputStream(entry).use { input ->
-                    copyToFileBounded(
-                        inputStream = input,
-                        outputFile = outputFile,
-                        maxBytes = copyLimit.maxBytes,
-                        limitError = copyLimit.limitError,
-                        shouldContinue = shouldContinue,
-                    )
-                }
-                processedImageBytes += copiedBytes
-                val imageInfo = detectImageInfo(outputFile)
-                if (imageInfo == null) {
-                    outputFile.delete()
-                    if (rejectedEntries.size < MAX_REJECTION_EXAMPLES) {
-                        rejectedEntries += entryName.substringAfterLast('/')
-                    }
-                    continue
-                }
-                extractedPages += ExtractedPage(entryName = entryName, file = outputFile, info = imageInfo)
-            }
-        }
-    }
-
-    return ArchiveExtraction(
-        scannedEntries = scannedEntries,
-        pages = extractedPages,
-        rejectedExamples = rejectedEntries,
-    )
-}
-
-internal fun archiveExtractionFailureFor(exception: Exception): Exception = when (exception) {
+internal fun archiveReadFailureFor(exception: Exception): Exception = when (exception) {
     is CancellationException -> exception
     is ComicLoadException -> exception
+    is ZipEntryLimitExceededException -> ComicLoadException(ComicLoadError.ArchiveTooLarge, exception.limit)
     is ZipException -> ComicLoadException(ComicLoadError.InvalidArchive)
-    is IOException,
+    is FileNotFoundException,
     is SecurityException,
-    -> ComicLoadException(ComicLoadError.ArchiveExtractionFailed)
+    -> ComicLoadException(ComicLoadError.ArchiveNotReadable)
+    is IOException -> ComicLoadException(ComicLoadError.ArchiveExtractionFailed)
     else -> ComicLoadException(ComicLoadError.InvalidArchive)
 }
-
-private fun copyArchiveToCache(
-    context: Context,
-    uri: Uri,
-    displayName: String,
-    cacheDir: File,
-    shouldContinue: () -> Boolean,
-): File {
-    val inputStream = context.contentResolver.openInputStream(uri)
-        ?: throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
-    val archiveFile = File(cacheDir, "selected_comic.${displayName.archiveExtension()}")
-    val copyLimit = resolvedCopyLimit(
-        logicalLimitBytes = MAX_ARCHIVE_SOURCE_BYTES,
-        cacheWritableBytes = cacheWritableBytes(cacheDir),
-        logicalLimitError = ComicLoadError.ArchiveFileTooLarge,
-    )
-
-    inputStream.use { input ->
-        copyToFileBounded(
-            inputStream = input,
-            outputFile = archiveFile,
-            maxBytes = copyLimit.maxBytes,
-            limitError = copyLimit.limitError,
-            shouldContinue = shouldContinue,
-        )
-    }
-
-    return archiveFile
-}
-
-private fun resetArchiveCache(context: Context): File =
-    File(context.cacheDir, ARCHIVE_CACHE_DIR_NAME).apply {
-        deleteRecursively()
-        mkdirs()
-    }
-
-private fun readCachedArchivePages(
-    cacheDir: File,
-    sourceKey: String?,
-): List<ComicPage>? {
-    if (sourceKey == null || !cacheDir.isDirectory) return null
-    val manifestFile = File(cacheDir, ARCHIVE_CACHE_MANIFEST_NAME)
-    if (!manifestFile.isFile || manifestFile.length() !in 1..MAX_ARCHIVE_CACHE_MANIFEST_BYTES) return null
-    return runCatching {
-        val root = JSONObject(manifestFile.readText(Charsets.UTF_8))
-        if (root.optInt("version", -1) != ARCHIVE_CACHE_MANIFEST_VERSION) return@runCatching null
-        if (root.optString("sourceKey") != sourceKey) return@runCatching null
-        val storedPages = root.optJSONArray("pages") ?: return@runCatching null
-        if (storedPages.length() !in 1..MAX_ARCHIVE_ENTRY_COUNT) return@runCatching null
-
-        (0 until storedPages.length()).map { index ->
-            val item = storedPages.optJSONObject(index) ?: return@runCatching null
-            val fileName = item.optString("file")
-                .takeIf { it.isNotBlank() && '/' !in it && '\\' !in it }
-                ?: return@runCatching null
-            val pageFile = File(cacheDir, fileName)
-            if (!pageFile.isFile || pageFile.length() !in 1..MAX_ARCHIVE_PAGE_BYTES) return@runCatching null
-            val imageInfo = detectImageInfo(pageFile) ?: return@runCatching null
-            val entryName = item.optString("entry")
-                .takeIf(String::isNotBlank)
-                ?.take(4_096)
-                ?: return@runCatching null
-            ComicPage(
-                index = index,
-                displayName = entryName.substringAfterLast('/'),
-                relativePath = entryName,
-                imageUri = pageFile.toUri(),
-                width = imageInfo.width,
-                height = imageInfo.height,
-            )
-        }
-    }.getOrNull()
-}
-
-private fun writeArchiveCacheManifest(
-    cacheDir: File,
-    sourceKey: String,
-    pages: List<ComicPage>,
-) {
-    val pageItems = JSONArray().apply {
-        pages.forEach { page ->
-            val pageFile = File(requireNotNull(page.imageUri.path))
-            put(
-                JSONObject()
-                    .put("entry", page.relativePath)
-                    .put("file", pageFile.name),
-            )
-        }
-    }
-    val bytes = JSONObject()
-        .put("version", ARCHIVE_CACHE_MANIFEST_VERSION)
-        .put("sourceKey", sourceKey)
-        .put("pages", pageItems)
-        .toString()
-        .toByteArray(Charsets.UTF_8)
-    if (bytes.size > MAX_ARCHIVE_CACHE_MANIFEST_BYTES) return
-
-    val manifestFile = File(cacheDir, ARCHIVE_CACHE_MANIFEST_NAME)
-    val pendingFile = File(cacheDir, "$ARCHIVE_CACHE_MANIFEST_NAME.tmp")
-    runCatching {
-        pendingFile.writeBytes(bytes)
-        manifestFile.delete()
-        if (!pendingFile.renameTo(manifestFile)) {
-            pendingFile.copyTo(manifestFile, overwrite = true)
-            pendingFile.delete()
-        }
-    }.onFailure {
-        pendingFile.delete()
-        manifestFile.delete()
-    }
-}
-
-private fun File.localArchiveCacheKey(): String? {
-    val sourceLength = length().takeIf { it >= 0L } ?: return null
-    val sourceLastModified = lastModified().takeIf { it > 0L } ?: return null
-    return archiveCacheKey("local|${canonicalPathOrAbsolute()}|$sourceLength|$sourceLastModified")
-}
-
-private fun Context.documentArchiveCacheKey(uri: Uri): String? {
-    val size = queryArchiveLong(uri, OpenableColumns.SIZE) ?: return null
-    val lastModified = queryArchiveLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
-        ?.takeIf { it > 0L }
-        ?: return null
-    return archiveCacheKey("document|$uri|$size|$lastModified")
-}
-
-private fun archiveCacheKey(sourceIdentity: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(sourceIdentity.toByteArray(Charsets.UTF_8))
-        .joinToString(separator = "") { byte -> "%02x".format(Locale.ROOT, byte.toInt() and 0xff) }
-
-private fun Context.queryArchiveLong(uri: Uri, column: String): Long? = runCatching {
-    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(column)
-        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
-    }
-}.getOrNull()?.takeIf { it >= 0L }
-
-private fun File.canonicalPathOrAbsolute(): String =
-    runCatching { canonicalPath }.getOrDefault(absolutePath)
 
 private fun Context.displayNameFor(uri: Uri): String? =
     contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -693,67 +416,8 @@ fun copyToFileBounded(
     return copiedBytes
 }
 
-@SuppressLint("UsableSpace")
-private fun cacheWritableBytes(cacheDir: File): Long =
-    cacheDir.usableSpace - ARCHIVE_CACHE_RESERVE_BYTES
-
-internal data class ArchiveCopyLimit(
-    val maxBytes: Long,
-    val limitError: ComicLoadError,
-)
-
-internal fun resolvedCopyLimit(
-    logicalLimitBytes: Long,
-    cacheWritableBytes: Long,
-    logicalLimitError: ComicLoadError,
-): ArchiveCopyLimit =
-    if (cacheWritableBytes < logicalLimitBytes) {
-        ArchiveCopyLimit(
-            maxBytes = cacheWritableBytes,
-            limitError = ComicLoadError.NotEnoughArchiveSpace,
-        )
-    } else {
-        ArchiveCopyLimit(
-            maxBytes = logicalLimitBytes,
-            limitError = logicalLimitError,
-        )
-    }
-
-internal fun archiveEntryCopyLimit(
-    remainingTotalBytes: Long,
-    cacheWritableBytes: Long,
-    maxEntryBytes: Long = MAX_ARCHIVE_PAGE_BYTES,
-): ArchiveCopyLimit {
-    val logicalLimitBytes = minOf(remainingTotalBytes.coerceAtLeast(0L), maxEntryBytes)
-    val logicalLimitError = if (remainingTotalBytes <= maxEntryBytes) {
-        ComicLoadError.ArchiveContentsTooLarge
-    } else {
-        ComicLoadError.ArchivePageTooLarge
-    }
-    return resolvedCopyLimit(
-        logicalLimitBytes = logicalLimitBytes,
-        cacheWritableBytes = cacheWritableBytes,
-        logicalLimitError = logicalLimitError,
-    )
-}
-
-private fun safeCachePageName(index: Int, format: ImageFormat): String =
-    "page_${index.toString().padStart(5, '0')}.${format.extension}"
-
-private fun String.archiveExtension(): String =
-    substringAfterLast('.', missingDelimiterValue = "zip")
-        .lowercase(Locale.US)
-        .takeIf { it == "zip" || it == "cbz" }
-        ?: "zip"
-
 private fun String.withoutComicExtension(): String =
     substringBeforeLast('.', missingDelimiterValue = this).ifBlank { this }
-
-private data class ExtractedPage(
-    val entryName: String,
-    val file: File,
-    val info: ImageInfo,
-)
 
 private data class LocalImageFile(
     val file: File,
@@ -766,19 +430,3 @@ private fun ComicDocumentEntry.cacheFingerprint(): String? =
     } else {
         null
     }
-
-private data class ArchiveExtraction(
-    val scannedEntries: Int,
-    val pages: List<ExtractedPage>,
-    val rejectedExamples: List<String>,
-) {
-    fun emptyException(): ComicLoadException = if (rejectedExamples.isEmpty()) {
-        ComicLoadException(ComicLoadError.NoValidImagesFound, scannedEntries)
-    } else {
-        ComicLoadException(
-            ComicLoadError.NoValidImagesFoundWithExamples,
-            scannedEntries,
-            rejectedExamples.joinToString(),
-        )
-    }
-}

@@ -27,6 +27,7 @@ import com.comicviewer.RecentComicSourceType
 import com.comicviewer.archiveDocumentFor
 import com.comicviewer.browserParentPathFor
 import com.comicviewer.clearArchiveCache
+import com.comicviewer.closeComicArchives
 import com.comicviewer.coercePageIndex
 import com.comicviewer.documentPermissionCovers
 import com.comicviewer.folderDocumentFor
@@ -398,16 +399,11 @@ class ComicViewerAppState(
     }
 
     private suspend fun loadComic(source: ComicSource): ComicBook = when (source) {
-        is ComicSource.Archive -> loadArchiveComic(
-            context = appContext,
-            uri = source.uri,
-            reuseExtractedPages = !autoDeleteTempFiles,
-        )
+        is ComicSource.Archive -> loadArchiveComic(context = appContext, uri = source.uri)
         is ComicSource.Folder -> loadFolderComic(appContext, source.uri)
         is ComicSource.LocalArchive -> loadLocalArchiveComic(
             context = appContext,
             archiveFile = File(source.filePath),
-            reuseExtractedPages = !autoDeleteTempFiles,
         )
         is ComicSource.LocalFolder -> loadLocalFolderComic(File(source.folderPath))
     }
@@ -763,7 +759,11 @@ class ComicViewerAppState(
         val closingJob = loadJob
         closingJob?.cancel()
         uiState = ReaderUiState.Empty
-        if (autoDeleteTempFiles) clearArchiveCacheAfter(closingJob)
+        if (autoDeleteTempFiles) {
+            clearArchiveCacheAfter(closingJob)
+        } else {
+            scope.launch { closeComicArchives() }
+        }
         source?.documentUriOrNull()?.let(::releasePermissionIfUnused)
     }
 

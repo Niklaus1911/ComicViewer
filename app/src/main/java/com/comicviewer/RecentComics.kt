@@ -11,7 +11,7 @@ private const val RECENT_COMICS_PREFS_NAME = "recent_comics"
 private const val RECENT_COMICS_KEY = "items"
 private const val MAX_PERSISTED_PATH_CHARS = 4_096
 private const val MAX_PERSISTED_COMIC_TEXT_CHARS = 512
-private const val MAX_PERSISTED_PAGE_COUNT = 10_000
+private const val MAX_PERSISTED_PAGE_COUNT = MAX_COMIC_ARCHIVE_ENTRIES
 
 enum class RecentComicSourceType(val storageName: String) {
     LocalArchive("local_archive"),

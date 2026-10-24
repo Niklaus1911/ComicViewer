@@ -10,7 +10,6 @@ import java.io.FilterInputStream
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.Locale
-import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
@@ -27,7 +26,7 @@ private const val COMIC_DETAILS_PREFS_NAME = "comic_details"
 private const val COMIC_DETAILS_KEY = "items"
 private const val MAX_COMIC_INFO_BYTES = 1024 * 1024
 private const val MAX_COMIC_INFO_SOURCE_BYTES = 128L * 1024L * 1024L
-private const val MAX_COMIC_INFO_ARCHIVE_ENTRIES = 10_000
+private const val MAX_COMIC_INFO_ARCHIVE_ENTRIES = MAX_COMIC_ARCHIVE_ENTRIES
 private const val MAX_METADATA_RECORDS = MAX_LIBRARY_COMICS
 private const val MAX_METADATA_TEXT_CHARS = 512
 private const val MAX_METADATA_SUMMARY_CHARS = 4_096
@@ -209,42 +208,8 @@ private fun inspectLocalArchive(
 ): SourceFacts {
     if (!file.isFile || !file.canRead()) return SourceFacts()
     val archiveFacts = runCatching {
-        ZipFile(file).use { zip ->
-            val entries = zip.entries()
-            var visited = 0
-            var pageCount = 0
-            var tooManyEntries = false
-            var metadata: ComicInfoMetadata? = null
-            while (entries.hasMoreElements()) {
-                if (!shouldContinue()) throw CancellationException()
-                val entry = entries.nextElement()
-                visited += 1
-                if (visited > MAX_COMIC_INFO_ARCHIVE_ENTRIES) {
-                    tooManyEntries = true
-                    break
-                }
-                val name = entry.name.replace('\\', '/')
-                if (entry.isDirectory || isHiddenComicPath(name)) continue
-                if (name.substringAfterLast('/').equals("ComicInfo.xml", ignoreCase = true)) {
-                    if (metadata == null && entry.size in 1..MAX_COMIC_INFO_BYTES.toLong()) {
-                        metadata = runCatching {
-                            zip.getInputStream(entry).use(::readComicInfoBounded)?.let(::parseComicInfoXml)
-                        }.getOrNull()
-                    }
-                } else {
-                    val imageFormat = runCatching {
-                        zip.getInputStream(entry).use { input -> detectImageFormat(readImageHeader(input)) }
-                    }.getOrNull()
-                    if (imageFormat != null) pageCount += 1
-                }
-            }
-            SourceFacts(
-                pageCount = inspectedArchivePageCount(
-                    pageCount = pageCount,
-                    tooManyEntries = tooManyEntries,
-                ),
-                metadata = metadata,
-            )
+        openLocalComicArchive(file, shouldContinue = shouldContinue).use { archive ->
+            archive.reader.inspectComicArchive(shouldContinue)
         }
     }.getOrElse { throwable ->
         if (throwable is CancellationException) throw throwable
@@ -253,6 +218,19 @@ private fun inspectLocalArchive(
     return archiveFacts.copy(
         fileSizeBytes = file.length().takeIf { it >= 0L },
         lastModifiedAt = file.lastModified().takeIf { it > 0L },
+    )
+}
+
+private fun ZipArchiveReader.inspectComicArchive(shouldContinue: () -> Boolean): SourceFacts {
+    val scan = scanComicPages(maxPageBytes = Long.MAX_VALUE, shouldContinue = shouldContinue)
+    val metadata = scan.comicInfoEntry
+        ?.takeIf { entry -> entry.size in 1..MAX_COMIC_INFO_BYTES.toLong() }
+        ?.let { entry ->
+            runCatching { openEntry(entry).use(::readComicInfoBounded)?.let(::parseComicInfoXml) }.getOrNull()
+        }
+    return SourceFacts(
+        pageCount = scan.pages.size.takeIf { it > 0 },
+        metadata = metadata,
     )
 }
 
@@ -296,6 +274,10 @@ private fun inspectDocumentArchive(
 ): SourceFacts {
     val uri = runCatching { path.toUri() }.getOrNull() ?: return SourceFacts()
     val archiveFacts = runCatching {
+        openSeekableDocumentComicArchive(context, uri, shouldContinue = shouldContinue)?.use { archive ->
+            return@runCatching archive.reader.inspectComicArchive(shouldContinue)
+        }
+        // Stream-only providers: read from the start, within the source limit.
         val source = context.contentResolver.openInputStream(uri) ?: return@runCatching null
         val limitedSource = MetadataLimitedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)
         ZipInputStream(limitedSource).use { zip ->

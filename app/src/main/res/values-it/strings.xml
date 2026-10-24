@@ -99,12 +99,10 @@
         <item quantity="many">Archivio troppo grande: contiene più di %1$d file.</item>
         <item quantity="other">Archivio troppo grande: contiene più di %1$d file.</item>
     </plurals>
-    <string name="archive_file_too_large">Il file dell\'archivio supera il limite di dimensione supportato.</string>
     <string name="archive_page_too_large">Una pagina dell\'archivio supera il limite di dimensione supportato.</string>
-    <string name="archive_contents_too_large">Il contenuto dell\'archivio supera il limite di estrazione supportato.</string>
     <string name="invalid_archive">Seleziona un archivio .zip o .cbz valido.</string>
-    <string name="archive_extraction_failed">Archivio non leggibile o estrazione interrotta.</string>
-    <string name="not_enough_archive_space">Spazio insufficiente per estrarre questo archivio.</string>
+    <string name="archive_extraction_failed">Lettura dell\'archivio non riuscita o interrotta.</string>
+    <string name="not_enough_archive_space">Spazio libero insufficiente per aprire questo archivio.</string>
     <string name="no_supported_images_found">Nessuna immagine supportata trovata.</string>
     <plurals name="no_valid_images_found">
         <item quantity="one">Nessuna immagine valida trovata. Scansionato %1$d file.</item>

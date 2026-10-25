@@ -61,6 +61,14 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      - name: Free disk space for the emulator
+        # The runner starts with too little free disk for an emulator next to a Gradle build, so
+        # toolchains this project never uses are removed.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost \
+            /usr/local/lib/android/sdk/ndk "$AGENT_TOOLSDIRECTORY/CodeQL"
+          df -h /
+
       - name: Check out repository
         uses: actions/checkout@v7
 
@@ -89,8 +97,6 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          # The profile's default data partition needs more disk than the runner has left after the build.
-          disk-size: 2048M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
           script: ./gradlew connectedDebugAndroidTest

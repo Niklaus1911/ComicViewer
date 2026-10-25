@@ -11,6 +11,9 @@ import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
 import com.comicviewer.ui.reader.readerSwipeStartOffset
 import com.comicviewer.ui.reader.readerSwipeTargetIndex
 import com.comicviewer.ui.reader.resistedReaderSwipeOffset
+import com.comicviewer.ui.reader.verticalStripItemTop
+import com.comicviewer.ui.reader.verticalStripPageWidth
+import com.comicviewer.ui.reader.verticalStripPanX
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -352,5 +355,70 @@ class ReaderGestureTest {
                 pageMode = ReaderPageMode.TwoPage,
             ),
         )
+    }
+
+    @Test
+    fun verticalStripPanX_keepsThePointUnderTheFingers() {
+        // A 1000 px screen with 20 px margins, pinched from 1x to 2x at x = 250.
+        val panX = verticalStripPanX(
+            viewportWidth = 1000f,
+            marginPx = 20f,
+            oldZoom = 1f,
+            oldPanX = 0f,
+            newZoom = 2f,
+            focusX = 250f,
+            fingerPanX = 0f,
+        )
+        // The point was 230/960 of the way across the page; the 1960 px page now starts at
+        // -500 + panX + 20, and that point must still be at 250.
+        val pageLeft = (1000f - 2000f) / 2f + panX + 20f
+        assertEquals(250f, pageLeft + 230f / 960f * verticalStripPageWidth(1000f, 20f, 2f), 0.01f)
+    }
+
+    @Test
+    fun verticalStripPanX_followsTheFingersAndStopsAtTheStripEdges() {
+        val moved = verticalStripPanX(
+            viewportWidth = 1000f,
+            marginPx = 0f,
+            oldZoom = 2f,
+            oldPanX = 0f,
+            newZoom = 2f,
+            focusX = 500f,
+            fingerPanX = 120f,
+        )
+        assertEquals(120f, moved, 0.01f)
+
+        val pastTheEdge = verticalStripPanX(
+            viewportWidth = 1000f,
+            marginPx = 0f,
+            oldZoom = 2f,
+            oldPanX = 450f,
+            newZoom = 2f,
+            focusX = 500f,
+            fingerPanX = 200f,
+        )
+        assertEquals(500f, pastTheEdge, 0.01f)
+
+        val zoomedOut = verticalStripPanX(
+            viewportWidth = 1000f,
+            marginPx = 0f,
+            oldZoom = 2f,
+            oldPanX = 300f,
+            newZoom = 1f,
+            focusX = 100f,
+            fingerPanX = 0f,
+        )
+        assertEquals(0f, zoomedOut, 0.01f)
+    }
+
+    @Test
+    fun verticalStripItemTop_keepsThePointUnderTheFingers() {
+        // The page starts 100 px above the screen and is 1000 px tall; the fingers are 300 px down,
+        // 40% into the page. At twice the height that point is 800 px into it.
+        assertEquals(-500f, verticalStripItemTop(-100f, 1000f, 300f, 0f, 2f), 0.01f)
+        // Moving the fingers 50 px down carries the page with them.
+        assertEquals(-50f, verticalStripItemTop(-100f, 1000f, 300f, 50f, 1f), 0.01f)
+        // A page with no height yet only follows the fingers.
+        assertEquals(-60f, verticalStripItemTop(-100f, 0f, 300f, 40f, 2f), 0.01f)
     }
 }

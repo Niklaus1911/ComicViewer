@@ -2390,6 +2390,54 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun isNewLibraryComic_onlyForUnopenedComicsAddedThisWeek() {
+        val day = 24L * 60L * 60L * 1000L
+        val now = 30L * day
+        val fresh = sampleLibraryComic(path = "/c/fresh.cbz", addedAt = now - day)
+        val old = sampleLibraryComic(path = "/c/old.cbz", addedAt = now - 8L * day)
+        val opened = sampleLibraryComic(path = "/c/opened.cbz", addedAt = now - day)
+        val recent = listOf(sampleRecentComic(path = opened.path, lastOpenedAt = now))
+
+        assertTrue(isNewLibraryComic(fresh, recent, now))
+        assertFalse(isNewLibraryComic(old, recent, now))
+        assertFalse(isNewLibraryComic(opened, recent, now))
+        assertFalse(isNewLibraryComic(sampleLibraryComic(path = "/c/future.cbz", addedAt = now + day), recent, now))
+    }
+
+    @Test
+    fun comicLanguageDisplayName_namesCodesInTheAppLanguage() {
+        assertEquals("English", comicLanguageDisplayName("en", java.util.Locale.ENGLISH))
+        assertEquals("Inglese", comicLanguageDisplayName("en", java.util.Locale.ITALIAN))
+        assertEquals("Portuguese (Brazil)", comicLanguageDisplayName("pt_BR", java.util.Locale.ENGLISH))
+        assertEquals("Klingon-ish", comicLanguageDisplayName("Klingon-ish", java.util.Locale.ENGLISH))
+        assertEquals("", comicLanguageDisplayName("  ", java.util.Locale.ENGLISH))
+    }
+
+    @Test
+    fun firstComicPages_matchesTheStartOfTheReaderPageOrder() {
+        val archive = File(temporaryFolder.root, "Preview order.cbz")
+        writeZipArchive(
+            archive,
+            linkedMapOf(
+                "010.jpg" to sampleJpegHeader(),
+                "002.jpg" to sampleJpegHeader(),
+                "001.jpg" to "corrupt".encodeToByteArray(),
+                "ComicInfo.xml" to "<ComicInfo/>".encodeToByteArray(),
+                "003.png" to samplePngHeader(),
+                "__MACOSX/._000.jpg" to sampleJpegHeader(),
+            ),
+        )
+
+        openLocalComicArchive(archive).use { opened ->
+            val readerOrder = opened.reader.scanComicPages().pages.map { it.name }
+            assertEquals(listOf("002.jpg", "003.png", "010.jpg"), readerOrder)
+            assertEquals(readerOrder.take(2), opened.reader.firstComicPages(2).map { it.name })
+            assertEquals(readerOrder, opened.reader.firstComicPages(10).map { it.name })
+            assertTrue(opened.reader.firstComicPages(0).isEmpty())
+        }
+    }
+
+    @Test
     fun markRecentComicRead_finishesUnopenedAndStartedComics() {
         val unopened = sampleLibraryComic(title = "Unopened", path = "/c/unopened.cbz")
         val started = sampleLibraryComic(title = "Started", path = "/c/started.cbz")

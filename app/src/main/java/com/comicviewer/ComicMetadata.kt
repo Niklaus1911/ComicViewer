@@ -535,3 +535,19 @@ private fun JSONObject.optStringList(key: String): List<String> {
 
 private fun JSONObject.optNullableInt(key: String): Int? = if (isNull(key)) null else optInt(key).takeIf { it > 0 }
 private fun JSONObject.optNullableLong(key: String): Long? = if (isNull(key)) null else optLong(key).takeIf { it >= 0L }
+
+private val languageCodePattern = Regex("^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})*$")
+
+/** "en" or "pt-BR" from ComicInfo.xml as a readable name ("English"); unknown codes stay as written. */
+fun comicLanguageDisplayName(code: String, displayLocale: Locale): String {
+    val trimmed = code.trim()
+    if (!languageCodePattern.matches(trimmed)) return trimmed
+    val locale = Locale.forLanguageTag(trimmed.replace('_', '-'))
+    if (locale.language.isEmpty()) return trimmed
+    val name = locale.getDisplayName(displayLocale)
+    return if (name.isBlank() || name.equals(trimmed, ignoreCase = true)) {
+        trimmed
+    } else {
+        name.replaceFirstChar { char -> char.titlecase(displayLocale) }
+    }
+}

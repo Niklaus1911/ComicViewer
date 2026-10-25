@@ -1,6 +1,26 @@
 package com.comicviewer.ui.library
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.ViewComfy
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalContext
+import com.comicviewer.LibraryDisplayMode
+import com.comicviewer.isNewLibraryComic
+import com.comicviewer.loadLibraryDisplayMode
+import com.comicviewer.saveLibraryDisplayMode
+import com.comicviewer.ui.common.softPress
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -129,7 +149,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 private const val AUTO_SCAN_RESULT_VISIBLE_MS = 5_000L
-private val CoverShape = RoundedCornerShape(10.dp)
+private val CoverShape = RoundedCornerShape(12.dp)
+private const val CoverAspectRatio = 2f / 3f
 private val ContinueReadingCardWidth = 272.dp
 private val FabClearance = 96.dp
 private val ProgressFilterChips = listOf(
@@ -169,6 +190,8 @@ fun ReferenceLibraryScreen(
     onSetTags: (LibraryComic, List<String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    var displayMode by remember { mutableStateOf(loadLibraryDisplayMode(context)) }
     var query by rememberSaveable { mutableStateOf("") }
     var sortOrder by rememberSaveable { mutableStateOf(LibrarySortOrder.RecentlyAdded) }
     var sourceFilter by rememberSaveable { mutableStateOf(LibraryFilter.All) }
@@ -266,6 +289,7 @@ fun ReferenceLibraryScreen(
                         libraryAutoScanState = libraryAutoScanState,
                         progressFilter = effectiveProgress,
                         sortOrder = sortOrder,
+                        displayMode = displayMode,
                         extraFiltersActive = sourceFilter != LibraryFilter.All || effectiveTag != null,
                         isProUnlocked = isProUnlocked,
                         onProgressFilter = { filter ->
@@ -276,6 +300,10 @@ fun ReferenceLibraryScreen(
                             }
                         },
                         onSortOrder = { sortOrder = it },
+                        onDisplayMode = { mode ->
+                            displayMode = mode
+                            saveLibraryDisplayMode(context, mode)
+                        },
                         onShowFilters = { showFilters = true },
                         onClearFilters = ::clearFilters,
                         onOpen = onOpenLibraryComic,
@@ -438,10 +466,12 @@ private fun LibraryHomeGrid(
     libraryAutoScanState: LibraryAutoScanState,
     progressFilter: LibraryProgressFilter,
     sortOrder: LibrarySortOrder,
+    displayMode: LibraryDisplayMode,
     extraFiltersActive: Boolean,
     isProUnlocked: Boolean,
     onProgressFilter: (LibraryProgressFilter) -> Unit,
     onSortOrder: (LibrarySortOrder) -> Unit,
+    onDisplayMode: (LibraryDisplayMode) -> Unit,
     onShowFilters: () -> Unit,
     onClearFilters: () -> Unit,
     onOpen: (LibraryComic) -> Unit,
@@ -449,14 +479,28 @@ private fun LibraryHomeGrid(
     onActions: (LibraryComic) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val nowMs = remember(comics, recentComics) { System.currentTimeMillis() }
     BoxWithConstraints(modifier = modifier) {
         val tablet = isTabletWidth(maxWidth.value.roundToInt())
-        val fullSpan: (androidx.compose.foundation.lazy.grid.LazyGridItemSpanScope.() -> GridItemSpan) = {
-            GridItemSpan(maxLineSpan)
+        val fullSpan: (LazyGridItemSpanScope.() -> GridItemSpan) = { GridItemSpan(maxLineSpan) }
+        val columns = when (displayMode) {
+            LibraryDisplayMode.Grid -> GridCells.Adaptive(if (tablet) 150.dp else 104.dp)
+            LibraryDisplayMode.CompactGrid -> GridCells.Adaptive(if (tablet) 120.dp else 84.dp)
+            LibraryDisplayMode.List -> if (tablet) GridCells.Adaptive(360.dp) else GridCells.Fixed(1)
+        }
+        val columnSpacing = when (displayMode) {
+            LibraryDisplayMode.Grid -> 14.dp
+            LibraryDisplayMode.CompactGrid -> 8.dp
+            LibraryDisplayMode.List -> 12.dp
+        }
+        val rowSpacing = when (displayMode) {
+            LibraryDisplayMode.Grid -> 20.dp
+            LibraryDisplayMode.CompactGrid -> 8.dp
+            LibraryDisplayMode.List -> 10.dp
         }
         LazyVerticalGrid(
             state = gridState,
-            columns = if (tablet) GridCells.Adaptive(160.dp) else GridCells.Fixed(3),
+            columns = columns,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = ReferenceScreenHorizontalPadding,
@@ -464,8 +508,8 @@ private fun LibraryHomeGrid(
                 top = 12.dp,
                 bottom = FabClearance,
             ),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            horizontalArrangement = Arrangement.spacedBy(columnSpacing),
+            verticalArrangement = Arrangement.spacedBy(rowSpacing),
         ) {
             if (libraryAutoScanState != LibraryAutoScanState.Idle) {
                 item(key = "auto_scan", span = fullSpan) {
@@ -479,11 +523,12 @@ private fun LibraryHomeGrid(
                         recentComics = recentComics,
                         onResume = onResume,
                         onActions = onActions,
+                        modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
             }
             item(key = "controls", span = fullSpan) {
-                Column {
+                Column(modifier = Modifier.padding(bottom = 6.dp)) {
                     ProgressFilterChipRow(
                         selected = progressFilter,
                         isProUnlocked = isProUnlocked,
@@ -492,8 +537,10 @@ private fun LibraryHomeGrid(
                     LibrarySummaryRow(
                         count = comics.size,
                         sortOrder = sortOrder,
+                        displayMode = displayMode,
                         extraFiltersActive = extraFiltersActive,
                         onSortOrder = onSortOrder,
+                        onDisplayMode = onDisplayMode,
                         onShowFilters = onShowFilters,
                     )
                 }
@@ -512,14 +559,35 @@ private fun LibraryHomeGrid(
             } else {
                 items(comics, key = { "${it.sourceType.storageName}:${it.path}" }) { comic ->
                     val recentComic = comic.matchingRecentComic(recentComics)
-                    LibraryGridCard(
+                    val card = ComicCardState(
                         comic = comic,
+                        recentComic = recentComic,
                         favorite = metadataFor(comic, libraryMetadata).favorite,
+                        isNew = isNewLibraryComic(comic, recentComics, nowMs),
                         pageCount = resolvedComicPageCount(detailsFor(comic, libraryDetails), recentComic),
                         progress = libraryProgressFraction(comic, listOfNotNull(recentComic)),
-                        onOpen = { onOpen(comic) },
-                        onActions = { onActions(comic) },
                     )
+                    val itemModifier = Modifier.animateItem()
+                    when (displayMode) {
+                        LibraryDisplayMode.Grid -> ComicGridCard(
+                            card = card,
+                            onOpen = { onOpen(comic) },
+                            onActions = { onActions(comic) },
+                            modifier = itemModifier,
+                        )
+                        LibraryDisplayMode.CompactGrid -> ComicCompactCard(
+                            card = card,
+                            onOpen = { onOpen(comic) },
+                            onActions = { onActions(comic) },
+                            modifier = itemModifier,
+                        )
+                        LibraryDisplayMode.List -> ComicListRow(
+                            card = card,
+                            onOpen = { onOpen(comic) },
+                            onActions = { onActions(comic) },
+                            modifier = itemModifier,
+                        )
+                    }
                 }
             }
         }
@@ -532,8 +600,9 @@ private fun ContinueReadingShelf(
     recentComics: List<RecentComic>,
     onResume: (LibraryComic) -> Unit,
     onActions: (LibraryComic) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             text = stringResource(R.string.continue_reading),
             style = MaterialTheme.typography.titleMedium,
@@ -670,11 +739,14 @@ private fun ProgressFilterChipRow(
 private fun LibrarySummaryRow(
     count: Int,
     sortOrder: LibrarySortOrder,
+    displayMode: LibraryDisplayMode,
     extraFiltersActive: Boolean,
     onSortOrder: (LibrarySortOrder) -> Unit,
+    onDisplayMode: (LibraryDisplayMode) -> Unit,
     onShowFilters: () -> Unit,
 ) {
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var viewMenuExpanded by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = pluralStringResource(R.plurals.library_comic_count, count, count),
@@ -705,6 +777,28 @@ private fun LibrarySummaryRow(
                 }
             }
         }
+        Box {
+            IconButton(onClick = { viewMenuExpanded = true }) {
+                Icon(displayMode.icon(), contentDescription = stringResource(R.string.library_view_title))
+            }
+            DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }) {
+                LibraryDisplayMode.entries.forEach { mode ->
+                    DropdownMenuItem(
+                        text = { Text(stringResource(mode.labelRes())) },
+                        leadingIcon = { Icon(mode.icon(), contentDescription = null) },
+                        trailingIcon = if (mode == displayMode) {
+                            { Icon(Icons.Filled.Check, contentDescription = null) }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            viewMenuExpanded = false
+                            onDisplayMode(mode)
+                        },
+                    )
+                }
+            }
+        }
         IconButton(onClick = onShowFilters) {
             BadgedBox(badge = { if (extraFiltersActive) Badge() }) {
                 Icon(Icons.Filled.Tune, contentDescription = stringResource(R.string.library_filters_title))
@@ -713,90 +807,279 @@ private fun LibrarySummaryRow(
     }
 }
 
+private class ComicCardState(
+    val comic: LibraryComic,
+    val recentComic: RecentComic?,
+    val favorite: Boolean,
+    val isNew: Boolean,
+    val pageCount: Int?,
+    val progress: Float?,
+) {
+    val completed: Boolean
+        get() = progress != null && progress >= 1f
+
+    val inProgress: Boolean
+        get() = progress != null && !completed
+}
+
+@Composable
+private fun ComicCardState.metaText(): String {
+    val recent = recentComic
+    return when {
+        completed -> stringResource(R.string.library_filter_completed)
+        inProgress && recent != null -> stringResource(
+            R.string.page_progress_spaced,
+            coercePageIndex(recent.lastPageIndex, recent.pageCount) + 1,
+            recent.pageCount,
+        )
+        pageCount != null -> pluralStringResource(R.plurals.comic_pages, pageCount, pageCount)
+        else -> comic.displayName
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryGridCard(
-    comic: LibraryComic,
-    favorite: Boolean,
-    pageCount: Int?,
-    progress: Float?,
-    onOpen: () -> Unit,
-    onActions: () -> Unit,
-) {
+private fun Modifier.comicClickable(
+    interactionSource: MutableInteractionSource,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+): Modifier {
     val haptics = LocalHapticFeedback.current
-    val completed = progress != null && progress >= 1f
-    Column(
-        modifier = Modifier.combinedClickable(
-            onClick = onOpen,
-            onLongClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onActions()
-            },
-            onLongClickLabel = stringResource(R.string.more_options),
-        ),
+    return softPress(interactionSource).combinedClickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onClick = onClick,
+        onLongClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onLongClick()
+        },
+        onLongClickLabel = stringResource(R.string.more_options),
+    )
+}
+
+/** Cover at comic proportions with New, favorite, finished and progress overlays. */
+@Composable
+private fun ComicCoverArt(
+    card: ComicCardState,
+    modifier: Modifier = Modifier,
+    showBadges: Boolean = true,
+    overlay: @Composable BoxScope.() -> Unit = {},
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(CoverAspectRatio)
+            .shadow(elevation = 3.dp, shape = CoverShape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, CoverShape)
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), CoverShape)
+            .clip(CoverShape),
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.72f),
-            shape = CoverShape,
-            color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        ) {
-            Box {
-                LibraryComicCover(libraryComic = comic)
-                if (completed) {
-                    CoverBadge(
-                        icon = Icons.Filled.CheckCircle,
+        LibraryComicCover(libraryComic = card.comic)
+        overlay()
+        if (showBadges) {
+            if (card.isNew) {
+                NewBadge(modifier = Modifier.align(Alignment.TopStart).padding(6.dp))
+            }
+            Column(
+                modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (card.completed) {
+                    CoverIconBadge(
+                        icon = Icons.Filled.Check,
                         contentDescription = stringResource(R.string.library_filter_completed),
-                        modifier = Modifier.align(Alignment.TopEnd),
+                        emphasized = true,
                     )
                 }
-                if (favorite) {
-                    CoverBadge(
+                if (card.favorite) {
+                    CoverIconBadge(
                         icon = Icons.Filled.Bookmark,
                         contentDescription = stringResource(R.string.library_filter_favorites),
-                        modifier = Modifier.align(Alignment.BottomEnd),
                     )
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = comic.title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = pageCount?.let { pluralStringResource(R.plurals.comic_pages, it, it) } ?: comic.displayName,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (progress != null && !completed) {
-            Spacer(Modifier.height(6.dp))
-            LibraryProgressLine(progress = progress)
+        if (card.inProgress) {
+            LinearProgressIndicator(
+                progress = { card.progress ?: 0f },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = Color.Black.copy(alpha = 0.45f),
+                strokeCap = StrokeCap.Butt,
+                gapSize = 0.dp,
+                drawStopIndicator = {},
+            )
         }
     }
 }
 
 @Composable
-private fun CoverBadge(
-    icon: ImageVector,
-    contentDescription: String,
-    modifier: Modifier = Modifier,
-) {
+private fun NewBadge(modifier: Modifier = Modifier) {
     Surface(
-        modifier = modifier.padding(6.dp),
-        shape = CircleShape,
+        modifier = modifier,
+        shape = RoundedCornerShape(6.dp),
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
-        shadowElevation = 2.dp,
     ) {
-        Icon(icon, contentDescription, modifier = Modifier.padding(4.dp).size(16.dp))
+        Text(
+            text = stringResource(R.string.library_badge_new),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun CoverIconBadge(
+    icon: ImageVector,
+    contentDescription: String,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        shape = CircleShape,
+        color = if (emphasized) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.55f),
+        contentColor = if (emphasized) MaterialTheme.colorScheme.onPrimary else Color.White,
+    ) {
+        Icon(icon, contentDescription, modifier = Modifier.padding(4.dp).size(14.dp))
+    }
+}
+
+@Composable
+private fun ComicGridCard(
+    card: ComicCardState,
+    onOpen: () -> Unit,
+    onActions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(modifier = modifier.comicClickable(interactionSource, onOpen, onActions)) {
+        ComicCoverArt(card = card)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = card.comic.title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = card.metaText(),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (card.completed || card.inProgress) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun ComicCompactCard(
+    card: ComicCardState,
+    onOpen: () -> Unit,
+    onActions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    ComicCoverArt(
+        card = card,
+        modifier = modifier.comicClickable(interactionSource, onOpen, onActions),
+        overlay = {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.5f)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))),
+            )
+            Text(
+                text = card.comic.title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 7.dp, end = 7.dp, bottom = 9.dp),
+            )
+        },
+    )
+}
+
+@Composable
+private fun ComicListRow(
+    card: ComicCardState,
+    onOpen: () -> Unit,
+    onActions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    Surface(
+        modifier = modifier.comicClickable(interactionSource, onOpen, onActions),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ComicCoverArt(card = card, modifier = Modifier.width(58.dp), showBadges = false)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = card.comic.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (card.isNew) NewBadge()
+                }
+                Text(
+                    text = card.metaText(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (card.inProgress) {
+                    LibraryProgressLine(progress = card.progress ?: 0f)
+                }
+            }
+            if (card.favorite) {
+                Icon(
+                    imageVector = Icons.Filled.Bookmark,
+                    contentDescription = stringResource(R.string.library_filter_favorites),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            if (card.completed) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = stringResource(R.string.library_filter_completed),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
     }
 }
 
@@ -1151,4 +1434,16 @@ private fun LibraryFilter.labelRes(): Int = when (this) {
     LibraryFilter.All -> R.string.library_filter_all
     LibraryFilter.Archives -> R.string.library_filter_archives
     LibraryFilter.Folders -> R.string.library_filter_folders
+}
+
+private fun LibraryDisplayMode.labelRes(): Int = when (this) {
+    LibraryDisplayMode.Grid -> R.string.library_view_grid
+    LibraryDisplayMode.CompactGrid -> R.string.library_view_compact
+    LibraryDisplayMode.List -> R.string.library_view_list
+}
+
+private fun LibraryDisplayMode.icon(): ImageVector = when (this) {
+    LibraryDisplayMode.Grid -> Icons.Filled.GridView
+    LibraryDisplayMode.CompactGrid -> Icons.Filled.ViewComfy
+    LibraryDisplayMode.List -> Icons.AutoMirrored.Filled.ViewList
 }

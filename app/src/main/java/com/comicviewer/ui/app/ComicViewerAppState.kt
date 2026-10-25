@@ -294,12 +294,15 @@ class ComicViewerAppState(
     }
 
     fun readLibraryComic(libraryComic: LibraryComic) {
+        readLibraryComicAt(libraryComic, libraryComic.matchingRecentComic(recentComics)?.lastPageIndex ?: 0)
+    }
+
+    fun readLibraryComicAt(libraryComic: LibraryComic, pageIndex: Int) {
         selectedComicDetails = ComicDetailsTarget.Library(libraryComic)
-        val recentComic = libraryComic.matchingRecentComic(recentComics)
         startComicLoad(
             loading = ReaderUiState.Loading(
                 source = libraryComic.toComicSource(),
-                pageIndex = recentComic?.lastPageIndex ?: 0,
+                pageIndex = pageIndex.coerceAtLeast(0),
             ),
         )
     }

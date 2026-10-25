@@ -176,6 +176,22 @@
         <item quantity="other">%1$d comics</item>
     </plurals>
     <string name="remove_from_library_action">Remove from library</string>
+    <string name="library_view_title">Layout</string>
+    <string name="library_view_grid">Grid</string>
+    <string name="library_view_compact">Compact grid</string>
+    <string name="library_view_list">List</string>
+    <string name="library_badge_new">New</string>
+    <string name="continue_reading_page">Continue · page %1$d</string>
+    <string name="read_again">Read again</string>
+    <string name="comic_finished">Finished</string>
+    <string name="comic_finished_on">Finished on %1$s</string>
+    <string name="comic_pages_section">Pages</string>
+    <string name="comic_summary_section">Summary</string>
+    <string name="comic_series">Series</string>
+    <string name="comic_series_issue">%1$s #%2$s</string>
+    <string name="comic_file">File</string>
+    <string name="comic_added">Added</string>
+    <string name="show_more">Show more</string>
     <string name="mark_as_read">Mark as read</string>
     <string name="mark_as_unread">Mark as unread</string>
     <string name="comic_details_action">Details</string>

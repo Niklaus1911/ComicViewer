@@ -1,6 +1,7 @@
 package com.comicviewer
 
 private const val MAX_CONTINUE_READING_ITEMS = 12
+private const val NEW_COMIC_WINDOW_MS = 7L * 24L * 60L * 60L * 1000L
 
 /**
  * Pure, UI-agnostic view logic for the Library tab: how the persisted [LibraryComic] list is
@@ -155,3 +156,11 @@ fun continueReadingComics(
         .sortedByDescending { (_, lastOpenedAt) -> lastOpenedAt }
         .take(maxItems)
         .map { (comic, _) -> comic }
+
+/** Added in the last week and never opened: shown with a New badge in the library. */
+fun isNewLibraryComic(
+    comic: LibraryComic,
+    recentComics: List<RecentComic>,
+    nowMs: Long,
+): Boolean =
+    comic.matchingRecentComic(recentComics) == null && nowMs - comic.addedAt in 0L..NEW_COMIC_WINDOW_MS

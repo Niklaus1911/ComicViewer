@@ -3,6 +3,11 @@ package com.comicviewer.ui.library
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -78,6 +83,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.comicviewer.R
 import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryComic
@@ -422,20 +429,29 @@ fun LibraryComicCover(
 ) {
     val context = LocalContext.current
     var thumbnailUri by remember(libraryComic) { mutableStateOf<Uri?>(null) }
+    var loading by remember(libraryComic) { mutableStateOf(true) }
 
     LaunchedEffect(libraryComic) {
         thumbnailUri = loadLibraryComicThumbnailUri(context.applicationContext, libraryComic)
+        loading = false
     }
 
-    if (thumbnailUri != null) {
-        Image(
-            painter = rememberAsyncImagePainter(model = thumbnailUri),
+    val uri = thumbnailUri
+    when {
+        uri != null -> Image(
+            painter = rememberAsyncImagePainter(
+                model = remember(uri) {
+                    ImageRequest.Builder(context).data(uri).crossfade(true).build()
+                },
+            ),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = modifier.fillMaxSize(),
         )
-    } else {
-        Box(
+
+        loading -> CoverLoadingPlaceholder(modifier = modifier.fillMaxSize())
+
+        else -> Box(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
@@ -447,4 +463,22 @@ fun LibraryComicCover(
             )
         }
     }
+}
+
+/** Gentle pulse while a cover thumbnail is generated, so empty tiles read as loading. */
+@Composable
+private fun CoverLoadingPlaceholder(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "coverPlaceholder")
+    val alpha by transition.animateFloat(
+        initialValue = 0.04f,
+        targetValue = 0.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "coverPlaceholderAlpha",
+    )
+    Box(
+        modifier = modifier.background(MaterialTheme.colorScheme.onSurface.copy(alpha = alpha)),
+    )
 }

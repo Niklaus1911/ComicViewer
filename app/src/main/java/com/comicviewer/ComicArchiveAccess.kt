@@ -12,6 +12,8 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal const val MAX_COMIC_ARCHIVE_ENTRIES = 100_000
 internal const val MAX_ARCHIVE_PAGE_BYTES = 256L * 1024L * 1024L
@@ -343,18 +345,71 @@ internal fun ZipArchiveReader.scanComicPages(
 internal fun ZipArchiveReader.firstComicPageEntry(
     maxPageBytes: Long,
     shouldContinue: () -> Boolean = { true },
-): ZipArchiveEntry? = entries
-    .filter { entry ->
-        !entry.isDirectory &&
-            entry.size in 1L..maxPageBytes &&
-            !isHiddenComicPath(entry.name) &&
-            !entry.isComicInfo()
-    }
-    .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
-    .firstOrNull { entry ->
+): ZipArchiveEntry? = firstComicPages(count = 1, maxPageBytes = maxPageBytes, shouldContinue = shouldContinue)
+    .firstOrNull()
+
+/**
+ * The first [count] pages in reading order, in the same order [scanComicPages] produces, but only
+ * checking entries until enough valid images are found.
+ */
+internal fun ZipArchiveReader.firstComicPages(
+    count: Int,
+    maxPageBytes: Long = MAX_ARCHIVE_PAGE_BYTES,
+    shouldContinue: () -> Boolean = { true },
+): List<ZipArchiveEntry> {
+    if (count <= 0) return emptyList()
+    val pages = ArrayList<ZipArchiveEntry>(count)
+    val candidates = entries
+        .filter { entry ->
+            !entry.isDirectory &&
+                entry.size in 1L..maxPageBytes &&
+                !isHiddenComicPath(entry.name) &&
+                !entry.isComicInfo()
+        }
+        .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
+    for (entry in candidates) {
         if (!shouldContinue()) throw CancellationException()
-        sniffImageFormat(entry) != null
+        if (sniffImageFormat(entry) != null) pages += entry
+        if (pages.size == count) break
     }
+    return pages
+}
+
+/**
+ * Image URIs for the first [maxPages] pages of a comic, for preview strips. Archives that can only
+ * be streamed return nothing rather than being copied just for previews.
+ */
+suspend fun loadComicPagePreviews(
+    context: Context,
+    sourceType: RecentComicSourceType,
+    path: String,
+    maxPages: Int,
+): List<Uri> = withContext(Dispatchers.IO) {
+    try {
+        when (sourceType) {
+            RecentComicSourceType.LocalArchive -> {
+                val location = ComicArchiveLocation.LocalFile(path)
+                openLocalComicArchive(File(path)).use { archive ->
+                    archive.reader.firstComicPages(maxPages).map { comicArchivePageUri(location, it) }
+                }
+            }
+            RecentComicSourceType.DocumentArchive -> {
+                val uri = Uri.parse(path)
+                val location = ComicArchiveLocation.Document(uri)
+                openSeekableDocumentComicArchive(context, uri)?.use { archive ->
+                    archive.reader.firstComicPages(maxPages).map { comicArchivePageUri(location, it) }
+                }.orEmpty()
+            }
+            RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(path)).pages.take(maxPages).map { it.imageUri }
+            RecentComicSourceType.DocumentFolder ->
+                loadFolderComic(context, Uri.parse(path)).pages.take(maxPages).map { it.imageUri }
+        }
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
 
 /** Whether any of the first [maxVisitedEntries] entries, in archive order, is a supported image. */
 internal fun ZipArchiveReader.containsComicImage(maxVisitedEntries: Int): Boolean {

@@ -20,6 +20,12 @@ enum class AppThemeMode(val preferenceValue: String) {
     Dark("dark"),
 }
 
+enum class LibraryDisplayMode(val preferenceValue: String) {
+    Grid("grid"),
+    CompactGrid("compact_grid"),
+    List("list"),
+}
+
 enum class ReaderReadingDirection(val preferenceValue: String) {
     LeftToRight("left_to_right"),
     RightToLeft("right_to_left"),
@@ -86,6 +92,7 @@ private const val AUTO_SCAN_LIBRARY_KEY = "auto_scan_library"
 private const val LAST_AUTO_SCAN_AT_KEY = "last_auto_scan_at"
 private const val AUTO_DELETE_TEMP_FILES_KEY = "auto_delete_temp_files"
 private const val DEBUG_PRO_UNLOCK_KEY = "debug_pro_unlock"
+private const val LIBRARY_DISPLAY_MODE_KEY = "library_display_mode"
 
 fun loadAppLanguage(context: Context): AppLanguage {
     val value = appPreferences(context).getString(LANGUAGE_KEY, AppLanguage.System.preferenceValue)
@@ -118,6 +125,18 @@ fun saveThemeMode(context: Context, mode: AppThemeMode) {
     appPreferences(context)
         .edit()
         .putString(THEME_MODE_KEY, mode.preferenceValue)
+        .apply()
+}
+
+fun loadLibraryDisplayMode(context: Context): LibraryDisplayMode {
+    val value = appPreferences(context).getString(LIBRARY_DISPLAY_MODE_KEY, LibraryDisplayMode.Grid.preferenceValue)
+    return LibraryDisplayMode.entries.firstOrNull { it.preferenceValue == value } ?: LibraryDisplayMode.Grid
+}
+
+fun saveLibraryDisplayMode(context: Context, mode: LibraryDisplayMode) {
+    appPreferences(context)
+        .edit()
+        .putString(LIBRARY_DISPLAY_MODE_KEY, mode.preferenceValue)
         .apply()
 }
 

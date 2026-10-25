@@ -9,7 +9,7 @@ This is a single-module Android app in `app/` (namespace and Play application ID
 - `billing/`: the Pro in-app purchase flow (`ProBillingRepository`, `ProPurchaseAcknowledgeWorker`).
 - `ui/`: Compose UI by feature: `app` (root scaffold, the Library, History and Settings tabs, app state), `library` (library home with search and the Add sheet, comic details), `reader` (paged and vertical readers sharing `ReaderChrome`), `browser` (import file browsers), `history`, `settings`, `welcome`, plus shared `common` components and `theme`. `MainActivity.kt` is the entry point; `ComicViewerApplication` registers the archive page fetcher with Coil.
 
-Unit tests are in `app/src/test/` (currently all in `ExampleUnitTest.kt`), instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play. `new-gui-images/` contains early visual references; `play-store-dashboard-assets/` contains upload-ready store artwork, the current screenshots and the icon sources.
+Unit tests are in `app/src/test/`, one class per area (`ComicArchiveTest`, `LibraryScanTest`, `ReaderGestureTest`, ...) with shared fixtures in `TestFixtures.kt`; instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play. `new-gui-images/` contains early visual references; `play-store-dashboard-assets/` contains upload-ready store artwork, the current screenshots and the icon sources.
 
 ## Toolchain
 

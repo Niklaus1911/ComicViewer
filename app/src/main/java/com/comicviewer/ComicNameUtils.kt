@@ -15,9 +15,6 @@ fun isSupportedImageName(name: String): Boolean =
 fun compareComicPageNames(left: String, right: String): Int =
     NaturalComicNameComparator.compare(left, right)
 
-fun sortComicPaths(paths: List<String>): List<String> =
-    paths.sortedWith { left, right -> compareComicPageNames(left, right) }
-
 fun coercePageIndex(index: Int, pageCount: Int): Int =
     if (pageCount <= 0) 0 else index.coerceIn(0, pageCount - 1)
 

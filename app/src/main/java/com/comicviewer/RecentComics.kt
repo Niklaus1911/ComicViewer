@@ -159,12 +159,6 @@ fun removeRecentComic(
 ): List<RecentComic> =
     recentComics.filterNot { comic -> comic.sourceType == sourceType && comic.path == path }
 
-fun removeUnreadableRecentComics(
-    recentComics: List<RecentComic>,
-    canRead: (RecentComic) -> Boolean,
-): List<RecentComic> =
-    recentComics.filter(canRead)
-
 fun RecentComic.isReadableOnDisk(): Boolean {
     val file = File(path)
     return when (sourceType) {

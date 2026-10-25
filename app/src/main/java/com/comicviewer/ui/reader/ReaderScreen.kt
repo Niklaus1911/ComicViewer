@@ -198,19 +198,6 @@ internal fun readerSpreadPageIndices(pageIndex: Int, pageCount: Int): List<Int> 
     return listOfNotNull(start, (start + 1).takeIf { it < pageCount })
 }
 
-internal fun readerSpreadVisualPageIndices(
-    pageIndex: Int,
-    pageCount: Int,
-    readingDirection: ReaderReadingDirection,
-): List<Int> {
-    val indices = readerSpreadPageIndices(pageIndex, pageCount)
-    return if (readingDirection == ReaderReadingDirection.RightToLeft && indices.size > 1) {
-        indices.reversed()
-    } else {
-        indices
-    }
-}
-
 internal fun readerSpreadTargetIndex(
     currentPageIndex: Int,
     pageCount: Int,
@@ -398,12 +385,6 @@ internal fun readerSwipeStartOffset(
     direction: ReaderSwipeDirection,
 ): Float =
     if (readerSwipeDirectionForOffset(currentOffsetX) == direction) currentOffsetX else 0f
-
-internal fun readerSwipeAdjacentDirection(
-    activeSwipeDirection: ReaderSwipeDirection?,
-    offsetX: Float,
-): ReaderSwipeDirection? =
-    activeSwipeDirection ?: readerSwipeDirectionForOffset(offsetX)
 
 private fun adjacentPageTranslationX(
     offsetX: Float,

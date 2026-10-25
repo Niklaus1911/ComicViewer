@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import com.comicviewer.TAP_THROTTLE_MS
+import com.comicviewer.shouldAcceptThrottledAction
 
 private const val SOFT_ANIMATION_DURATION_MS = 180
 
@@ -41,7 +42,7 @@ fun rememberThrottledAction(
     return remember(throttleMs, action) {
         {
             val now = System.currentTimeMillis()
-            if (now - lastClickAt >= throttleMs) {
+            if (shouldAcceptThrottledAction(nowMs = now, lastAcceptedAtMs = lastClickAt, throttleMs = throttleMs)) {
                 lastClickAt = now
                 action()
             }
@@ -58,7 +59,7 @@ fun rememberThrottledPageAction(
     return remember(throttleMs, action) {
         { value ->
             val now = System.currentTimeMillis()
-            if (now - lastClickAt >= throttleMs) {
+            if (shouldAcceptThrottledAction(nowMs = now, lastAcceptedAtMs = lastClickAt, throttleMs = throttleMs)) {
                 lastClickAt = now
                 action(value)
             }

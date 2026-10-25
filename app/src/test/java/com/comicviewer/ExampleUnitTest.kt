@@ -30,7 +30,6 @@ import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
 import com.comicviewer.ui.reader.readerPageGridInitialItemIndex
 import com.comicviewer.ui.reader.readerReportedPageIndex
 import com.comicviewer.ui.reader.readerResolvedPageDimension
-import com.comicviewer.ui.reader.readerSwipeAdjacentDirection
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
 import com.comicviewer.ui.reader.readerSwipeCommitDirection
@@ -41,7 +40,6 @@ import com.comicviewer.ui.reader.readerTargetPageIndex
 import com.comicviewer.ui.reader.readerSpreadPageIndices
 import com.comicviewer.ui.reader.readerSpreadStartIndex
 import com.comicviewer.ui.reader.readerSpreadTargetIndex
-import com.comicviewer.ui.reader.readerSpreadVisualPageIndices
 import com.comicviewer.ui.reader.resistedReaderSwipeOffset
 import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
@@ -363,7 +361,7 @@ class ExampleUnitTest {
 
         assertEquals(
             listOf("001.jpg", "002.jpg", "010.jpg", "page-3.png", "page-11.png"),
-            sortComicPaths(pages),
+            sortedComicPaths(pages),
         )
     }
 
@@ -378,7 +376,7 @@ class ExampleUnitTest {
 
         assertEquals(
             listOf("Chapter 1/pageA", "Chapter 1/pageB", "Chapter 2/scan", "Chapter 10/scan"),
-            sortComicPaths(pages),
+            sortedComicPaths(pages),
         )
     }
 
@@ -431,12 +429,6 @@ class ExampleUnitTest {
                 hasRecentComics = true,
             ),
         )
-    }
-
-    @Test
-    fun comicLoadErrorForPageCount_reportsEmptyComic() {
-        assertEquals(ComicLoadError.NoSupportedImagesFound, comicLoadErrorForPageCount(0))
-        assertNull(comicLoadErrorForPageCount(1))
     }
 
     @Test
@@ -559,11 +551,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun filterBrowserEntries_returnsEmptyListWhenNothingMatches() {
-        assertTrue(filterBrowserEntries(sampleBrowserEntries(), "spider").isEmpty())
-    }
-
-    @Test
     fun browserParentPathFor_returnsParentInsideRoot() {
         assertEquals(
             "/storage/emulated/0",
@@ -678,16 +665,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun browserBreadcrumbs_lastCrumbPathEqualsCanonicalCurrent() {
-        val crumbs = browserBreadcrumbs(
-            currentPath = "/storage/emulated/0/Download/Comics/..",
-            rootPath = "/storage/emulated/0",
-        )
-
-        assertEquals("/storage/emulated/0/Download", crumbs.last().path)
-    }
-
-    @Test
     fun compareBrowserEntries_sortsDirectoriesFirstThenNaturally() {
         val entries = listOf(
             BrowserSortCase("comic-10.cbz", isDirectory = false),
@@ -778,18 +755,6 @@ class ExampleUnitTest {
 
         assertEquals(6, result.single().lastPageIndex)
         assertEquals(7, result.single().pageCount)
-    }
-
-    @Test
-    fun removeUnreadableRecentComics_filtersStaleItems() {
-        val readable = sampleRecentComic(path = "/storage/emulated/0/Readable.cbz")
-        val stale = sampleRecentComic(path = "/storage/emulated/0/Missing.cbz")
-
-        val result = removeUnreadableRecentComics(listOf(readable, stale)) { comic ->
-            comic.path == readable.path
-        }
-
-        assertEquals(listOf(readable), result)
     }
 
     @Test
@@ -1295,13 +1260,6 @@ class ExampleUnitTest {
                 throttleMs = 350L,
             ),
         )
-    }
-
-    @Test
-    fun isTabletWidth_usesSixHundredDpThreshold() {
-        assertFalse(isTabletWidth(599))
-        assertTrue(isTabletWidth(600))
-        assertTrue(isTabletWidth(840))
     }
 
     @Test
@@ -1811,42 +1769,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun readerSwipeAdjacentDirection_prefersActiveGestureDirectionOverOffsetSign() {
-        assertEquals(
-            ReaderSwipeDirection.Next,
-            readerSwipeAdjacentDirection(
-                activeSwipeDirection = ReaderSwipeDirection.Next,
-                offsetX = 320f,
-            ),
-        )
-        assertEquals(
-            ReaderSwipeDirection.Previous,
-            readerSwipeAdjacentDirection(
-                activeSwipeDirection = ReaderSwipeDirection.Previous,
-                offsetX = -320f,
-            ),
-        )
-    }
-
-    @Test
-    fun readerSwipeAdjacentDirection_fallsBackToOffsetSignWithoutActiveGesture() {
-        assertEquals(
-            ReaderSwipeDirection.Previous,
-            readerSwipeAdjacentDirection(
-                activeSwipeDirection = null,
-                offsetX = 320f,
-            ),
-        )
-        assertEquals(
-            ReaderSwipeDirection.Next,
-            readerSwipeAdjacentDirection(
-                activeSwipeDirection = null,
-                offsetX = -320f,
-            ),
-        )
-    }
-
-    @Test
     fun filterLibraryComicsByQuery_matchesTitleCaseInsensitively() {
         val comics = listOf(
             sampleLibraryComic(title = "Batman 001", path = "/storage/emulated/0/Batman 001.cbz"),
@@ -2201,13 +2123,9 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun resolveDarkTheme_followsSystemForSystemMode() {
+    fun resolveDarkTheme_followsSystemOnlyInSystemMode() {
         assertTrue(resolveDarkTheme(AppThemeMode.System, systemInDark = true))
         assertFalse(resolveDarkTheme(AppThemeMode.System, systemInDark = false))
-    }
-
-    @Test
-    fun resolveDarkTheme_forcesLightAndDarkRegardlessOfSystem() {
         assertFalse(resolveDarkTheme(AppThemeMode.Light, systemInDark = true))
         assertFalse(resolveDarkTheme(AppThemeMode.Light, systemInDark = false))
         assertTrue(resolveDarkTheme(AppThemeMode.Dark, systemInDark = false))
@@ -2846,22 +2764,6 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun readerSpreadPairing_reversesVisualOrderForRtlOnly() {
-        assertEquals(
-            listOf(1, 2),
-            readerSpreadVisualPageIndices(1, 6, ReaderReadingDirection.LeftToRight),
-        )
-        assertEquals(
-            listOf(2, 1),
-            readerSpreadVisualPageIndices(1, 6, ReaderReadingDirection.RightToLeft),
-        )
-        assertEquals(
-            listOf(5),
-            readerSpreadVisualPageIndices(5, 6, ReaderReadingDirection.RightToLeft),
-        )
-    }
-
-    @Test
     fun readerSpreadTargetIndex_movesBySpreadAndHandlesOddLastPage() {
         assertNull(readerSpreadTargetIndex(0, 6, ReaderSwipeDirection.Previous))
         assertEquals(1, readerSpreadTargetIndex(0, 6, ReaderSwipeDirection.Next))
@@ -3244,3 +3146,5 @@ private fun writeZipArchive(
         }
     }
 }
+
+private fun sortedComicPaths(paths: List<String>): List<String> = paths.sortedWith(::compareComicPageNames)

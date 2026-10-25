@@ -51,6 +51,10 @@ internal class OpenedComicArchive(
     val reader: ZipArchiveReader,
     private val stream: FileInputStream,
 ) : Closeable {
+    /** False once the file channel was closed, including by an interrupted read on another thread. */
+    val isOpen: Boolean
+        get() = stream.channel.isOpen
+
     override fun close() = stream.close()
 }
 
@@ -169,6 +173,8 @@ private fun sha256Hex(value: String): String =
 internal open class ComicSourceSessions<T : Closeable>(
     private val maxOpenSources: Int,
     private val openSource: (Context, ComicArchiveLocation, () -> Boolean) -> T,
+    /** A session whose source can no longer be read is replaced instead of failing every later page. */
+    private val isUsable: (T) -> Boolean = { true },
 ) {
     private val sessions = LinkedHashMap<String, Session<T>>(maxOpenSources + 1, 0.75f, true)
 
@@ -203,14 +209,14 @@ internal open class ComicSourceSessions<T : Closeable>(
         synchronized(this) {
             val existing = sessions[location.key]
             if (existing != null) {
-                if (!reopen) return leaseLocked(existing)
+                if (!reopen && isUsable(existing.source)) return leaseLocked(existing)
                 retireLocked(existing)
             }
         }
         val source = openSource(context, location, shouldContinue)
         synchronized(this) {
             val existing = sessions[location.key]
-            if (existing != null && !reopen) {
+            if (existing != null && !reopen && isUsable(existing.source)) {
                 source.close()
                 return leaseLocked(existing)
             }
@@ -224,7 +230,7 @@ internal open class ComicSourceSessions<T : Closeable>(
      */
     fun adopt(location: ComicArchiveLocation, source: T): Lease = synchronized(this) {
         val existing = sessions[location.key]
-        if (existing != null) {
+        if (existing != null && isUsable(existing.source)) {
             source.close()
             return leaseLocked(existing)
         }

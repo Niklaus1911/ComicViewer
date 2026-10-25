@@ -14,11 +14,18 @@ private const val MAX_OPEN_COMIC_FILES = 2
  * decided in one place and a picked document is opened only once.
  */
 internal sealed interface OpenedComicFile : Closeable {
+    val isOpen: Boolean
+
     class Zip(val archive: OpenedComicArchive) : OpenedComicFile {
+        override val isOpen: Boolean
+            get() = archive.isOpen
+
         override fun close() = archive.close()
     }
 
     class Pdf(val pdf: OpenedComicPdf) : OpenedComicFile {
+        override val isOpen: Boolean = true
+
         override fun close() = pdf.close()
     }
 }
@@ -77,6 +84,7 @@ private fun openComicFileForReading(
 internal object ComicFileSessions : ComicSourceSessions<OpenedComicFile>(
     maxOpenSources = MAX_OPEN_COMIC_FILES,
     openSource = ::openComicFileForReading,
+    isUsable = OpenedComicFile::isOpen,
 )
 
 /** Image URIs for the first [maxPages] pages, for preview strips. */

@@ -461,20 +461,17 @@ internal fun PagedComicReader(
         }
     }
 
-    // While a sharper copy of a page loads, the copy already shown stands in for it, so the page
-    // neither blinks nor changes size.
-    val displayedPainter = if (painterState is AsyncImagePainter.State.Success) {
-        painter
-    } else {
-        lastSuccessfulPainter?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }?.painter
-    }
-    val displayedSecondPainter = if (secondPainterState is AsyncImagePainter.State.Success) {
-        secondPainter
-    } else {
-        lastSuccessfulSecondPainter
+    // The decoded image is drawn rather than Coil's painter: when a sharper copy is requested, that
+    // painter goes blank a frame before its state says so, which made the page flash. While the
+    // sharper copy loads, the one already shown stands in for it.
+    val displayedPainter = (painterState as? AsyncImagePainter.State.Success)?.painter
+        ?: lastSuccessfulPainter
+            ?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }
+            ?.painter
+    val displayedSecondPainter = (secondPainterState as? AsyncImagePainter.State.Success)?.painter
+        ?: lastSuccessfulSecondPainter
             ?.takeIf { remembered -> remembered.imageUri == secondSpreadPage?.imageUri?.toString() }
             ?.painter
-    }
     val primaryIntrinsicSize = displayedPainter?.intrinsicSize ?: Size.Unspecified
     val secondaryIntrinsicSize = displayedSecondPainter?.intrinsicSize ?: Size.Unspecified
     val primaryPageWidth = readerResolvedPageDimension(visualPage.width, primaryIntrinsicSize.width)
@@ -531,6 +528,9 @@ internal fun PagedComicReader(
         userScale = pageScale,
     )
     val currentHorizontalSwipeEnabled = rememberUpdatedState(horizontalSwipeEnabled)
+    // A sharper copy of the page arriving mid-pinch changes its pixel size. The gesture reads the size
+    // live instead of restarting, which would cut the pinch off.
+    val currentLayoutPageSize by rememberUpdatedState(IntSize(layoutPageWidth, layoutPageHeight))
 
     LaunchedEffect(
         visualPage.imageUri,
@@ -570,8 +570,6 @@ internal fun PagedComicReader(
                     visualPage.imageUri,
                     secondSpreadPage?.imageUri,
                     viewportSize,
-                    layoutPageWidth,
-                    layoutPageHeight,
                     activeReaderPreferences.readingDirection,
                     activeReaderPreferences.pageFitMode,
                     activeReaderPreferences.pageMode,
@@ -624,12 +622,12 @@ internal fun PagedComicReader(
 
                         pageScale = nextScale
                         pageOffset = nextOffset.clampedFor(
-                            pageWidth = layoutPageWidth,
-                            pageHeight = layoutPageHeight,
+                            pageWidth = currentLayoutPageSize.width,
+                            pageHeight = currentLayoutPageSize.height,
                             scale = readerEffectivePageScale(
                                 pageFitMode = activeReaderPreferences.pageFitMode,
-                                pageWidth = layoutPageWidth,
-                                pageHeight = layoutPageHeight,
+                                pageWidth = currentLayoutPageSize.width,
+                                pageHeight = currentLayoutPageSize.height,
                                 viewportWidth = viewportSize.width,
                                 viewportHeight = viewportSize.height,
                                 userScale = nextScale,

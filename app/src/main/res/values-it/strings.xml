@@ -31,6 +31,9 @@
     <string name="reader_page_grid">Miniature pagine</string>
     <string name="reader_page_grid_expand">Mostra le miniature a schermo intero</string>
     <string name="reader_page_grid_collapse">Riporta le miniature nel pannello</string>
+    <string name="reader_page_description">Pagina %1$d di %2$d</string>
+    <string name="reader_page_number_description">Pagina %1$d</string>
+    <string name="reader_current_page">Pagina corrente</string>
     <string name="reader_previous_page">Pagina precedente</string>
     <string name="reader_next_page">Pagina successiva</string>
     <string name="reader_toggle_controls">Mostra o nascondi i controlli</string>

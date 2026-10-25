@@ -81,6 +81,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -315,6 +317,7 @@ fun ComicDetailsScreen(
                         DetailsSectionTitle(stringResource(R.string.comic_pages_section))
                         PagePreviewStrip(
                             pages = pagePreviews,
+                            pageCount = pageCount,
                             currentPageIndex = currentPage?.minus(1),
                             onPageSelected = ::readAt,
                         )
@@ -689,9 +692,11 @@ private fun DetailsSectionTitle(text: String) {
 @Composable
 private fun PagePreviewStrip(
     pages: List<Uri>,
+    pageCount: Int?,
     currentPageIndex: Int?,
     onPageSelected: (Int) -> Unit,
 ) {
+    val currentPageState = stringResource(R.string.reader_current_page)
     LazyRow(
         contentPadding = PaddingValues(horizontal = ReferenceScreenHorizontalPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -704,7 +709,8 @@ private fun PagePreviewStrip(
                 modifier = Modifier
                     .width(86.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .clickable { onPageSelected(index) },
+                    .clickable { onPageSelected(index) }
+                    .semantics { if (current) stateDescription = currentPageState },
             ) {
                 Surface(
                     modifier = Modifier
@@ -720,7 +726,12 @@ private fun PagePreviewStrip(
                 ) {
                     AsyncImage(
                         model = uri,
-                        contentDescription = stringResource(R.string.page_progress, index + 1, pages.size),
+                        // The strip only previews the first pages, so label against the whole comic.
+                        contentDescription = if (pageCount != null) {
+                            stringResource(R.string.reader_page_description, index + 1, pageCount)
+                        } else {
+                            stringResource(R.string.reader_page_number_description, index + 1)
+                        },
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )

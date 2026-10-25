@@ -61,6 +61,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -300,6 +302,7 @@ private fun ReaderPageGridContent(
 ) {
     val context = LocalContext.current
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
+    val currentPageState = stringResource(R.string.reader_current_page)
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
@@ -344,7 +347,11 @@ private fun ReaderPageGridContent(
         ) {
             items(book.pages, key = ComicPage::index) { page ->
                 Column(
-                    modifier = Modifier.clickable { onPageSelected(page.index) },
+                    modifier = Modifier
+                        .clickable { onPageSelected(page.index) }
+                        .semantics {
+                            if (page.index == currentPageIndex) stateDescription = currentPageState
+                        },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Surface(
@@ -364,7 +371,7 @@ private fun ReaderPageGridContent(
                                 model = page.imageRequest(context, book.source),
                                 imageLoader = imageLoader,
                             ),
-                            contentDescription = page.displayName,
+                            contentDescription = page.accessibilityLabel(book.pages.size),
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
                         )

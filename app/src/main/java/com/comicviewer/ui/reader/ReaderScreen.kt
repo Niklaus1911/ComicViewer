@@ -232,6 +232,11 @@ internal fun ComicPage.imageRequest(context: Context, source: ComicSource): Imag
         .build()
 }
 
+/** Screen readers announce a page by its position in the comic, not by its archive file name. */
+@Composable
+internal fun ComicPage.accessibilityLabel(pageCount: Int): String =
+    stringResource(R.string.reader_page_description, index + 1, pageCount)
+
 internal fun ReaderBackground.readerBackgroundColor(): Color = when (this) {
     ReaderBackground.Black -> Color.Black
     ReaderBackground.DarkGray -> Color(0xFF202124)

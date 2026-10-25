@@ -536,8 +536,8 @@ internal fun PagedComicReader(
                     ZoomableSpreadImages(
                         firstPainter = adjacentPainter,
                         secondPainter = adjacentSecondPainter,
-                        firstDescription = targetPage.displayName,
-                        secondDescription = adjacentSecondPage.displayName,
+                        firstDescription = targetPage.accessibilityLabel(book.pages.size),
+                        secondDescription = adjacentSecondPage.accessibilityLabel(book.pages.size),
                         readingDirection = activeReaderPreferences.readingDirection,
                         scale = MIN_PAGE_SCALE,
                         offset = Offset.Zero,
@@ -546,7 +546,7 @@ internal fun PagedComicReader(
                 } else {
                     SwipeTargetPageImage(
                         painter = adjacentPainter,
-                        contentDescription = targetPage.displayName,
+                        contentDescription = targetPage.accessibilityLabel(book.pages.size),
                         translationX = translationX,
                     )
                 }
@@ -561,8 +561,8 @@ internal fun PagedComicReader(
                     ZoomableSpreadImages(
                         firstPainter = pagePainter,
                         secondPainter = secondPainter,
-                        firstDescription = visualPage.displayName,
-                        secondDescription = secondSpreadPage.displayName,
+                        firstDescription = visualPage.accessibilityLabel(book.pages.size),
+                        secondDescription = secondSpreadPage.accessibilityLabel(book.pages.size),
                         readingDirection = activeReaderPreferences.readingDirection,
                         scale = effectivePageScale,
                         offset = pageOffset,
@@ -571,7 +571,7 @@ internal fun PagedComicReader(
                 } else {
                     ZoomablePageImage(
                         painter = pagePainter,
-                        contentDescription = visualPage.displayName,
+                        contentDescription = visualPage.accessibilityLabel(book.pages.size),
                         scale = effectivePageScale,
                         offset = pageOffset,
                         swipeOffsetX = swipeOffsetX,

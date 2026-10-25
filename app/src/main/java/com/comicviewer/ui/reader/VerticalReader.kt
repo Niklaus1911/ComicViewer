@@ -158,7 +158,7 @@ internal fun VerticalComicReader(
                     .padding(horizontal = preferences.marginDp.dp),
             ) {
                 items(book.pages, key = { page -> page.index }) { page ->
-                    VerticalPageImage(page = page, source = book.source, pageWidthPx = pageWidthPx)
+                    VerticalPageImage(page = page, pageCount = pageCount, source = book.source, pageWidthPx = pageWidthPx)
                 }
             }
         }
@@ -199,6 +199,7 @@ internal fun verticalReaderCurrentPage(listState: LazyListState, pageCount: Int)
 @Composable
 private fun VerticalPageImage(
     page: ComicPage,
+    pageCount: Int,
     source: ComicSource,
     pageWidthPx: Int,
 ) {
@@ -219,7 +220,7 @@ private fun VerticalPageImage(
     }
     AsyncImage(
         model = request,
-        contentDescription = page.displayName,
+        contentDescription = page.accessibilityLabel(pageCount),
         contentScale = ContentScale.FillWidth,
         onSuccess = { success ->
             val image = success.result.image

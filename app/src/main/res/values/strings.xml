@@ -30,6 +30,9 @@
     <string name="reader_page_grid">Page thumbnails</string>
     <string name="reader_page_grid_expand">Show thumbnails full screen</string>
     <string name="reader_page_grid_collapse">Return thumbnails to sheet</string>
+    <string name="reader_page_description">Page %1$d of %2$d</string>
+    <string name="reader_page_number_description">Page %1$d</string>
+    <string name="reader_current_page">Current page</string>
     <string name="reader_previous_page">Previous page</string>
     <string name="reader_next_page">Next page</string>
     <string name="reader_toggle_controls">Show or hide controls</string>

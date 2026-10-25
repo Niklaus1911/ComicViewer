@@ -145,6 +145,7 @@ private val COMIC_ARCHIVE_MIME_TYPES = arrayOf(
     "application/x-zip-compressed",
     "application/x-cbz",
     "application/vnd.comicbook+zip",
+    "application/pdf",
     "application/octet-stream",
 )
 

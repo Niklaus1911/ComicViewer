@@ -56,6 +56,14 @@ class FileBrowserTest {
     }
 
     @Test
+    fun browserEntryTypeFor_opensPdfsLikeArchives() {
+        assertEquals(
+            BrowserEntryType.Archive,
+            browserEntryTypeFor(name = "Annual.PDF", isDirectory = false, isImageFile = false),
+        )
+    }
+
+    @Test
     fun browserEntry_canOpen_allowsOnlyDirectoriesAndArchives() {
         assertTrue(
             BrowserEntry(

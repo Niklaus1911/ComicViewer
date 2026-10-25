@@ -322,6 +322,30 @@ class LibraryScanTest {
     }
 
     @Test
+    fun scanLibraryDocumentArchiveTree_findsPdfsOnlyWhenAsked() = runBlocking {
+        val root = archiveDocumentNode("root", "Comics", isDirectory = true)
+        val pdf = archiveDocumentNode("pdf", "Annual.pdf", isFile = true)
+        val archive = archiveDocumentNode("archive", "Issue 1.cbz", isFile = true)
+        val children = mapOf(root.uri to listOf(pdf, archive))
+        val checked = mutableListOf<String>()
+
+        suspend fun scan(includePdfs: Boolean) = scanLibraryDocumentArchiveTree(
+            root = root,
+            includeImageFolders = false,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { node ->
+                checked += node.uri
+                true
+            },
+            includePdfs = includePdfs,
+        )
+
+        assertEquals(listOf("archive"), scan(includePdfs = false).candidates.map { it.uri })
+        assertEquals(listOf("archive"), checked)
+        assertEquals(listOf("pdf", "archive"), scan(includePdfs = true).candidates.map { it.uri })
+    }
+
+    @Test
     fun scanLibraryDocumentArchiveTree_rejectsFilesThatOnlyLookLikeImages() = runBlocking {
         val root = archiveDocumentNode("root", "Primary", isDirectory = true)
         val folder = archiveDocumentNode("folder", "Broken comic", isDirectory = true)

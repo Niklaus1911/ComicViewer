@@ -31,10 +31,10 @@ internal class ComicArchivePageFetcher(
             shouldContinue = { coroutineContext.isActive },
         )
         try {
-            val entry = lease.reader.findEntry(page.entryIndex, page.entryName)
+            val entry = lease.source.reader.findEntry(page.entryIndex, page.entryName)
                 ?: throw FileNotFoundException("Page ${page.entryName} is no longer in the archive.")
             if (entry.size > MAX_ARCHIVE_PAGE_BYTES) throw ComicLoadException(ComicLoadError.ArchivePageTooLarge)
-            val pageSource = object : ForwardingSource(lease.reader.openEntry(entry).source()) {
+            val pageSource = object : ForwardingSource(lease.source.reader.openEntry(entry).source()) {
                 override fun close() {
                     try {
                         super.close()

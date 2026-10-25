@@ -12,8 +12,8 @@
     <string name="history_empty_title">Nessuna cronologia</string>
     <string name="history_empty_message">I fumetti aperti appariranno qui.</string>
     <string name="history_finished_on">Completato il %1$s</string>
-    <string name="import_archive_title">Importa ZIP / CBZ</string>
-    <string name="import_archive_description">Scegli uno o più archivi di fumetti</string>
+    <string name="import_archive_title">Importa CBZ / ZIP / PDF</string>
+    <string name="import_archive_description">Scegli uno o più file di fumetti</string>
     <string name="import_folder_title">Scansiona cartella</string>
     <string name="import_folder_description">Trova fumetti in una cartella</string>
     <string name="import_selected">Importa (%1$d)</string>
@@ -64,7 +64,8 @@
         <item quantity="other">Archivio troppo grande: contiene più di %1$d file.</item>
     </plurals>
     <string name="archive_page_too_large">Una pagina dell\'archivio supera il limite di dimensione supportato.</string>
-    <string name="invalid_archive">Seleziona un archivio .zip o .cbz valido.</string>
+    <string name="invalid_archive">Seleziona un file .zip, .cbz o .pdf valido.</string>
+    <string name="pdf_password_protected">Questo PDF è protetto da password.</string>
     <string name="archive_extraction_failed">Lettura dell\'archivio non riuscita o interrotta.</string>
     <string name="not_enough_archive_space">Spazio libero insufficiente per aprire questo archivio.</string>
     <string name="no_supported_images_found">Nessuna immagine supportata trovata.</string>
@@ -87,7 +88,7 @@
     <string name="open_folder">Apri cartella</string>
     <string name="browser_title_file">File</string>
     <string name="browser_choose_file">Scegli file</string>
-    <string name="browser_archive_only">Solo ZIP / CBZ</string>
+    <string name="browser_archive_only">Solo CBZ / ZIP / PDF</string>
     <string name="browser_open_as_comic">Apri come comic</string>
     <string name="browser_add_folder">Aggiungi cartella</string>
     <string name="browser_selected">Selezionato</string>
@@ -210,7 +211,7 @@
     <string name="history_reading_empty_message">Qui compariranno i fumetti iniziati ma non ancora finiti.</string>
     <string name="history_finished_empty_message">Qui compariranno i fumetti che hai finito.</string>
     <string name="undo">Annulla</string>
-    <string name="welcome_tagline">Leggi i tuoi fumetti ZIP e CBZ direttamente dal dispositivo. Nessun account, nessun caricamento.</string>
+    <string name="welcome_tagline">Leggi i tuoi fumetti CBZ, ZIP e PDF direttamente dal dispositivo. Nessun account, nessun caricamento.</string>
     <string name="welcome_footnote">I tuoi fumetti non lasciano mai questo dispositivo</string>
     <string name="time_just_now">Adesso</string>
     <string name="mark_as_read">Segna come letto</string>

@@ -12,8 +12,8 @@
     <string name="history_empty_title">No reading history</string>
     <string name="history_empty_message">Comics you open will appear here.</string>
     <string name="history_finished_on">Finished on %1$s</string>
-    <string name="import_archive_title">Import ZIP / CBZ</string>
-    <string name="import_archive_description">Choose one or more comic archive files</string>
+    <string name="import_archive_title">Import CBZ / ZIP / PDF</string>
+    <string name="import_archive_description">Choose one or more comic files</string>
     <string name="import_folder_title">Scan Folder</string>
     <string name="import_folder_description">Find comics in a folder</string>
     <string name="import_selected">Import (%1$d)</string>
@@ -62,7 +62,8 @@
         <item quantity="other">Archive too large: it contains more than %1$d files.</item>
     </plurals>
     <string name="archive_page_too_large">An archive page exceeds the supported size limit.</string>
-    <string name="invalid_archive">Select a valid .zip or .cbz archive.</string>
+    <string name="invalid_archive">Select a valid .zip, .cbz or .pdf file.</string>
+    <string name="pdf_password_protected">This PDF is password protected.</string>
     <string name="archive_extraction_failed">Archive read failed or was interrupted.</string>
     <string name="not_enough_archive_space">Not enough free space to open this archive.</string>
     <string name="no_supported_images_found">No supported images found.</string>
@@ -83,7 +84,7 @@
     <string name="open_folder">Open folder</string>
     <string name="browser_title_file">File</string>
     <string name="browser_choose_file">Choose file</string>
-    <string name="browser_archive_only">ZIP / CBZ only</string>
+    <string name="browser_archive_only">CBZ / ZIP / PDF only</string>
     <string name="browser_open_as_comic">Open as comic</string>
     <string name="browser_add_folder">Add folder</string>
     <string name="browser_selected">Selected</string>
@@ -201,7 +202,7 @@
     <string name="history_reading_empty_message">Comics you have started but not finished will appear here.</string>
     <string name="history_finished_empty_message">Comics you finish will appear here.</string>
     <string name="undo">Undo</string>
-    <string name="welcome_tagline">Read your ZIP and CBZ comics, straight from your device. No accounts, no uploads.</string>
+    <string name="welcome_tagline">Read your CBZ, ZIP and PDF comics, straight from your device. No accounts, no uploads.</string>
     <string name="welcome_footnote">Your comics never leave this device</string>
     <string name="time_just_now">Just now</string>
     <string name="mark_as_read">Mark as read</string>

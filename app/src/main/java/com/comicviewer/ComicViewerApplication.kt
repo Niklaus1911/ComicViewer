@@ -8,6 +8,9 @@ import coil3.SingletonImageLoader
 class ComicViewerApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader =
         ImageLoader.Builder(context)
-            .components { add(ComicArchivePageFetcher.Factory()) }
+            .components {
+                add(ComicArchivePageFetcher.Factory())
+                add(ComicPdfPageFetcher.Factory())
+            }
             .build()
 }

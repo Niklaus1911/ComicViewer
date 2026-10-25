@@ -208,8 +208,12 @@ private fun inspectLocalArchive(
 ): SourceFacts {
     if (!file.isFile || !file.canRead()) return SourceFacts()
     val archiveFacts = runCatching {
-        openLocalComicArchive(file, shouldContinue = shouldContinue).use { archive ->
-            archive.reader.inspectComicArchive(shouldContinue)
+        if (fileLooksLikePdf(file)) {
+            openLocalComicPdf(file).use(OpenedComicPdf::inspectComicPdf)
+        } else {
+            openLocalComicArchive(file, shouldContinue = shouldContinue).use { archive ->
+                archive.reader.inspectComicArchive(shouldContinue)
+            }
         }
     }.getOrElse { throwable ->
         if (throwable is CancellationException) throw throwable
@@ -233,6 +237,10 @@ private fun ZipArchiveReader.inspectComicArchive(shouldContinue: () -> Boolean):
         metadata = metadata,
     )
 }
+
+/** PDFs carry no ComicInfo.xml, so only the page count is known. */
+private fun OpenedComicPdf.inspectComicPdf(): SourceFacts =
+    SourceFacts(pageCount = pageCount.takeIf { it > 0 })
 
 private fun inspectLocalFolder(
     folder: File,
@@ -274,6 +282,9 @@ private fun inspectDocumentArchive(
 ): SourceFacts {
     val uri = runCatching { path.toUri() }.getOrNull() ?: return SourceFacts()
     val archiveFacts = runCatching {
+        if (context.documentLooksLikePdf(uri)) {
+            return@runCatching openSeekableDocumentComicPdf(context, uri)?.use(OpenedComicPdf::inspectComicPdf)
+        }
         openSeekableDocumentComicArchive(context, uri, shouldContinue = shouldContinue)?.use { archive ->
             return@runCatching archive.reader.inspectComicArchive(shouldContinue)
         }

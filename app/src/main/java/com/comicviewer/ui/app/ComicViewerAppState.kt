@@ -682,6 +682,7 @@ class ComicViewerAppState(
                 context = appContext,
                 rootUri = rootUri,
                 includeImageFolders = true,
+                includePdfs = true,
                 knownUris = existingArchiveUris + existingFolderUris,
             )
             val newArchiveCandidateCount = scanResult.candidates

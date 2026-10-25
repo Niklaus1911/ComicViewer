@@ -161,6 +161,7 @@ suspend fun scanLibraryDocumentArchives(
     context: Context,
     rootUri: Uri,
     includeImageFolders: Boolean,
+    includePdfs: Boolean = false,
     knownUris: Set<String> = emptySet(),
 ): LibraryDocumentArchiveScanResult = withContext(Dispatchers.IO) {
     val rootDocument = DocumentFile.fromTreeUri(context, rootUri)
@@ -168,11 +169,16 @@ suspend fun scanLibraryDocumentArchives(
     scanLibraryDocumentArchiveTree(
         root = rootDocument.toArchiveDocumentNode(),
         includeImageFolders = includeImageFolders,
+        includePdfs = includePdfs,
         knownUris = knownUris,
         // One query per directory: DocumentFile would issue several provider queries per child.
         listChildren = { node -> listDocumentChildren(context, node.uri.toUri()).map(::archiveDocumentNodeFor) },
         archiveContainsSupportedImage = { node ->
-            documentArchiveContainsSupportedImage(context, node.uri)
+            if (isPdfComicName(node.name)) {
+                context.documentLooksLikePdf(node.uri.toUri())
+            } else {
+                documentArchiveContainsSupportedImage(context, node.uri)
+            }
         },
         imageIsSupported = { node ->
             detectDocumentImageInfo(context, node.uri.toUri()) != null
@@ -183,8 +189,10 @@ suspend fun scanLibraryDocumentArchives(
 
 /**
  * Walks a document tree breadth-first for comic archives and, when [includeImageFolders] is set,
- * folders of images. Archives and folders whose URI is in [knownUris] are already in the library,
- * so they are reported without reading their contents again.
+ * folders of images. PDFs count only with [includePdfs]: unlike ZIPs they cannot be told apart from
+ * ordinary documents, so they are only picked up from a folder the user chose for comics. Archives
+ * and folders whose URI is in [knownUris] are already in the library, so they are reported without
+ * reading their contents again.
  */
 internal suspend fun scanLibraryDocumentArchiveTree(
     root: ArchiveDocumentNode,
@@ -192,6 +200,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
     listChildren: suspend (ArchiveDocumentNode) -> List<ArchiveDocumentNode>,
     archiveContainsSupportedImage: suspend (ArchiveDocumentNode) -> Boolean,
     imageIsSupported: suspend (ArchiveDocumentNode) -> Boolean = { true },
+    includePdfs: Boolean = false,
     knownUris: Set<String> = emptySet(),
     maxDirectories: Int = MAX_ARCHIVE_SCAN_DIRECTORIES,
     maxCandidates: Int = MAX_ARCHIVE_SCAN_CANDIDATES,
@@ -268,7 +277,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
                 }
 
                 child.isFile &&
-                    isSupportedArchiveName(child.name) &&
+                    (isSupportedArchiveName(child.name) || (includePdfs && isPdfComicName(child.name))) &&
                     (child.uri in knownUris || archiveContainsSupportedImage(child)) -> {
                     candidates += LibraryDocumentArchiveScanCandidate(
                         uri = child.uri,

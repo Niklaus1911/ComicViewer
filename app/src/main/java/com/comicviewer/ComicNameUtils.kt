@@ -9,6 +9,13 @@ private val supportedImageExtensions = setOf("jpg", "jpeg", "png", "webp")
 fun isSupportedArchiveName(name: String): Boolean =
     name.extension() in supportedArchiveExtensions
 
+fun isPdfComicName(name: String): Boolean =
+    name.extension() == "pdf"
+
+/** Files the reader can open as a comic: ZIP-based archives and PDFs. */
+fun isSupportedComicFileName(name: String): Boolean =
+    isSupportedArchiveName(name) || isPdfComicName(name)
+
 fun isSupportedImageName(name: String): Boolean =
     name.extension() in supportedImageExtensions
 

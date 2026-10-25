@@ -91,7 +91,7 @@ fun browserEntryTypeFor(
     isImageFile: Boolean,
 ): BrowserEntryType = when {
     isDirectory -> BrowserEntryType.Directory
-    isSupportedArchiveName(name) -> BrowserEntryType.Archive
+    isSupportedComicFileName(name) -> BrowserEntryType.Archive
     isImageFile -> BrowserEntryType.ImageFile
     else -> BrowserEntryType.UnsupportedFile
 }
@@ -229,8 +229,12 @@ private suspend fun File.extractArchiveThumbnailTo(cacheDir: File): File? {
 
     return thumbnailGenerationSemaphore.withPermit {
         (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
-            openLocalComicArchive(this).use { archive ->
-                archive.reader.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
+            if (fileLooksLikePdf(this)) {
+                openLocalComicPdf(this).use { pdf -> pdf.writeCoverThumbnail(cacheDir, cacheKey) }
+            } else {
+                openLocalComicArchive(this).use { archive ->
+                    archive.reader.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
+                }
             }
         }.getOrElse { throwable ->
             if (throwable is CancellationException) throw throwable
@@ -263,6 +267,12 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
 
     return thumbnailGenerationSemaphore.withPermit {
         (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
+            if (documentLooksLikePdf(uri)) {
+                // Stream-only PDFs would need a full copy, which a thumbnail is not worth.
+                return@runCatching openSeekableDocumentComicPdf(this, uri)?.use { pdf ->
+                    pdf.writeCoverThumbnail(cacheDir, cacheKey)
+                }
+            }
             val seekableArchive = openSeekableDocumentComicArchive(this, uri)
             if (seekableArchive != null) {
                 return@runCatching seekableArchive.use { archive ->
@@ -342,6 +352,22 @@ private fun ZipArchiveReader.writeCoverThumbnail(
     )
 }
 
+private fun OpenedComicPdf.writeCoverThumbnail(
+    cacheDir: File,
+    cacheKey: String,
+): File? {
+    if (pageCount <= 0) return null
+    val cover = renderPage(0) { pageWidth, pageHeight ->
+        pdfRenderSize(
+            pageWidth = pageWidth,
+            pageHeight = pageHeight,
+            requestedWidth = MAX_THUMBNAIL_DIMENSION_PX,
+            requestedHeight = MAX_THUMBNAIL_DIMENSION_PX,
+        )
+    }
+    return writeThumbnailBitmap(cacheDir, cacheKey, cover)
+}
+
 private fun File.writeThumbnail(
     cacheDir: File,
     cacheKey: String,
@@ -371,6 +397,15 @@ private fun writeThumbnail(
     val bitmap = openInput().use { input ->
         BitmapFactory.decodeStream(input, null, options)
     } ?: return null
+    return writeThumbnailBitmap(cacheDir, cacheKey, bitmap)
+}
+
+/** Scales [bitmap] down to thumbnail size and stores it under [cacheKey]. Recycles [bitmap]. */
+private fun writeThumbnailBitmap(
+    cacheDir: File,
+    cacheKey: String,
+    bitmap: Bitmap,
+): File? {
     val outputDimensions = thumbnailOutputDimensions(
         width = bitmap.width,
         height = bitmap.height,

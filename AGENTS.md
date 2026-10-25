@@ -50,7 +50,7 @@ Publishing reaches real users: run the script without `--dry-run` only when the 
 
 ## Commit & Pull Request Guidelines
 
-Use short imperative commit subjects, matching history such as `Overhaul comic viewer interface` and `Fix GUI overhaul regressions`. Pull requests should include a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
+Use short imperative commit subjects, matching history such as `Overhaul comic viewer interface` and `Fix GUI overhaul regressions`. Don't add `Co-Authored-By`, session links or other AI attribution lines to commit messages or pull request descriptions. Pull requests should include a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
 
 ## Reporting to the User
 

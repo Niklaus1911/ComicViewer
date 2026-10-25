@@ -28,7 +28,6 @@ private const val PAGE_URI_NAME_PARAM = "name"
 private const val ARCHIVE_COPY_DIR_NAME = "archive_copies"
 private const val ARCHIVE_COPY_RESERVE_BYTES = 128L * 1024L * 1024L
 private const val HEADER_SNIFF_BUFFER_BYTES = 512
-private const val MAX_OPEN_READER_ARCHIVES = 2
 private const val MAX_PAGE_REJECTION_EXAMPLES = 4
 private const val COMIC_INFO_FILE_NAME = "ComicInfo.xml"
 private val archiveCopyLock = Any()
@@ -83,16 +82,13 @@ internal fun openSeekableDocumentDescriptor(context: Context, uri: Uri): ParcelF
     return descriptor
 }
 
-/** Opens a picked document for random access straight from its file descriptor, or null for a pipe. */
-internal fun openSeekableDocumentComicArchive(
-    context: Context,
-    uri: Uri,
+/** Opens an archive through [descriptor], which it takes ownership of. */
+internal fun openComicArchive(
+    descriptor: ParcelFileDescriptor,
     maxEntries: Int = MAX_COMIC_ARCHIVE_ENTRIES,
     shouldContinue: () -> Boolean = { true },
-): OpenedComicArchive? {
-    val descriptor = openSeekableDocumentDescriptor(context, uri) ?: return null
-    return openArchiveStream(ParcelFileDescriptor.AutoCloseInputStream(descriptor), maxEntries, shouldContinue)
-}
+): OpenedComicArchive =
+    openArchiveStream(ParcelFileDescriptor.AutoCloseInputStream(descriptor), maxEntries, shouldContinue)
 
 private fun openArchiveStream(
     stream: FileInputStream,
@@ -103,20 +99,6 @@ private fun openArchiveStream(
 } catch (throwable: Throwable) {
     stream.close()
     throw throwable
-}
-
-private fun openComicArchiveForReading(
-    context: Context,
-    location: ComicArchiveLocation,
-    shouldContinue: () -> Boolean,
-): OpenedComicArchive = when (location) {
-    is ComicArchiveLocation.LocalFile -> openLocalComicArchive(File(location.path), shouldContinue = shouldContinue)
-    is ComicArchiveLocation.Document ->
-        openSeekableDocumentComicArchive(context, location.uri, shouldContinue = shouldContinue)
-            ?: openLocalComicArchive(
-                file = copyDocumentToCache(context, location.uri, shouldContinue),
-                shouldContinue = shouldContinue,
-            )
 }
 
 /**
@@ -232,19 +214,36 @@ internal open class ComicSourceSessions<T : Closeable>(
                 source.close()
                 return leaseLocked(existing)
             }
-            existing?.let { retireLocked(it) }
-            val session = Session(location.key, source)
-            sessions[location.key] = session
-            val lease = leaseLocked(session)
-            while (sessions.size > maxOpenSources) {
-                retireLocked(sessions.values.first())
-            }
-            return lease
+            return registerLocked(location, source)
         }
+    }
+
+    /**
+     * Like [acquire], for a [source] the caller already opened: it becomes the session unless one is
+     * open for [location] already, in which case [source] is closed and the open session is used.
+     */
+    fun adopt(location: ComicArchiveLocation, source: T): Lease = synchronized(this) {
+        val existing = sessions[location.key]
+        if (existing != null) {
+            source.close()
+            return leaseLocked(existing)
+        }
+        registerLocked(location, source)
     }
 
     fun closeAll() = synchronized(this) {
         sessions.values.toList().forEach { retireLocked(it) }
+    }
+
+    private fun registerLocked(location: ComicArchiveLocation, source: T): Lease {
+        sessions[location.key]?.let { retireLocked(it) }
+        val session = Session(location.key, source)
+        sessions[location.key] = session
+        val lease = leaseLocked(session)
+        while (sessions.size > maxOpenSources) {
+            retireLocked(sessions.values.first())
+        }
+        return lease
     }
 
     private fun leaseLocked(session: Session<T>): Lease {
@@ -259,11 +258,6 @@ internal open class ComicSourceSessions<T : Closeable>(
         if (session.leases == 0) session.source.close()
     }
 }
-
-internal object ComicArchiveSessions : ComicSourceSessions<OpenedComicArchive>(
-    maxOpenSources = MAX_OPEN_READER_ARCHIVES,
-    openSource = ::openComicArchiveForReading,
-)
 
 internal class ComicArchivePageRef(
     val location: ComicArchiveLocation,
@@ -402,25 +396,19 @@ suspend fun loadComicPagePreviews(
 ): List<Uri> = withContext(Dispatchers.IO) {
     try {
         when (sourceType) {
+            // The preview pages are then fetched through the same open file.
             RecentComicSourceType.LocalArchive -> {
-                val file = File(path)
                 val location = ComicArchiveLocation.LocalFile(path)
-                if (fileLooksLikePdf(file)) {
-                    openLocalComicPdf(file).use { pdf -> pdf.previewPageUris(location, maxPages) }
-                } else {
-                    openLocalComicArchive(file).use { archive ->
-                        archive.reader.firstComicPages(maxPages).map { comicArchivePageUri(location, it) }
-                    }
+                ComicFileSessions.acquire(context, location).use { lease ->
+                    lease.source.previewPageUris(location, maxPages)
                 }
             }
             RecentComicSourceType.DocumentArchive -> {
                 val uri = path.toUri()
                 val location = ComicArchiveLocation.Document(uri)
-                if (context.documentLooksLikePdf(uri)) {
-                    openSeekableDocumentComicPdf(context, uri)?.use { pdf -> pdf.previewPageUris(location, maxPages) }
-                } else {
-                    openSeekableDocumentComicArchive(context, uri)?.use { archive ->
-                        archive.reader.firstComicPages(maxPages).map { comicArchivePageUri(location, it) }
+                openSeekableDocumentComicFile(context, uri)?.let { file ->
+                    ComicFileSessions.adopt(location, file).use { lease ->
+                        lease.source.previewPageUris(location, maxPages)
                     }
                 }.orEmpty()
             }

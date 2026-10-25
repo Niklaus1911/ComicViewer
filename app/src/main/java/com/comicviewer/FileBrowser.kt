@@ -235,12 +235,8 @@ private suspend fun File.extractArchiveThumbnailTo(cacheDir: File): File? {
 
     return thumbnailGenerationSemaphore.withPermit {
         (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
-            if (fileLooksLikePdf(this)) {
-                openLocalComicPdf(this).use { pdf -> pdf.writeCoverThumbnail(cacheDir, cacheKey) }
-            } else {
-                openLocalComicArchive(this).use { archive ->
-                    archive.reader.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
-                }
+            openLocalComicFile(this).use { opened ->
+                opened.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
             }
         }.getOrElse { throwable ->
             if (throwable is CancellationException) throw throwable
@@ -273,23 +269,19 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
 
     return thumbnailGenerationSemaphore.withPermit {
         (if (cacheReusable) findCachedThumbnailFile(cacheDir, cacheKey) else null) ?: runCatching {
-            if (documentLooksLikePdf(uri)) {
-                // Stream-only PDFs would need a full copy, which a thumbnail is not worth.
-                return@runCatching openSeekableDocumentComicPdf(this, uri)?.use { pdf ->
-                    pdf.writeCoverThumbnail(cacheDir, cacheKey)
-                }
+            openSeekableDocumentComicFile(this, uri)?.use { opened ->
+                return@runCatching opened.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
             }
-            val seekableArchive = openSeekableDocumentComicArchive(this, uri)
-            if (seekableArchive != null) {
-                return@runCatching seekableArchive.use { archive ->
-                    archive.reader.writeCoverThumbnail(cacheDir, cacheKey) { coroutineContext.isActive }
-                }
+            // Stream-only providers: scan from the start, as far as the source limit allows. A
+            // stream-only PDF would need a full copy, which a thumbnail is not worth.
+            val source = contentResolver.openInputStream(uri)?.buffered() ?: return@runCatching null
+            if (source.startsLikePdf()) {
+                source.close()
+                return@runCatching null
             }
-            // Stream-only providers: scan from the start, as far as the source limit allows.
-            val source = contentResolver.openInputStream(uri) ?: return@runCatching null
             ZipInputStream(
                 BoundedInputStream(
-                    input = source.buffered(),
+                    input = source,
                     maxBytes = MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES,
                 ),
             ).use { archive ->
@@ -356,6 +348,15 @@ private fun ZipArchiveReader.writeCoverThumbnail(
         cacheKey = cacheKey,
         openInput = { openEntry(entry) },
     )
+}
+
+private fun OpenedComicFile.writeCoverThumbnail(
+    cacheDir: File,
+    cacheKey: String,
+    shouldContinue: () -> Boolean,
+): File? = when (this) {
+    is OpenedComicFile.Zip -> archive.reader.writeCoverThumbnail(cacheDir, cacheKey, shouldContinue)
+    is OpenedComicFile.Pdf -> pdf.writeCoverThumbnail(cacheDir, cacheKey)
 }
 
 private fun OpenedComicPdf.writeCoverThumbnail(

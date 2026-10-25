@@ -1,12 +1,13 @@
 package com.comicviewer
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.system.Os
 import androidx.core.graphics.createBitmap
+import java.io.BufferedInputStream
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -25,7 +26,6 @@ internal const val MAX_PDF_RENDER_PIXELS = 12_000_000L
 private const val COMIC_PDF_PAGE_AUTHORITY = "page"
 private const val PDF_PAGE_URI_INDEX_PARAM = "index"
 private const val PDF_HEADER_SEARCH_BYTES = 1_024
-private const val MAX_OPEN_PDF_DOCUMENTS = 2
 private val PDF_SIGNATURE = "%PDF-".toByteArray(Charsets.US_ASCII)
 private val ZIP_SIGNATURES = listOf(
     byteArrayOf(0x50, 0x4B, 0x03, 0x04),
@@ -75,18 +75,8 @@ internal class OpenedComicPdf(private val renderer: PdfRenderer) : Closeable {
     }
 }
 
-internal fun openLocalComicPdf(file: File): OpenedComicPdf =
-    openComicPdf(ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY))
-
-/**
- * Opens a picked PDF straight from its file descriptor. Returns null when the provider only offers a
- * one-way stream (a pipe), which [PdfRenderer] cannot read without a copy.
- */
-internal fun openSeekableDocumentComicPdf(context: Context, uri: Uri): OpenedComicPdf? =
-    openSeekableDocumentDescriptor(context, uri)?.let(::openComicPdf)
-
 /** [PdfRenderer] takes ownership of [descriptor] and closes it with the renderer. */
-private fun openComicPdf(descriptor: ParcelFileDescriptor): OpenedComicPdf {
+internal fun openComicPdf(descriptor: ParcelFileDescriptor): OpenedComicPdf {
     val renderer = try {
         synchronized(pdfiumLock) { PdfRenderer(descriptor) }
     } catch (throwable: Throwable) {
@@ -103,22 +93,6 @@ private fun openComicPdf(descriptor: ParcelFileDescriptor): OpenedComicPdf {
     }
     return OpenedComicPdf(renderer)
 }
-
-private fun openComicPdfForReading(
-    context: Context,
-    location: ComicArchiveLocation,
-    shouldContinue: () -> Boolean,
-): OpenedComicPdf = when (location) {
-    is ComicArchiveLocation.LocalFile -> openLocalComicPdf(File(location.path))
-    is ComicArchiveLocation.Document ->
-        openSeekableDocumentComicPdf(context, location.uri)
-            ?: openLocalComicPdf(copyDocumentToCache(context, location.uri, shouldContinue))
-}
-
-internal object ComicPdfSessions : ComicSourceSessions<OpenedComicPdf>(
-    maxOpenSources = MAX_OPEN_PDF_DOCUMENTS,
-    openSource = ::openComicPdfForReading,
-)
 
 internal class ComicPdfPageRef(
     val location: ComicArchiveLocation,
@@ -195,8 +169,27 @@ internal fun bytesLookLikePdf(bytes: ByteArray, length: Int = bytes.size): Boole
 internal fun fileLooksLikePdf(file: File): Boolean =
     runCatching { file.inputStream().use(::streamLooksLikePdf) }.getOrDefault(false)
 
-internal fun Context.documentLooksLikePdf(uri: Uri): Boolean =
-    runCatching { contentResolver.openInputStream(uri)?.use(::streamLooksLikePdf) ?: false }.getOrDefault(false)
+/** Reads the start of an open file in place, without moving its position or taking ownership. */
+internal fun ParcelFileDescriptor.looksLikePdf(): Boolean {
+    val header = ByteArray(PDF_HEADER_SEARCH_BYTES)
+    var length = 0
+    while (length < header.size) {
+        val read = Os.pread(fileDescriptor, header, length, header.size - length, length.toLong())
+        if (read <= 0) break
+        length += read
+    }
+    return bytesLookLikePdf(header, length)
+}
+
+/** Whether a stream starts like a PDF, leaving it at its start so it can still be read as a ZIP. */
+internal fun BufferedInputStream.startsLikePdf(): Boolean {
+    mark(PDF_HEADER_SEARCH_BYTES)
+    try {
+        return streamLooksLikePdf(this)
+    } finally {
+        reset()
+    }
+}
 
 private fun streamLooksLikePdf(input: InputStream): Boolean {
     val header = ByteArray(PDF_HEADER_SEARCH_BYTES)

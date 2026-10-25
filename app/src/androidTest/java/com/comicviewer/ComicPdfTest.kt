@@ -97,6 +97,21 @@ class ComicPdfTest {
     }
 
     @Test
+    fun comicFiles_areReadByContentNotByName() = runBlocking {
+        // A PDF saved with an archive extension still opens, gets a cover and counts as a comic.
+        val disguised = File(testDir, "Disguised.cbz").also { writeSamplePdf("Source.pdf").copyTo(it) }
+
+        val book = loadLocalArchiveComic(context, disguised)
+        val thumbnailUri = loadLibraryComicThumbnailUri(context, libraryComicForArchive(disguised, addedAt = 0L))
+
+        assertEquals(3, book.pages.size)
+        assertTrue(book.pages.all { it.imageUri.scheme == COMIC_PDF_PAGE_SCHEME })
+        assertNotNull(thumbnailUri)
+        File(thumbnailUri!!.path!!).delete()
+        assertTrue(archiveContainsSupportedImage(disguised))
+    }
+
+    @Test
     fun loadLocalArchiveComic_rejectsCorruptPdf() = runBlocking {
         testDir.mkdirs()
         val corrupt = File(testDir, "Broken.pdf").apply { writeText("%PDF-1.4\nthis is not a real document") }

@@ -105,15 +105,13 @@ data class ImageInfo(
 
 suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
     val displayName = context.queryDocumentDisplayName(uri) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
-    val location = ComicArchiveLocation.Document(uri)
-    val title = displayName.withoutComicExtension()
-    val source = ComicSource.Archive(uri = uri, displayName = displayName)
-    val fingerprint = context.documentArchiveFingerprint(uri)
-    if (context.documentLooksLikePdf(uri)) {
-        loadPdfComic(context, location, title, source, fingerprint)
-    } else {
-        loadZipComic(context, location, title, source, fingerprint)
-    }
+    loadComicFile(
+        context = context,
+        location = ComicArchiveLocation.Document(uri),
+        title = displayName.withoutComicExtension(),
+        source = ComicSource.Archive(uri = uri, displayName = displayName),
+        sourceFingerprint = context.documentArchiveFingerprint(uri),
+    )
 }
 
 suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBook = withContext(Dispatchers.IO) {
@@ -121,22 +119,21 @@ suspend fun loadLocalArchiveComic(context: Context, archiveFile: File): ComicBoo
         throw ComicLoadException(ComicLoadError.ArchiveNotReadable)
     }
     val displayName = archiveFile.name
-    val location = ComicArchiveLocation.LocalFile(archiveFile.absolutePath)
-    val title = displayName.withoutComicExtension()
-    val source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName)
-    val fingerprint = "${archiveFile.length()}:${archiveFile.lastModified()}"
-    if (fileLooksLikePdf(archiveFile)) {
-        loadPdfComic(context, location, title, source, fingerprint)
-    } else {
-        loadZipComic(context, location, title, source, fingerprint)
-    }
+    loadComicFile(
+        context = context,
+        location = ComicArchiveLocation.LocalFile(archiveFile.absolutePath),
+        title = displayName.withoutComicExtension(),
+        source = ComicSource.LocalArchive(filePath = archiveFile.absolutePath, displayName = displayName),
+        sourceFingerprint = "${archiveFile.length()}:${archiveFile.lastModified()}",
+    )
 }
 
 /**
- * Builds the page list from the archive's central directory without copying or extracting anything;
- * each page is streamed from the archive by [ComicArchivePageFetcher] when it is displayed.
+ * Builds the page list without copying or extracting anything. Pages of an archive come from its
+ * central directory and are streamed by [ComicArchivePageFetcher]; pages of a PDF are rendered by
+ * [ComicPdfPageFetcher] at the size they are displayed.
  */
-private suspend fun loadZipComic(
+private suspend fun loadComicFile(
     context: Context,
     location: ComicArchiveLocation,
     title: String,
@@ -146,21 +143,34 @@ private suspend fun loadZipComic(
     deleteLegacyArchivePageCache(context)
     val coroutineContext = currentCoroutineContext()
     val shouldContinue = { coroutineContext.isActive }
-    val scan = try {
-        ComicArchiveSessions.acquire(
+    val pages = try {
+        ComicFileSessions.acquire(
             context = context,
             location = location,
             reopen = true,
             shouldContinue = shouldContinue,
         ).use { lease ->
-            lease.source.reader.scanComicPages(shouldContinue = shouldContinue)
+            when (val file = lease.source) {
+                is OpenedComicFile.Zip ->
+                    zipComicPages(file.archive.reader, location, sourceFingerprint, shouldContinue)
+                is OpenedComicFile.Pdf -> pdfComicPages(context, file.pdf.pageCount, location, sourceFingerprint)
+            }
         }
     } catch (exception: Exception) {
         throw archiveReadFailureFor(exception)
     }
-    if (scan.pages.isEmpty()) throw scan.emptyException()
+    return ComicBook(title = title, source = source, pages = pages)
+}
 
-    val pages = scan.pages.mapIndexed { index, entry ->
+private fun zipComicPages(
+    reader: ZipArchiveReader,
+    location: ComicArchiveLocation,
+    sourceFingerprint: String?,
+    shouldContinue: () -> Boolean,
+): List<ComicPage> {
+    val scan = reader.scanComicPages(shouldContinue = shouldContinue)
+    if (scan.pages.isEmpty()) throw scan.emptyException()
+    return scan.pages.mapIndexed { index, entry ->
         ComicPage(
             index = index,
             displayName = entry.name.substringAfterLast('/'),
@@ -171,34 +181,16 @@ private suspend fun loadZipComic(
             cacheFingerprint = sourceFingerprint,
         )
     }
-    return ComicBook(title = title, source = source, pages = pages)
 }
 
-/**
- * Lists a PDF's pages without rendering any of them; each page is rendered by [ComicPdfPageFetcher]
- * at the size it is displayed.
- */
-private suspend fun loadPdfComic(
+private fun pdfComicPages(
     context: Context,
+    pageCount: Int,
     location: ComicArchiveLocation,
-    title: String,
-    source: ComicSource,
     sourceFingerprint: String?,
-): ComicBook {
-    val coroutineContext = currentCoroutineContext()
-    val pageCount = try {
-        ComicPdfSessions.acquire(
-            context = context,
-            location = location,
-            reopen = true,
-            shouldContinue = { coroutineContext.isActive },
-        ).use { lease -> lease.source.pageCount }
-    } catch (exception: Exception) {
-        throw archiveReadFailureFor(exception)
-    }
+): List<ComicPage> {
     comicLoadErrorForPageCount(pageCount)?.let { throw ComicLoadException(it) }
-
-    val pages = List(pageCount) { index ->
+    return List(pageCount) { index ->
         val pageNumber = index + 1
         ComicPage(
             index = index,
@@ -210,7 +202,6 @@ private suspend fun loadPdfComic(
             cacheFingerprint = sourceFingerprint,
         )
     }
-    return ComicBook(title = title, source = source, pages = pages)
 }
 
 suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
@@ -289,15 +280,13 @@ suspend fun loadLocalFolderComic(folder: File): ComicBook = withContext(Dispatch
 }
 
 suspend fun clearArchiveCache(context: Context) = withContext(Dispatchers.IO) {
-    ComicArchiveSessions.closeAll()
-    ComicPdfSessions.closeAll()
+    ComicFileSessions.closeAll()
     File(context.cacheDir, LEGACY_ARCHIVE_PAGE_CACHE_DIR_NAME).deleteRecursively()
     deleteArchiveCopies(context)
 }
 
 suspend fun closeComicArchives() = withContext(Dispatchers.IO) {
-    ComicArchiveSessions.closeAll()
-    ComicPdfSessions.closeAll()
+    ComicFileSessions.closeAll()
 }
 
 /** Older versions extracted every page into this folder; it can hold gigabytes, so drop it once. */

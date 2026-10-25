@@ -234,13 +234,7 @@ private fun inspectLocalArchive(
 ): SourceFacts {
     if (!file.isFile || !file.canRead()) return SourceFacts()
     val archiveFacts = runCatching {
-        if (fileLooksLikePdf(file)) {
-            openLocalComicPdf(file).use(OpenedComicPdf::inspectComicPdf)
-        } else {
-            openLocalComicArchive(file, shouldContinue = shouldContinue).use { archive ->
-                archive.reader.inspectComicArchive(shouldContinue)
-            }
-        }
+        openLocalComicFile(file, shouldContinue = shouldContinue).use { opened -> opened.inspect(shouldContinue) }
     }.getOrElse { throwable ->
         if (throwable is CancellationException) throw throwable
         SourceFacts()
@@ -264,9 +258,11 @@ private fun ZipArchiveReader.inspectComicArchive(shouldContinue: () -> Boolean):
     )
 }
 
-/** PDFs carry no ComicInfo.xml, so only the page count is known. */
-private fun OpenedComicPdf.inspectComicPdf(): SourceFacts =
-    SourceFacts(pageCount = pageCount.takeIf { it > 0 })
+/** PDFs carry no ComicInfo.xml, so only their page count is known. */
+private fun OpenedComicFile.inspect(shouldContinue: () -> Boolean): SourceFacts = when (this) {
+    is OpenedComicFile.Zip -> archive.reader.inspectComicArchive(shouldContinue)
+    is OpenedComicFile.Pdf -> SourceFacts(pageCount = pdf.pageCount.takeIf { it > 0 })
+}
 
 private fun inspectLocalFolder(
     folder: File,
@@ -308,15 +304,17 @@ private fun inspectDocumentArchive(
 ): SourceFacts {
     val uri = runCatching { path.toUri() }.getOrNull() ?: return SourceFacts()
     val archiveFacts = runCatching {
-        if (context.documentLooksLikePdf(uri)) {
-            return@runCatching openSeekableDocumentComicPdf(context, uri)?.use(OpenedComicPdf::inspectComicPdf)
+        openSeekableDocumentComicFile(context, uri, shouldContinue = shouldContinue)?.use { opened ->
+            return@runCatching opened.inspect(shouldContinue)
         }
-        openSeekableDocumentComicArchive(context, uri, shouldContinue = shouldContinue)?.use { archive ->
-            return@runCatching archive.reader.inspectComicArchive(shouldContinue)
+        // Stream-only providers: read from the start, within the source limit. A stream-only PDF
+        // cannot be inspected without a full copy.
+        val source = context.contentResolver.openInputStream(uri)?.buffered() ?: return@runCatching null
+        if (source.startsLikePdf()) {
+            source.close()
+            return@runCatching null
         }
-        // Stream-only providers: read from the start, within the source limit.
-        val source = context.contentResolver.openInputStream(uri) ?: return@runCatching null
-        val limitedSource = BoundedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)
+        val limitedSource = BoundedInputStream(source, MAX_COMIC_INFO_SOURCE_BYTES)
         ZipInputStream(limitedSource).use { zip ->
             var visited = 0
             var pageCount = 0

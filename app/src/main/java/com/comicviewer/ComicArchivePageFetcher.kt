@@ -25,16 +25,18 @@ internal class ComicArchivePageFetcher(
 ) : Fetcher {
     override suspend fun fetch(): FetchResult {
         val coroutineContext = currentCoroutineContext()
-        val lease = ComicArchiveSessions.acquire(
+        val lease = ComicFileSessions.acquire(
             context = context,
             location = page.location,
             shouldContinue = { coroutineContext.isActive },
         )
         try {
-            val entry = lease.source.reader.findEntry(page.entryIndex, page.entryName)
+            val reader = (lease.source as? OpenedComicFile.Zip)?.archive?.reader
+                ?: throw FileNotFoundException("${page.entryName} is no longer in a ZIP archive.")
+            val entry = reader.findEntry(page.entryIndex, page.entryName)
                 ?: throw FileNotFoundException("Page ${page.entryName} is no longer in the archive.")
             if (entry.size > MAX_ARCHIVE_PAGE_BYTES) throw ComicLoadException(ComicLoadError.ArchivePageTooLarge)
-            val pageSource = object : ForwardingSource(lease.source.reader.openEntry(entry).source()) {
+            val pageSource = object : ForwardingSource(reader.openEntry(entry).source()) {
                 override fun close() {
                     try {
                         super.close()

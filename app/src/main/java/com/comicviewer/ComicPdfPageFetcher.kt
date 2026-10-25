@@ -35,16 +35,18 @@ internal class ComicPdfPageFetcher(
 ) : Fetcher {
     override suspend fun fetch(): FetchResult {
         val coroutineContext = currentCoroutineContext()
-        val bitmap = ComicPdfSessions.acquire(
+        val bitmap = ComicFileSessions.acquire(
             context = context,
             location = page.location,
             shouldContinue = { coroutineContext.isActive },
         ).use { lease ->
-            if (page.pageIndex >= lease.source.pageCount) {
+            val pdf = (lease.source as? OpenedComicFile.Pdf)?.pdf
+                ?: throw FileNotFoundException("Page ${page.pageIndex + 1} is no longer in a PDF.")
+            if (page.pageIndex >= pdf.pageCount) {
                 throw FileNotFoundException("Page ${page.pageIndex + 1} is no longer in the PDF.")
             }
             withContext(pdfRenderDispatcher) {
-                lease.source.renderPage(
+                pdf.renderPage(
                     index = page.pageIndex,
                     shouldContinue = { coroutineContext.isActive },
                 ) { pageWidth, pageHeight ->

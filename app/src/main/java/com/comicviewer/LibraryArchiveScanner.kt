@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
-import java.io.InputStream
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -172,13 +171,7 @@ suspend fun scanLibraryDocumentArchives(
         knownUris = knownUris,
         // One query per directory: DocumentFile would issue several provider queries per child.
         listChildren = { node -> listDocumentChildren(context, node.uri.toUri()).map(::archiveDocumentNodeFor) },
-        archiveContainsSupportedImage = { node ->
-            if (isPdfComicName(node.name)) {
-                context.documentLooksLikePdf(node.uri.toUri())
-            } else {
-                documentArchiveContainsSupportedImage(context, node.uri)
-            }
-        },
+        archiveContainsSupportedImage = { node -> documentComicFileHasPages(context, node.uri) },
         imageIsSupported = { node ->
             detectDocumentImageInfo(context, node.uri.toUri()) != null
         },
@@ -388,24 +381,31 @@ internal fun archiveContainsSupportedImage(
     maxEntries: Int = MAX_ARCHIVE_SCAN_ENTRY_COUNT,
 ): Boolean =
     runCatching {
-        openLocalComicArchive(archiveFile).use { archive ->
+        // A PDF named like an archive is still a readable comic.
+        fileLooksLikePdf(archiveFile) || openLocalComicArchive(archiveFile).use { archive ->
             archive.reader.containsComicImage(maxVisitedEntries = maxEntries)
         }
     }.getOrDefault(false)
 
-private fun documentArchiveContainsSupportedImage(
+/** Whether a document is a readable comic file of either format, judged by its content, not its name. */
+private fun documentComicFileHasPages(
     context: Context,
     uri: String,
     maxEntries: Int = MAX_ARCHIVE_SCAN_ENTRY_COUNT,
 ): Boolean = runCatching {
-    openSeekableDocumentComicArchive(context, uri.toUri())?.use { archive ->
-        return@runCatching archive.reader.containsComicImage(maxVisitedEntries = maxEntries)
+    openSeekableDocumentComicFile(context, uri.toUri())?.use { opened ->
+        return@runCatching opened.hasComicPages(maxEntries)
     }
-    // Stream-only providers: read from the start, within the source limit.
-    val source = context.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching false
+    // Stream-only providers: read from the start, within the source limit. A stream-only PDF is
+    // accepted on its header, since counting its pages would need a full copy.
+    val source = context.contentResolver.openInputStream(uri.toUri())?.buffered() ?: return@runCatching false
+    if (source.startsLikePdf()) {
+        source.close()
+        return@runCatching true
+    }
     ZipInputStream(
         BoundedInputStream(
-            input = source.buffered(),
+            input = source,
             maxBytes = MAX_ARCHIVE_SCAN_SOURCE_BYTES,
         ),
     ).use { archive ->

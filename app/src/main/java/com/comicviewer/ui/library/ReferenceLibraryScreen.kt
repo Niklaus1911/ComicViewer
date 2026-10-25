@@ -3,6 +3,8 @@ package com.comicviewer.ui.library
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -65,6 +66,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.comicviewer.ui.common.tabScreen
 import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryComicDetails
@@ -180,11 +182,10 @@ fun ReferenceLibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding(),
+                .windowInsetsPadding(WindowInsets.tabScreen),
         ) {
             ReferenceScreenHeader(
                 title = stringResource(R.string.nav_library),
-                badge = stringResource(R.string.local_library_badge),
                 actions = {
                     IconButton(onClick = onOpenSearch) {
                         Icon(Icons.Filled.Search, stringResource(R.string.nav_search))

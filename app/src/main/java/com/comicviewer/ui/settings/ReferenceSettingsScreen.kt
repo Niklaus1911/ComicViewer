@@ -5,15 +5,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,7 +34,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.ScreenLockPortrait
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Style
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -58,6 +63,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.comicviewer.ui.common.tabScreen
 import com.comicviewer.AppBuildInfo
 import com.comicviewer.AppLanguage
 import com.comicviewer.AppThemeMode
@@ -69,7 +75,9 @@ import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.resolvedReaderPreferences
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.ui.app.ThemeUiState
+import com.comicviewer.ui.common.ReferenceCardShape
 import com.comicviewer.ui.common.ReferenceScreenHeader
+import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
 import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.reader.ReaderSettingsDialog
 import com.comicviewer.ui.theme.AppColor
@@ -117,95 +125,108 @@ fun ReferenceSettingsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding()
+                .windowInsetsPadding(WindowInsets.tabScreen)
                 .verticalScroll(rememberScrollState()),
         ) {
-            ReferenceScreenHeader(
-                title = stringResource(R.string.settings_title),
-                badge = stringResource(R.string.local_only_badge),
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Palette,
-                title = stringResource(R.string.settings_theme_mode_title),
-                subtitle = stringResource(themeUiState.themeMode.labelRes()),
-                onClick = { showTheme = true },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.AutoStories,
-                title = stringResource(R.string.settings_default_reading_mode),
-                subtitle = stringResource(activeReaderPreferences.pageMode.labelRes()),
-                onClick = { showReader = true },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Style,
-                title = stringResource(R.string.settings_default_direction),
-                subtitle = stringResource(activeReaderPreferences.readingDirection.labelRes()),
-                onClick = { showReader = true },
-            )
-            SettingsReferenceToggleRow(
-                icon = Icons.Filled.ScreenLockPortrait,
-                title = stringResource(R.string.reader_keep_screen_on),
-                checked = readerPreferences.keepScreenOn,
-                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.TouchApp,
-                title = stringResource(R.string.settings_tap_zones),
-                subtitle = stringResource(R.string.settings_show),
-                onClick = { showTapZones = true },
-            )
-            SettingsReferenceToggleRow(
-                icon = Icons.Filled.Visibility,
-                title = stringResource(R.string.reader_show_page_number),
-                checked = readerPreferences.showPageNumber,
-                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(showPageNumber = it)) },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Folder,
-                title = stringResource(R.string.settings_import_folder),
-                subtitle = automationPreferences.importFolderName ?: stringResource(R.string.settings_import_folder_not_set),
-                onClick = onChooseImportFolder,
-            )
-            SettingsReferenceToggleRow(
-                icon = Icons.Filled.HistoryToggleOff,
-                title = stringResource(R.string.settings_auto_scan_folder),
-                checked = automationPreferences.autoScanEnabled,
-                enabled = automationPreferences.importFolderUri != null,
-                onCheckedChange = {
-                    onAutomationPreferencesChanged(automationPreferences.copy(autoScanEnabled = it))
-                },
-            )
-            SettingsReferenceToggleRow(
-                icon = Icons.Filled.CleaningServices,
-                title = stringResource(R.string.settings_auto_delete_temp),
-                checked = automationPreferences.autoDeleteTempFiles,
-                onCheckedChange = {
-                    onAutomationPreferencesChanged(automationPreferences.copy(autoDeleteTempFiles = it))
-                },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Backup,
-                title = stringResource(R.string.settings_backup_restore),
-                onClick = { showBackup = true },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Language,
-                title = stringResource(R.string.settings_language_title),
-                subtitle = stringResource(selectedLanguage.labelRes()),
-                onClick = { showLanguage = true },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.WorkspacePremium,
-                title = stringResource(if (proBillingState.isProUnlocked) R.string.pro_unlocked else R.string.pro_upgrade),
-                subtitle = stringResource(R.string.settings_pro_themes_title),
-                onClick = { showPro = true },
-            )
-            SettingsReferenceRow(
-                icon = Icons.Filled.Info,
-                title = stringResource(R.string.settings_about_title),
-                subtitle = "${buildInfo.versionName} (${buildInfo.versionCode})",
-                onClick = { showAbout = true },
-            )
+            ReferenceScreenHeader(title = stringResource(R.string.settings_title))
+            SettingsSection(title = stringResource(R.string.settings_appearance_title)) {
+                SettingsReferenceRow(
+                    icon = Icons.Filled.Palette,
+                    title = stringResource(R.string.settings_theme_mode_title),
+                    subtitle = stringResource(themeUiState.themeMode.labelRes()),
+                    showDivider = false,
+                    onClick = { showTheme = true },
+                )
+                SettingsReferenceRow(
+                    icon = Icons.Filled.Language,
+                    title = stringResource(R.string.settings_language_title),
+                    subtitle = stringResource(selectedLanguage.labelRes()),
+                    onClick = { showLanguage = true },
+                )
+            }
+            SettingsSection(title = stringResource(R.string.settings_section_reading)) {
+                SettingsReferenceRow(
+                    icon = Icons.Filled.AutoStories,
+                    title = stringResource(R.string.settings_default_reading_mode),
+                    subtitle = stringResource(activeReaderPreferences.pageMode.labelRes()),
+                    showDivider = false,
+                    onClick = { showReader = true },
+                )
+                SettingsReferenceRow(
+                    icon = Icons.Filled.SwapHoriz,
+                    title = stringResource(R.string.settings_default_direction),
+                    subtitle = stringResource(activeReaderPreferences.readingDirection.labelRes()),
+                    onClick = { showReader = true },
+                )
+                SettingsReferenceRow(
+                    icon = Icons.Filled.TouchApp,
+                    title = stringResource(R.string.settings_tap_zones),
+                    subtitle = stringResource(R.string.settings_tap_zones_summary),
+                    onClick = { showTapZones = true },
+                )
+                SettingsReferenceToggleRow(
+                    icon = Icons.Filled.ScreenLockPortrait,
+                    title = stringResource(R.string.reader_keep_screen_on),
+                    checked = readerPreferences.keepScreenOn,
+                    onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
+                )
+                SettingsReferenceToggleRow(
+                    icon = Icons.Filled.Visibility,
+                    title = stringResource(R.string.reader_show_page_number),
+                    checked = readerPreferences.showPageNumber,
+                    onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(showPageNumber = it)) },
+                )
+            }
+            SettingsSection(title = stringResource(R.string.settings_section_library)) {
+                SettingsReferenceRow(
+                    icon = Icons.Filled.Folder,
+                    title = stringResource(R.string.settings_import_folder),
+                    subtitle = automationPreferences.importFolderName ?: stringResource(R.string.settings_import_folder_not_set),
+                    showDivider = false,
+                    onClick = onChooseImportFolder,
+                )
+                SettingsReferenceToggleRow(
+                    icon = Icons.Filled.HistoryToggleOff,
+                    title = stringResource(R.string.settings_auto_scan_folder),
+                    checked = automationPreferences.autoScanEnabled,
+                    enabled = automationPreferences.importFolderUri != null,
+                    onCheckedChange = {
+                        onAutomationPreferencesChanged(automationPreferences.copy(autoScanEnabled = it))
+                    },
+                )
+                SettingsReferenceToggleRow(
+                    icon = Icons.Filled.CleaningServices,
+                    title = stringResource(R.string.settings_auto_delete_temp),
+                    subtitle = stringResource(R.string.settings_auto_delete_temp_description),
+                    checked = automationPreferences.autoDeleteTempFiles,
+                    onCheckedChange = {
+                        onAutomationPreferencesChanged(automationPreferences.copy(autoDeleteTempFiles = it))
+                    },
+                )
+                SettingsReferenceRow(
+                    icon = Icons.Filled.Backup,
+                    title = stringResource(R.string.settings_backup_restore),
+                    onClick = { showBackup = true },
+                )
+            }
+            SettingsSection(title = stringResource(R.string.app_name)) {
+                SettingsReferenceRow(
+                    icon = Icons.Filled.WorkspacePremium,
+                    title = stringResource(if (proBillingState.isProUnlocked) R.string.pro_unlocked else R.string.pro_upgrade),
+                    subtitle = stringResource(
+                        if (proBillingState.isProUnlocked) R.string.pro_unlocked_message else R.string.pro_upgrade_message,
+                    ),
+                    showDivider = false,
+                    onClick = { showPro = true },
+                )
+                SettingsReferenceRow(
+                    icon = Icons.Filled.Info,
+                    title = stringResource(R.string.settings_about_title),
+                    subtitle = "${buildInfo.versionName} (${buildInfo.versionCode})",
+                    onClick = { showAbout = true },
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 
@@ -381,40 +402,50 @@ private fun SettingsBuildInfoRow(label: String, value: String) {
 }
 
 @Composable
+private fun SettingsSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = ReferenceScreenHorizontalPadding),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
+        )
+        Surface(
+            shape = ReferenceCardShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable
 private fun SettingsReferenceRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
+    showDivider: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(horizontal = 20.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                subtitle?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        HorizontalDivider(
-            modifier = Modifier.padding(start = 56.dp, end = 20.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-        )
+    SettingsRowDivider(visible = showDivider)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        SettingsRowIcon(icon)
+        SettingsRowText(title = title, subtitle = subtitle, modifier = Modifier.weight(1f))
+        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -423,30 +454,79 @@ private fun SettingsReferenceToggleRow(
     icon: ImageVector,
     title: String,
     checked: Boolean,
+    subtitle: String? = null,
     enabled: Boolean = true,
+    showDivider: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled) { onCheckedChange(!checked) }
-                .padding(horizontal = 20.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f),
+    SettingsRowDivider(visible = showDivider)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
             )
-            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        SettingsRowIcon(icon)
+        SettingsRowText(
+            title = title,
+            subtitle = subtitle,
+            enabled = enabled,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
+    }
+}
+
+@Composable
+private fun SettingsRowIcon(icon: ImageVector) {
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.size(22.dp),
+    )
+}
+
+@Composable
+private fun SettingsRowText(
+    title: String,
+    subtitle: String?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        subtitle?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
+    }
+}
+
+@Composable
+private fun SettingsRowDivider(visible: Boolean) {
+    if (visible) {
         HorizontalDivider(
-            modifier = Modifier.padding(start = 56.dp, end = 20.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+            modifier = Modifier.padding(start = 54.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
         )
     }
 }

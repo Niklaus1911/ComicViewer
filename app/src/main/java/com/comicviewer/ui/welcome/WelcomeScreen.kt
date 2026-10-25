@@ -104,11 +104,7 @@ fun WelcomeScreen(
         modifier = modifier.fillMaxSize(),
         color = colorScheme.background,
     ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding(),
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             // Full-bleed animated backdrop, fixed to the viewport so it never scrolls with content.
             WelcomeBackground(
                 amoledLike = amoledLike,
@@ -122,6 +118,7 @@ fun WelcomeScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 20.dp),
                 contentAlignment = Alignment.Center,
             ) {

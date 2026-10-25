@@ -6,8 +6,6 @@
     <string name="nav_search">Cerca</string>
     <string name="nav_history">Cronologia</string>
     <string name="nav_settings">Impostazioni</string>
-    <string name="local_library_badge">Libreria locale</string>
-    <string name="local_only_badge">Solo locale</string>
     <string name="more_options">Altre opzioni</string>
     <string name="back">Indietro</string>
     <string name="see_all">Vedi tutto</string>
@@ -275,11 +273,14 @@
     <string name="settings_default_reading_mode">Modalità di lettura predefinita</string>
     <string name="settings_default_direction">Direzione predefinita</string>
     <string name="settings_tap_zones">Zone di tocco</string>
-    <string name="settings_show">Mostra</string>
+    <string name="settings_tap_zones_summary">I bordi girano pagina, il centro mostra i controlli</string>
+    <string name="settings_section_reading">Lettura</string>
+    <string name="settings_section_library">Libreria</string>
     <string name="settings_import_folder">Cartella di importazione</string>
     <string name="settings_import_folder_not_set">Non selezionata</string>
     <string name="settings_auto_scan_folder">Scansione automatica cartella libreria</string>
-    <string name="settings_auto_delete_temp">Elimina automaticamente i file temporanei</string>
+    <string name="settings_auto_delete_temp">Elimina copie temporanee</string>
+    <string name="settings_auto_delete_temp_description">Alla chiusura di un fumetto, rimuove le copie create per le app di archiviazione che non permettono la lettura diretta.</string>
     <string name="settings_backup_restore">Backup e ripristino</string>
     <string name="settings_backup_description">Esporta o ripristina riferimenti della libreria, cronologia, tag, metadati e impostazioni. I file dei fumetti non sono inclusi.</string>
     <string name="settings_export_backup">Esporta</string>

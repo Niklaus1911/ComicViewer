@@ -1,6 +1,8 @@
 package com.comicviewer.ui.importer
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.comicviewer.ui.common.tabScreen
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryComicDetails
 import com.comicviewer.R
@@ -50,7 +52,6 @@ import com.comicviewer.RecentComic
 import com.comicviewer.detailsFor
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.resolvedComicPageCount
-import com.comicviewer.ui.common.ReferenceBadge
 import com.comicviewer.ui.common.ReferenceLargeCardShape
 import com.comicviewer.ui.common.ReferenceScreenHeader
 import com.comicviewer.ui.common.ReferenceSectionHeader
@@ -84,14 +85,13 @@ fun ImportScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding(),
+                .windowInsetsPadding(WindowInsets.tabScreen),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 ReferenceScreenHeader(
                     title = stringResource(R.string.nav_import),
-                    badge = stringResource(R.string.local_only_badge),
                     subtitle = stringResource(R.string.import_subtitle),
                     actions = {
                         Box {

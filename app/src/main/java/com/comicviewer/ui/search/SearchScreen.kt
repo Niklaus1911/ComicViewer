@@ -1,6 +1,8 @@
 package com.comicviewer.ui.search
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.comicviewer.ui.common.tabScreen
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryComicDetails
 import com.comicviewer.LibraryComicMetadata
@@ -92,11 +94,10 @@ fun SearchScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .systemBarsPadding(),
+                .windowInsetsPadding(WindowInsets.tabScreen),
         ) {
             ReferenceScreenHeader(
                 title = stringResource(R.string.nav_search),
-                badge = stringResource(R.string.local_library_badge),
                 navigation = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))

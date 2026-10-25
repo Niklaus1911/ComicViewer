@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,6 +28,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.History
@@ -151,6 +158,10 @@ data class ThemeUiState(
     val themePreset: AppThemePreset,
     val amoledEnabled: Boolean,
 )
+
+// Scrims match the androidx defaults; they only show with three-button navigation.
+private val LIGHT_NAVIGATION_BAR_SCRIM = android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DARK_NAVIGATION_BAR_SCRIM = android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b)
 
 @Composable
 fun ComicViewerApp(
@@ -421,6 +432,20 @@ fun ComicViewerApp(
     }
 
     val darkTheme = resolveDarkTheme(themeUiState.themeMode, isSystemInDarkTheme())
+    // System bar icons follow the app theme, which can differ from the system dark mode setting.
+    DisposableEffect(context, darkTheme) {
+        (context as? ComponentActivity)?.enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = android.graphics.Color.TRANSPARENT,
+                darkScrim = android.graphics.Color.TRANSPARENT,
+            ) { darkTheme },
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = LIGHT_NAVIGATION_BAR_SCRIM,
+                darkScrim = DARK_NAVIGATION_BAR_SCRIM,
+            ) { darkTheme },
+        )
+        onDispose {}
+    }
     ComicViewerTheme(
         darkTheme = darkTheme,
         dynamicColor = themeUiState.dynamicColorEnabled,
@@ -1002,7 +1027,11 @@ fun HomeScreen(
                         selectedTab = selectedTab,
                         onTabSelected = onTabSelected,
                     )
-                    Box(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)),
+                    ) {
                         tabContent()
                     }
                 }

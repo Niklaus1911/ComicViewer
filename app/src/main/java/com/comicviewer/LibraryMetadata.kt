@@ -1,6 +1,7 @@
 package com.comicviewer
 
 import android.content.Context
+import androidx.core.content.edit
 import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
@@ -52,10 +53,9 @@ fun loadLibraryMetadata(context: Context): List<LibraryComicMetadata> {
 }
 
 fun saveLibraryMetadata(context: Context, metadata: List<LibraryComicMetadata>) {
-    context.libraryMetadataPrefs()
-        .edit()
-        .putString(LIBRARY_METADATA_KEY, encodeLibraryMetadata(metadata))
-        .apply()
+    context.libraryMetadataPrefs().edit {
+        putString(LIBRARY_METADATA_KEY, encodeLibraryMetadata(metadata))
+    }
 }
 
 fun LibraryComic.metadataKey(): String = libraryMetadataKey(sourceType, path)

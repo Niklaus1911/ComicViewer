@@ -2,7 +2,9 @@ package com.comicviewer
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
@@ -106,6 +108,22 @@ private fun openArchiveStream(
 }
 
 /**
+ * When a copy would not fit in the free space alone, asks the system to clear other apps' cached files
+ * to make room. That needs Android 8 and a provider that reports the document's size; otherwise the
+ * copy is limited to the space already free.
+ */
+private fun Context.makeRoomForArchiveCopy(uri: Uri, copyDir: File) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val neededBytes = (queryDocumentLong(uri, OpenableColumns.SIZE) ?: return) + ARCHIVE_COPY_RESERVE_BYTES
+    if (copyDir.usableSpace >= neededBytes) return
+    runCatching {
+        val storage = getSystemService(StorageManager::class.java)
+        val volume = storage.getUuidForPath(copyDir)
+        if (storage.getAllocatableBytes(volume) >= neededBytes) storage.allocateBytes(volume, neededBytes)
+    }
+}
+
+/**
  * Fallback for stream-only providers: copies the document once, limited only by free space, and keeps
  * a single copy that is reused while the source is unchanged.
  */
@@ -120,6 +138,7 @@ internal fun copyDocumentToCache(
     if (identity != null && copyFile.isFile && copyFile.length() > 0L) return@synchronized copyFile
 
     copyDir.listFiles().orEmpty().forEach(File::delete)
+    context.makeRoomForArchiveCopy(uri, copyDir)
     val pendingFile = File(copyDir, "${copyFile.name}.part")
     val input = context.contentResolver.openInputStream(uri)
         ?: throw ComicLoadException(ComicLoadError.ArchiveNotReadable)

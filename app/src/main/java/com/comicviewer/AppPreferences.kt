@@ -2,8 +2,8 @@ package com.comicviewer
 
 import android.content.Context
 import android.content.res.Configuration
-import android.os.Build
 import android.os.LocaleList
+import androidx.core.content.edit
 import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 import java.util.Locale
@@ -101,20 +101,18 @@ fun loadAppLanguage(context: Context): AppLanguage {
 }
 
 fun saveAppLanguage(context: Context, language: AppLanguage) {
-    appPreferences(context)
-        .edit()
-        .putString(LANGUAGE_KEY, language.preferenceValue)
-        .apply()
+    appPreferences(context).edit {
+        putString(LANGUAGE_KEY, language.preferenceValue)
+    }
 }
 
 fun loadAmoledThemeEnabled(context: Context): Boolean =
     appPreferences(context).getBoolean(AMOLED_THEME_KEY, false)
 
 fun saveAmoledThemeEnabled(context: Context, enabled: Boolean) {
-    appPreferences(context)
-        .edit()
-        .putBoolean(AMOLED_THEME_KEY, enabled)
-        .apply()
+    appPreferences(context).edit {
+        putBoolean(AMOLED_THEME_KEY, enabled)
+    }
 }
 
 fun loadThemeMode(context: Context): AppThemeMode {
@@ -123,10 +121,9 @@ fun loadThemeMode(context: Context): AppThemeMode {
 }
 
 fun saveThemeMode(context: Context, mode: AppThemeMode) {
-    appPreferences(context)
-        .edit()
-        .putString(THEME_MODE_KEY, mode.preferenceValue)
-        .apply()
+    appPreferences(context).edit {
+        putString(THEME_MODE_KEY, mode.preferenceValue)
+    }
 }
 
 fun loadLibraryDisplayMode(context: Context): LibraryDisplayMode {
@@ -135,20 +132,18 @@ fun loadLibraryDisplayMode(context: Context): LibraryDisplayMode {
 }
 
 fun saveLibraryDisplayMode(context: Context, mode: LibraryDisplayMode) {
-    appPreferences(context)
-        .edit()
-        .putString(LIBRARY_DISPLAY_MODE_KEY, mode.preferenceValue)
-        .apply()
+    appPreferences(context).edit {
+        putString(LIBRARY_DISPLAY_MODE_KEY, mode.preferenceValue)
+    }
 }
 
 fun loadDynamicColorEnabled(context: Context): Boolean =
     appPreferences(context).getBoolean(DYNAMIC_COLOR_KEY, false)
 
 fun saveDynamicColorEnabled(context: Context, enabled: Boolean) {
-    appPreferences(context)
-        .edit()
-        .putBoolean(DYNAMIC_COLOR_KEY, enabled)
-        .apply()
+    appPreferences(context).edit {
+        putBoolean(DYNAMIC_COLOR_KEY, enabled)
+    }
 }
 
 fun loadAccentColor(context: Context): AppColor {
@@ -157,10 +152,9 @@ fun loadAccentColor(context: Context): AppColor {
 }
 
 fun saveAccentColor(context: Context, color: AppColor) {
-    appPreferences(context)
-        .edit()
-        .putString(ACCENT_COLOR_KEY, color.name)
-        .apply()
+    appPreferences(context).edit {
+        putString(ACCENT_COLOR_KEY, color.name)
+    }
 }
 
 fun loadThemePreset(context: Context): AppThemePreset {
@@ -169,10 +163,9 @@ fun loadThemePreset(context: Context): AppThemePreset {
 }
 
 fun saveThemePreset(context: Context, preset: AppThemePreset) {
-    appPreferences(context)
-        .edit()
-        .putString(THEME_PRESET_KEY, preset.preferenceValue)
-        .apply()
+    appPreferences(context).edit {
+        putString(THEME_PRESET_KEY, preset.preferenceValue)
+    }
 }
 
 fun resolvedThemePreset(
@@ -228,18 +221,17 @@ fun saveReaderPreferences(context: Context, readerPreferences: ReaderPreferences
     val brightness = readerPreferences.brightness
         ?.takeIf(Float::isFinite)
         ?.coerceIn(0.05f, 1f)
-    appPreferences(context)
-        .edit()
-        .putString(READER_PAGE_MODE_KEY, readerPreferences.pageMode.preferenceValue)
-        .putString(READER_READING_DIRECTION_KEY, readerPreferences.readingDirection.preferenceValue)
-        .putString(READER_PAGE_FIT_MODE_KEY, readerPreferences.pageFitMode.preferenceValue)
-        .putString(READER_BACKGROUND_KEY, readerPreferences.background.preferenceValue)
-        .putBoolean(READER_BRIGHTNESS_ENABLED_KEY, brightness != null)
-        .putFloat(READER_BRIGHTNESS_KEY, brightness ?: 0.5f)
-        .putInt(READER_MARGIN_DP_KEY, readerPreferences.marginDp.coerceIn(0, 32))
-        .putBoolean(READER_KEEP_SCREEN_ON_KEY, readerPreferences.keepScreenOn)
-        .putBoolean(READER_SHOW_PAGE_NUMBER_KEY, readerPreferences.showPageNumber)
-        .apply()
+    appPreferences(context).edit {
+        putString(READER_PAGE_MODE_KEY, readerPreferences.pageMode.preferenceValue)
+        putString(READER_READING_DIRECTION_KEY, readerPreferences.readingDirection.preferenceValue)
+        putString(READER_PAGE_FIT_MODE_KEY, readerPreferences.pageFitMode.preferenceValue)
+        putString(READER_BACKGROUND_KEY, readerPreferences.background.preferenceValue)
+        putBoolean(READER_BRIGHTNESS_ENABLED_KEY, brightness != null)
+        putFloat(READER_BRIGHTNESS_KEY, brightness ?: 0.5f)
+        putInt(READER_MARGIN_DP_KEY, readerPreferences.marginDp.coerceIn(0, 32))
+        putBoolean(READER_KEEP_SCREEN_ON_KEY, readerPreferences.keepScreenOn)
+        putBoolean(READER_SHOW_PAGE_NUMBER_KEY, readerPreferences.showPageNumber)
+    }
 }
 
 fun resolvedReaderPreferences(
@@ -279,14 +271,13 @@ fun saveLibraryAutomationPreferences(
     context: Context,
     preferences: LibraryAutomationPreferences,
 ) {
-    appPreferences(context)
-        .edit()
-        .putString(IMPORT_FOLDER_URI_KEY, preferences.importFolderUri)
-        .putString(IMPORT_FOLDER_NAME_KEY, preferences.importFolderName)
-        .putBoolean(AUTO_SCAN_LIBRARY_KEY, preferences.autoScanEnabled)
-        .putLong(LAST_AUTO_SCAN_AT_KEY, preferences.lastAutoScanAt.coerceAtLeast(0L))
-        .putBoolean(AUTO_DELETE_TEMP_FILES_KEY, preferences.autoDeleteTempFiles)
-        .apply()
+    appPreferences(context).edit {
+        putString(IMPORT_FOLDER_URI_KEY, preferences.importFolderUri)
+        putString(IMPORT_FOLDER_NAME_KEY, preferences.importFolderName)
+        putBoolean(AUTO_SCAN_LIBRARY_KEY, preferences.autoScanEnabled)
+        putLong(LAST_AUTO_SCAN_AT_KEY, preferences.lastAutoScanAt.coerceAtLeast(0L))
+        putBoolean(AUTO_DELETE_TEMP_FILES_KEY, preferences.autoDeleteTempFiles)
+    }
 }
 
 internal fun shouldRunAutomaticLibraryScan(
@@ -313,10 +304,9 @@ fun loadDebugProUnlocked(context: Context): Boolean =
     appPreferences(context).getBoolean(DEBUG_PRO_UNLOCK_KEY, false)
 
 fun saveDebugProUnlocked(context: Context, unlocked: Boolean) {
-    appPreferences(context)
-        .edit()
-        .putBoolean(DEBUG_PRO_UNLOCK_KEY, unlocked)
-        .apply()
+    appPreferences(context).edit {
+        putBoolean(DEBUG_PRO_UNLOCK_KEY, unlocked)
+    }
 }
 
 /**
@@ -333,10 +323,9 @@ fun loadWelcomeSeen(context: Context): Boolean =
     appPreferences(context).getBoolean(WELCOME_SEEN_KEY, false)
 
 fun saveWelcomeSeen(context: Context, seen: Boolean) {
-    appPreferences(context)
-        .edit()
-        .putBoolean(WELCOME_SEEN_KEY, seen)
-        .apply()
+    appPreferences(context).edit {
+        putBoolean(WELCOME_SEEN_KEY, seen)
+    }
 }
 
 internal fun shouldShowWelcome(
@@ -359,12 +348,7 @@ fun localizedAppContext(context: Context): Context {
 
     Locale.setDefault(locale)
     val configuration = Configuration(context.resources.configuration)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        configuration.setLocales(LocaleList(locale))
-    } else {
-        @Suppress("DEPRECATION")
-        configuration.locale = locale
-    }
+    configuration.setLocales(LocaleList(locale))
     return context.createConfigurationContext(configuration)
 }
 
@@ -380,10 +364,4 @@ private inline fun <reified T : Enum<T>> android.content.SharedPreferences.enumV
     return enumValues<T>().firstOrNull { item -> storageValue(item) == value } ?: defaultValue
 }
 
-private fun systemLocale(context: Context): Locale =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-        context.resources.configuration.locales[0]
-    } else {
-        @Suppress("DEPRECATION")
-        context.resources.configuration.locale
-    }
+private fun systemLocale(context: Context): Locale = context.resources.configuration.locales[0]

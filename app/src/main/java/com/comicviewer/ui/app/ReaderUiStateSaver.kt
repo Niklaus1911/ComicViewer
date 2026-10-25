@@ -1,8 +1,8 @@
 package com.comicviewer.ui.app
 
-import android.net.Uri
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
+import androidx.core.net.toUri
 import com.comicviewer.ComicSource
 import com.comicviewer.ReaderUiState
 
@@ -74,8 +74,8 @@ private fun restoreLoadingState(savedValues: List<String>): ReaderUiState {
     val pageIndex = savedValues.getOrNull(4)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
 
     val source = when (sourceType) {
-        "archive" -> ComicSource.Archive(uri = Uri.parse(sourceLocation), displayName = sourceDisplayName)
-        "folder" -> ComicSource.Folder(uri = Uri.parse(sourceLocation), displayName = sourceDisplayName)
+        "archive" -> ComicSource.Archive(uri = sourceLocation.toUri(), displayName = sourceDisplayName)
+        "folder" -> ComicSource.Folder(uri = sourceLocation.toUri(), displayName = sourceDisplayName)
         "local_archive" -> ComicSource.LocalArchive(filePath = sourceLocation, displayName = sourceDisplayName)
         "local_folder" -> ComicSource.LocalFolder(folderPath = sourceLocation, displayName = sourceDisplayName)
         else -> return ReaderUiState.Empty

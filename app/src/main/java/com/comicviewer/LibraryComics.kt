@@ -1,6 +1,7 @@
 package com.comicviewer
 
 import android.content.Context
+import androidx.core.content.edit
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,10 +27,9 @@ fun loadLibraryComics(context: Context): List<LibraryComic> {
 }
 
 fun saveLibraryComics(context: Context, libraryComics: List<LibraryComic>) {
-    context.libraryComicsPrefs()
-        .edit()
-        .putString(LIBRARY_COMICS_KEY, encodeLibraryComics(libraryComics.take(MAX_LIBRARY_COMICS)))
-        .apply()
+    context.libraryComicsPrefs().edit {
+        putString(LIBRARY_COMICS_KEY, encodeLibraryComics(libraryComics.take(MAX_LIBRARY_COMICS)))
+    }
 }
 
 fun libraryComicForArchive(file: File, addedAt: Long): LibraryComic =

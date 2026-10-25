@@ -1,6 +1,7 @@
 package com.comicviewer
 
 import android.content.Context
+import androidx.core.content.edit
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -43,10 +44,9 @@ fun loadRecentComics(context: Context): List<RecentComic> {
 }
 
 fun saveRecentComics(context: Context, recentComics: List<RecentComic>) {
-    context.recentComicsPrefs()
-        .edit()
-        .putString(RECENT_COMICS_KEY, encodeRecentComics(recentComics.take(MAX_RECENT_COMICS)))
-        .apply()
+    context.recentComicsPrefs().edit {
+        putString(RECENT_COMICS_KEY, encodeRecentComics(recentComics.take(MAX_RECENT_COMICS)))
+    }
 }
 
 fun recentComicFor(

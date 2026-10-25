@@ -3,6 +3,7 @@ package com.comicviewer
 import android.content.Context
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -65,10 +66,9 @@ fun loadLibraryComicDetails(context: Context): List<LibraryComicDetails> {
 }
 
 fun saveLibraryComicDetails(context: Context, details: List<LibraryComicDetails>) {
-    context.getSharedPreferences(COMIC_DETAILS_PREFS_NAME, Context.MODE_PRIVATE)
-        .edit()
-        .putString(COMIC_DETAILS_KEY, encodeLibraryComicDetails(details.take(MAX_METADATA_RECORDS)))
-        .apply()
+    context.getSharedPreferences(COMIC_DETAILS_PREFS_NAME, Context.MODE_PRIVATE).edit {
+        putString(COMIC_DETAILS_KEY, encodeLibraryComicDetails(details.take(MAX_METADATA_RECORDS)))
+    }
 }
 
 fun detailsFor(

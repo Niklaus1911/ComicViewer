@@ -89,6 +89,8 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          # The profile's default data partition needs more disk than the runner has left after the build.
+          disk-size: 2048M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
           script: ./gradlew connectedDebugAndroidTest

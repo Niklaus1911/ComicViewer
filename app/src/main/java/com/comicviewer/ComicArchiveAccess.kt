@@ -61,15 +61,10 @@ internal fun openLocalComicArchive(
 ): OpenedComicArchive = openArchiveStream(FileInputStream(file), maxEntries, shouldContinue)
 
 /**
- * Opens a picked document for random access straight from its file descriptor. Returns null when
- * the provider only offers a one-way stream (a pipe), which cannot be read without a copy.
+ * A random-access descriptor for a picked document, or null when the provider only offers a one-way
+ * stream (a pipe), which cannot be read without a copy.
  */
-internal fun openSeekableDocumentComicArchive(
-    context: Context,
-    uri: Uri,
-    maxEntries: Int = MAX_COMIC_ARCHIVE_ENTRIES,
-    shouldContinue: () -> Boolean = { true },
-): OpenedComicArchive? {
+internal fun openSeekableDocumentDescriptor(context: Context, uri: Uri): ParcelFileDescriptor? {
     val descriptor = try {
         context.contentResolver.openFileDescriptor(uri, "r")
     } catch (_: UnsupportedOperationException) {
@@ -81,6 +76,17 @@ internal fun openSeekableDocumentComicArchive(
         descriptor.close()
         return null
     }
+    return descriptor
+}
+
+/** Opens a picked document for random access straight from its file descriptor, or null for a pipe. */
+internal fun openSeekableDocumentComicArchive(
+    context: Context,
+    uri: Uri,
+    maxEntries: Int = MAX_COMIC_ARCHIVE_ENTRIES,
+    shouldContinue: () -> Boolean = { true },
+): OpenedComicArchive? {
+    val descriptor = openSeekableDocumentDescriptor(context, uri) ?: return null
     return openArchiveStream(ParcelFileDescriptor.AutoCloseInputStream(descriptor), maxEntries, shouldContinue)
 }
 
@@ -120,7 +126,7 @@ internal fun copyDocumentToCache(
 ): File = synchronized(archiveCopyLock) {
     val copyDir = archiveCopyDir(context).apply { mkdirs() }
     val identity = context.documentArchiveIdentity(uri)
-    val copyFile = File(copyDir, "${sha256Hex(identity ?: uri.toString())}.copy")
+    val copyFile = File(copyDir, "${sha256Hex(identity ?: uri.toString())}.cbz")
     if (identity != null && copyFile.isFile && copyFile.length() > 0L) return@synchronized copyFile
 
     copyDir.listFiles().orEmpty().forEach(File::delete)

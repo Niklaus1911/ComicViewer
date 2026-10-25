@@ -35,7 +35,10 @@ internal class ComicPdfPageFetcher(
             if (page.pageIndex >= lease.source.pageCount) {
                 throw FileNotFoundException("Page ${page.pageIndex + 1} is no longer in the PDF.")
             }
-            lease.source.renderPage(page.pageIndex) { pageWidth, pageHeight ->
+            lease.source.renderPage(
+                index = page.pageIndex,
+                shouldContinue = { coroutineContext.isActive },
+            ) { pageWidth, pageHeight ->
                 pdfRenderSize(
                     pageWidth = pageWidth,
                     pageHeight = pageHeight,

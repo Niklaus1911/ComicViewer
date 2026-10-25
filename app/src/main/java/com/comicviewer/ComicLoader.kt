@@ -38,6 +38,7 @@ enum class ComicLoadError {
     ArchivePageTooLarge,
     InvalidArchive,
     PdfPasswordProtected,
+    PdfTooManyPages,
     ArchiveExtractionFailed,
     NotEnoughArchiveSpace,
     NoSupportedImagesFound,
@@ -52,6 +53,7 @@ enum class ComicLoadError {
         ArchivePageTooLarge -> "An archive page exceeds the supported size limit."
         InvalidArchive -> "Select a valid .zip, .cbz or .pdf file."
         PdfPasswordProtected -> "This PDF is password protected."
+        PdfTooManyPages -> "PDF too large: it has more than ${args[0]} pages."
         ArchiveExtractionFailed -> "Archive read failed or was interrupted."
         NotEnoughArchiveSpace -> "Not enough free space to open this archive."
         NoSupportedImagesFound -> "No supported images found."
@@ -69,6 +71,9 @@ enum class ComicLoadError {
         ArchivePageTooLarge -> context.getString(R.string.archive_page_too_large)
         InvalidArchive -> context.getString(R.string.invalid_archive)
         PdfPasswordProtected -> context.getString(R.string.pdf_password_protected)
+        PdfTooManyPages -> (args[0] as Number).toInt().let { count ->
+            context.resources.getQuantityString(R.plurals.pdf_too_many_pages, count, count)
+        }
         ArchiveExtractionFailed -> context.getString(R.string.archive_extraction_failed)
         NotEnoughArchiveSpace -> context.getString(R.string.not_enough_archive_space)
         NoSupportedImagesFound -> context.getString(R.string.no_supported_images_found)

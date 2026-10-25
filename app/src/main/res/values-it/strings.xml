@@ -66,6 +66,11 @@
     <string name="archive_page_too_large">Una pagina dell\'archivio supera il limite di dimensione supportato.</string>
     <string name="invalid_archive">Seleziona un file .zip, .cbz o .pdf valido.</string>
     <string name="pdf_password_protected">Questo PDF è protetto da password.</string>
+    <plurals name="pdf_too_many_pages">
+        <item quantity="one">PDF troppo grande: ha più di %1$d pagina.</item>
+        <item quantity="many">PDF troppo grande: ha più di %1$d pagine.</item>
+        <item quantity="other">PDF troppo grande: ha più di %1$d pagine.</item>
+    </plurals>
     <string name="archive_extraction_failed">Lettura dell\'archivio non riuscita o interrotta.</string>
     <string name="not_enough_archive_space">Spazio libero insufficiente per aprire questo archivio.</string>
     <string name="no_supported_images_found">Nessuna immagine supportata trovata.</string>

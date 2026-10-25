@@ -11,6 +11,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import kotlinx.coroutines.CancellationException
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -31,20 +32,28 @@ private val ZIP_SIGNATURES = listOf(
     byteArrayOf(0x50, 0x4B, 0x05, 0x06),
 )
 
+/**
+ * All [PdfRenderer] instances share pdfium, which is not thread-safe and which older platform
+ * versions do not lock across documents, so every open, render and close goes through this lock.
+ */
+private val pdfiumLock = Any()
+
 internal data class PdfRenderSize(val width: Int, val height: Int)
 
-/**
- * An open PDF. [PdfRenderer] allows only one open page at a time and is not thread-safe, so every
- * page is opened, rendered and closed under this object's lock.
- */
+/** An open PDF. [PdfRenderer] also allows only one open page at a time per document. */
 internal class OpenedComicPdf(private val renderer: PdfRenderer) : Closeable {
     val pageCount: Int = renderer.pageCount
 
-    /** Renders page [index] onto white at the size [targetSize] picks from the page's size in points. */
+    /**
+     * Renders page [index] onto white at the size [targetSize] picks from the page's size in points.
+     * Renders queue on the shared lock, so one cancelled while waiting is skipped via [shouldContinue].
+     */
     fun renderPage(
         index: Int,
+        shouldContinue: () -> Boolean = { true },
         targetSize: (pageWidth: Int, pageHeight: Int) -> PdfRenderSize,
-    ): Bitmap = synchronized(this) {
+    ): Bitmap = synchronized(pdfiumLock) {
+        if (!shouldContinue()) throw CancellationException()
         renderer.openPage(index).use { page ->
             val size = targetSize(page.width, page.height)
             val bitmap = createBitmap(size.width, size.height)
@@ -61,7 +70,7 @@ internal class OpenedComicPdf(private val renderer: PdfRenderer) : Closeable {
         }
     }
 
-    override fun close() = synchronized(this) {
+    override fun close() = synchronized(pdfiumLock) {
         renderer.close()
     }
 }
@@ -73,25 +82,13 @@ internal fun openLocalComicPdf(file: File): OpenedComicPdf =
  * Opens a picked PDF straight from its file descriptor. Returns null when the provider only offers a
  * one-way stream (a pipe), which [PdfRenderer] cannot read without a copy.
  */
-internal fun openSeekableDocumentComicPdf(context: Context, uri: Uri): OpenedComicPdf? {
-    val descriptor = try {
-        context.contentResolver.openFileDescriptor(uri, "r")
-    } catch (_: UnsupportedOperationException) {
-        null
-    } catch (_: IllegalArgumentException) {
-        null
-    } ?: return null
-    if (descriptor.statSize <= 0L) {
-        descriptor.close()
-        return null
-    }
-    return openComicPdf(descriptor)
-}
+internal fun openSeekableDocumentComicPdf(context: Context, uri: Uri): OpenedComicPdf? =
+    openSeekableDocumentDescriptor(context, uri)?.let(::openComicPdf)
 
 /** [PdfRenderer] takes ownership of [descriptor] and closes it with the renderer. */
 private fun openComicPdf(descriptor: ParcelFileDescriptor): OpenedComicPdf {
     val renderer = try {
-        PdfRenderer(descriptor)
+        synchronized(pdfiumLock) { PdfRenderer(descriptor) }
     } catch (throwable: Throwable) {
         descriptor.close()
         throw when (throwable) {
@@ -101,8 +98,8 @@ private fun openComicPdf(descriptor: ParcelFileDescriptor): OpenedComicPdf {
         }
     }
     if (renderer.pageCount > MAX_PDF_PAGES) {
-        renderer.close()
-        throw ComicLoadException(ComicLoadError.ArchiveTooLarge, MAX_PDF_PAGES)
+        synchronized(pdfiumLock) { renderer.close() }
+        throw ComicLoadException(ComicLoadError.PdfTooManyPages, MAX_PDF_PAGES)
     }
     return OpenedComicPdf(renderer)
 }

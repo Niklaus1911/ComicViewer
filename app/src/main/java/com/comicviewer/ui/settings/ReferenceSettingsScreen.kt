@@ -660,6 +660,7 @@ private fun AppThemeMode.labelRes(): Int = when (this) {
 private fun ReaderPageMode.labelRes(): Int = when (this) {
     ReaderPageMode.SinglePage -> R.string.reader_single_page
     ReaderPageMode.TwoPage -> R.string.reader_two_page
+    ReaderPageMode.Vertical -> R.string.reader_vertical_scroll
 }
 
 private fun ReaderReadingDirection.labelRes(): Int = when (this) {

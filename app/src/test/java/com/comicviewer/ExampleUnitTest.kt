@@ -36,6 +36,8 @@ import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
 import com.comicviewer.ui.reader.readerSwipeCommitDirection
 import com.comicviewer.ui.reader.readerSwipeStartOffset
 import com.comicviewer.ui.reader.readerSwipeTargetIndex
+import com.comicviewer.ui.reader.readerProgressPercent
+import com.comicviewer.ui.reader.readerTargetPageIndex
 import com.comicviewer.ui.reader.readerSpreadPageIndices
 import com.comicviewer.ui.reader.readerSpreadStartIndex
 import com.comicviewer.ui.reader.readerSpreadTargetIndex
@@ -2435,6 +2437,33 @@ class ExampleUnitTest {
             assertEquals(readerOrder, opened.reader.firstComicPages(10).map { it.name })
             assertTrue(opened.reader.firstComicPages(0).isEmpty())
         }
+    }
+
+    @Test
+    fun resolvedReaderPreferences_keepsVerticalScrollFreeButNotTwoPage() {
+        val vertical = ReaderPreferences(pageMode = ReaderPageMode.Vertical, background = ReaderBackground.Sepia)
+        val twoPage = ReaderPreferences(pageMode = ReaderPageMode.TwoPage)
+
+        assertEquals(ReaderPageMode.Vertical, resolvedReaderPreferences(vertical, isProUnlocked = false).pageMode)
+        assertEquals(ReaderBackground.Black, resolvedReaderPreferences(vertical, isProUnlocked = false).background)
+        assertEquals(ReaderPageMode.SinglePage, resolvedReaderPreferences(twoPage, isProUnlocked = false).pageMode)
+        assertEquals(ReaderPageMode.TwoPage, resolvedReaderPreferences(twoPage, isProUnlocked = true).pageMode)
+    }
+
+    @Test
+    fun readerPageIndexHelpers_treatVerticalScrollLikeSinglePages() {
+        assertEquals(4, readerReportedPageIndex(visualPageIndex = 4, pageCount = 6, pageMode = ReaderPageMode.Vertical))
+        assertEquals(
+            5,
+            readerTargetPageIndex(
+                currentPageIndex = 4,
+                pageCount = 6,
+                direction = ReaderSwipeDirection.Next,
+                pageMode = ReaderPageMode.Vertical,
+            ),
+        )
+        assertEquals(0, readerProgressPercent(progressPageIndex = 0, pageCount = 0))
+        assertEquals(50, readerProgressPercent(progressPageIndex = 2, pageCount = 6))
     }
 
     @Test

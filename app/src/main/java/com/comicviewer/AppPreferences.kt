@@ -34,6 +34,7 @@ enum class ReaderReadingDirection(val preferenceValue: String) {
 enum class ReaderPageMode(val preferenceValue: String) {
     SinglePage("single_page"),
     TwoPage("two_page"),
+    Vertical("vertical"),
 }
 
 enum class ReaderPageFitMode(val preferenceValue: String) {
@@ -249,7 +250,12 @@ fun resolvedReaderPreferences(
         readerPreferences
     } else {
         readerPreferences.copy(
-            pageMode = ReaderPageMode.SinglePage,
+            // Two-page spreads are Pro; single page and vertical scroll are free.
+            pageMode = if (readerPreferences.pageMode == ReaderPageMode.TwoPage) {
+                ReaderPageMode.SinglePage
+            } else {
+                readerPreferences.pageMode
+            },
             readingDirection = ReaderReadingDirection.LeftToRight,
             pageFitMode = ReaderPageFitMode.FitScreen,
             background = ReaderBackground.Black,

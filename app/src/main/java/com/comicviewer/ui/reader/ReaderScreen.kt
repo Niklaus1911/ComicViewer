@@ -239,7 +239,9 @@ internal fun readerTargetPageIndex(
     direction: ReaderSwipeDirection,
     pageMode: ReaderPageMode,
 ): Int? = when (pageMode) {
-    ReaderPageMode.SinglePage -> readerSwipeTargetIndex(currentPageIndex, pageCount, direction)
+    ReaderPageMode.SinglePage,
+    ReaderPageMode.Vertical,
+    -> readerSwipeTargetIndex(currentPageIndex, pageCount, direction)
     ReaderPageMode.TwoPage -> readerSpreadTargetIndex(currentPageIndex, pageCount, direction)
 }
 
@@ -248,7 +250,9 @@ internal fun readerReportedPageIndex(
     pageCount: Int,
     pageMode: ReaderPageMode,
 ): Int = when (pageMode) {
-    ReaderPageMode.SinglePage -> coercePageIndex(visualPageIndex, pageCount)
+    ReaderPageMode.SinglePage,
+    ReaderPageMode.Vertical,
+    -> coercePageIndex(visualPageIndex, pageCount)
     ReaderPageMode.TwoPage -> readerSpreadPageIndices(visualPageIndex, pageCount)
         .lastOrNull()
         ?: coercePageIndex(visualPageIndex, pageCount)
@@ -599,6 +603,10 @@ fun ErrorComicScreen(
     }
 }
 
+/**
+ * The reader shell: window behavior, shared controls and sheets, and either the paged reader or the
+ * vertical scroll reader depending on the reading mode.
+ */
 @Composable
 fun ComicReaderScreen(
     book: ComicBook,
@@ -624,10 +632,108 @@ fun ComicReaderScreen(
         readerPreferences = readerPreferences,
         isProUnlocked = isProUnlocked,
     )
+    var controlsVisible by remember(book) { mutableStateOf(true) }
+    var showReaderSettings by remember(book) { mutableStateOf(false) }
+    var showPageGrid by remember(book) { mutableStateOf(false) }
+    var showProDialog by remember(book) { mutableStateOf(false) }
+
+    ReaderWindowEffect(preferences = activeReaderPreferences)
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(activeReaderPreferences.background.readerBackgroundColor()),
+    ) {
+        if (activeReaderPreferences.pageMode == ReaderPageMode.Vertical) {
+            VerticalComicReader(
+                book = book,
+                pageIndex = pageIndex,
+                preferences = activeReaderPreferences,
+                controlsVisible = controlsVisible,
+                onControlsVisibleChange = { controlsVisible = it },
+                onPageSelected = onPageSelected,
+                onCloseComic = onCloseComic,
+                onOpenSettings = { showReaderSettings = true },
+                onOpenGrid = { showPageGrid = true },
+                favorite = favorite,
+                onToggleFavorite = { if (isProUnlocked) onToggleFavorite() else showProDialog = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            PagedComicReader(
+                book = book,
+                pageIndex = pageIndex,
+                activeReaderPreferences = activeReaderPreferences,
+                controlsVisible = controlsVisible,
+                onControlsVisibleChange = { controlsVisible = it },
+                onPageSelected = onPageSelected,
+                onCloseComic = onCloseComic,
+                onOpenSettings = { showReaderSettings = true },
+                onOpenGrid = { showPageGrid = true },
+                favorite = favorite,
+                onToggleFavorite = { if (isProUnlocked) onToggleFavorite() else showProDialog = true },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        if (showReaderSettings) {
+            ReaderSettingsDialog(
+                readerPreferences = readerPreferences,
+                activeReaderPreferences = activeReaderPreferences,
+                isProUnlocked = isProUnlocked,
+                onReaderPreferencesChanged = onReaderPreferencesChanged,
+                onRequestPro = { showProDialog = true },
+                onDismiss = { showReaderSettings = false },
+                livePreview = true,
+            )
+        }
+
+        if (showPageGrid) {
+            ReaderPageGrid(
+                book = book,
+                currentPageIndex = coercePageIndex(pageIndex, book.pages.size),
+                onPageSelected = { selected ->
+                    onPageSelected(selected)
+                    showPageGrid = false
+                },
+                onDismiss = { showPageGrid = false },
+            )
+        }
+
+        if (showProDialog) {
+            ProUpgradeDialog(
+                billingState = proBillingState,
+                onBuyPro = onBuyPro,
+                onRestorePro = onRestorePro,
+                isDebugBuild = isDebugBuild,
+                debugProUnlocked = debugProUnlocked,
+                onDebugProUnlockedChanged = onDebugProUnlockedChanged,
+                onDismiss = { showProDialog = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PagedComicReader(
+    book: ComicBook,
+    pageIndex: Int,
+    activeReaderPreferences: ReaderPreferences,
+    controlsVisible: Boolean,
+    onControlsVisibleChange: (Boolean) -> Unit,
+    onPageSelected: (Int) -> Unit,
+    onCloseComic: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenGrid: () -> Unit,
+    favorite: Boolean?,
+    onToggleFavorite: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
     val resources = LocalResources.current
     val density = LocalDensity.current
-    val view = LocalView.current
+    // Gesture handlers outlive recompositions, so they read the latest visibility through this.
+    val currentControlsVisible by rememberUpdatedState(controlsVisible)
     val scope = rememberCoroutineScope()
     val imageLoader = remember(context) { SingletonImageLoader.get(context) }
     val currentIndex = coercePageIndex(pageIndex, book.pages.size)
@@ -675,10 +781,6 @@ fun ComicReaderScreen(
         secondSpreadPage?.imageUri,
         activeReaderPreferences.pageMode,
     ) { mutableStateOf(Offset.Zero) }
-    var controlsVisible by remember(book) { mutableStateOf(true) }
-    var showReaderSettings by remember(book) { mutableStateOf(false) }
-    var showPageGrid by remember(book) { mutableStateOf(false) }
-    var showProDialog by remember(book) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
     var activeSwipeDirection by remember { mutableStateOf<ReaderSwipeDirection?>(null) }
@@ -729,39 +831,6 @@ fun ComicReaderScreen(
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
     )
-
-    DisposableEffect(view, activeReaderPreferences.keepScreenOn, activeReaderPreferences.brightness) {
-        val window = view.context.findActivity()?.window
-        if (window == null) {
-            onDispose { }
-        } else {
-            val controller = WindowCompat.getInsetsController(window, view)
-            val previousSystemBarsBehavior = controller.systemBarsBehavior
-            val hadKeepScreenOn = window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
-            val previousBrightness = window.attributes.screenBrightness
-            if (activeReaderPreferences.keepScreenOn) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } else if (!hadKeepScreenOn) {
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            }
-            activeReaderPreferences.brightness?.let { brightness ->
-                window.attributes = window.attributes.apply {
-                    screenBrightness = brightness.coerceIn(0.05f, 1f)
-                }
-            }
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-
-            onDispose {
-                controller.show(WindowInsetsCompat.Type.statusBars())
-                controller.systemBarsBehavior = previousSystemBarsBehavior
-                window.attributes = window.attributes.apply { screenBrightness = previousBrightness }
-                if (!hadKeepScreenOn) {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-            }
-        }
-    }
 
     DisposableEffect(book) {
         onDispose {
@@ -1000,11 +1069,7 @@ fun ComicReaderScreen(
         )
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(activeReaderPreferences.background.readerBackgroundColor()),
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -1034,7 +1099,7 @@ fun ComicReaderScreen(
                             ) {
                                 ReaderSwipeDirection.Previous -> navigate(ReaderSwipeDirection.Previous)
                                 ReaderSwipeDirection.Next -> navigate(ReaderSwipeDirection.Next)
-                                null -> controlsVisible = !controlsVisible
+                                null -> onControlsVisibleChange(!currentControlsVisible)
                             }
                         },
                         onSwipeStart = { physicalDirection ->
@@ -1160,80 +1225,24 @@ fun ComicReaderScreen(
         } else {
             "${visualPage.index + 1} / ${book.pages.size}"
         }
-        val progressPercent = if (book.pages.isEmpty()) 0 else {
-            (((lastVisiblePageIndex + 1).toFloat() / book.pages.size) * 100).roundToInt().coerceIn(0, 100)
-        }
 
-        if (controlsVisible) {
-            ReaderTopBar(
-                title = book.title,
-                pageText = if (activeReaderPreferences.showPageNumber) {
-                    "$progressPercent%  •  $displayPageText"
-                } else {
-                    "$progressPercent%"
-                },
-                onOpenSettings = { showReaderSettings = true },
-                onCloseComic = onCloseComic,
-                favorite = favorite,
-                onToggleFavorite = {
-                    if (isProUnlocked) onToggleFavorite() else showProDialog = true
-                },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .systemBarsPadding(),
-            )
-
-            ReaderPageScrubber(
-                currentPageIndex = visualPage.index,
-                pageCount = book.pages.size,
-                onPageSelected = ::reportVisiblePage,
-                pageText = displayPageText,
-                showPageNumber = activeReaderPreferences.showPageNumber,
-                progressPageIndex = lastVisiblePageIndex,
-                onPrevious = { navigate(ReaderSwipeDirection.Previous) },
-                onNext = { navigate(ReaderSwipeDirection.Next) },
-                onOpenSettings = { showReaderSettings = true },
-                onOpenGrid = { showPageGrid = true },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .systemBarsPadding(),
-            )
-        }
-
-        if (showReaderSettings) {
-            ReaderSettingsDialog(
-                readerPreferences = readerPreferences,
-                activeReaderPreferences = activeReaderPreferences,
-                isProUnlocked = isProUnlocked,
-                onReaderPreferencesChanged = onReaderPreferencesChanged,
-                onRequestPro = { showProDialog = true },
-                onDismiss = { showReaderSettings = false },
-            )
-        }
-
-        if (showPageGrid) {
-            ReaderPageGrid(
-                book = book,
-                currentPageIndex = visualPage.index,
-                onPageSelected = { selected ->
-                    reportVisiblePage(selected)
-                    showPageGrid = false
-                },
-                onDismiss = { showPageGrid = false },
-            )
-        }
-
-        if (showProDialog) {
-            ProUpgradeDialog(
-                billingState = proBillingState,
-                onBuyPro = onBuyPro,
-                onRestorePro = onRestorePro,
-                isDebugBuild = isDebugBuild,
-                debugProUnlocked = debugProUnlocked,
-                onDebugProUnlockedChanged = onDebugProUnlockedChanged,
-                onDismiss = { showProDialog = false },
-            )
-        }
+        ReaderChrome(
+            title = book.title,
+            pageCount = book.pages.size,
+            currentPageIndex = visualPage.index,
+            progressPageIndex = lastVisiblePageIndex,
+            displayPageText = displayPageText,
+            controlsVisible = controlsVisible,
+            showPageNumber = activeReaderPreferences.showPageNumber,
+            favorite = favorite,
+            onToggleFavorite = onToggleFavorite,
+            onCloseComic = onCloseComic,
+            onPrevious = { navigate(ReaderSwipeDirection.Previous) },
+            onNext = { navigate(ReaderSwipeDirection.Next) },
+            onPageSelected = ::reportVisiblePage,
+            onOpenSettings = onOpenSettings,
+            onOpenGrid = onOpenGrid,
+        )
     }
 }
 
@@ -1445,7 +1454,7 @@ private fun List<ComicPage>.preloadAround(
         }
 }
 
-private fun ComicPage.imageRequest(context: Context, source: ComicSource): ImageRequest {
+internal fun ComicPage.imageRequest(context: Context, source: ComicSource): ImageRequest {
     val cacheKey = comicPageImageCacheKey(source = source, page = this)
     return ImageRequest.Builder(context)
         .data(imageUri)
@@ -1498,31 +1507,7 @@ private fun fitPageSizeInViewport(
     }
 }
 
-private fun ReaderReadingDirection.labelRes(): Int = when (this) {
-    ReaderReadingDirection.LeftToRight -> R.string.reader_direction_ltr
-    ReaderReadingDirection.RightToLeft -> R.string.reader_direction_rtl
-}
-
-private fun ReaderPageMode.labelRes(): Int = when (this) {
-    ReaderPageMode.SinglePage -> R.string.reader_single_page
-    ReaderPageMode.TwoPage -> R.string.reader_two_page
-}
-
-private fun ReaderPageFitMode.labelRes(): Int = when (this) {
-    ReaderPageFitMode.FitScreen -> R.string.reader_fit_page
-    ReaderPageFitMode.FitWidth -> R.string.reader_fit_width
-    ReaderPageFitMode.FitHeight -> R.string.reader_fit_height
-    ReaderPageFitMode.Original -> R.string.reader_original_size
-}
-
-private fun ReaderBackground.labelRes(): Int = when (this) {
-    ReaderBackground.Black -> R.string.reader_background_black
-    ReaderBackground.DarkGray -> R.string.reader_background_dark_gray
-    ReaderBackground.Sepia -> R.string.reader_background_sepia
-    ReaderBackground.White -> R.string.reader_background_white
-}
-
-private fun ReaderBackground.readerBackgroundColor(): Color = when (this) {
+internal fun ReaderBackground.readerBackgroundColor(): Color = when (this) {
     ReaderBackground.Black -> Color.Black
     ReaderBackground.DarkGray -> Color(0xFF202124)
     ReaderBackground.Sepia -> Color(0xFF2C2418)
@@ -1563,442 +1548,9 @@ fun PageImageError(
     }
 }
 
-@Composable
-fun ReaderTopBar(
-    title: String,
-    pageText: String,
-    onOpenSettings: () -> Unit,
-    onCloseComic: () -> Unit,
-    modifier: Modifier = Modifier,
-    favorite: Boolean? = null,
-    onToggleFavorite: () -> Unit = {},
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = Color(0xFF101820).copy(alpha = 0.96f),
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 8.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            IconButton(onClick = onCloseComic) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.reader_close_action),
-                    tint = Color.White,
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = pageText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.78f),
-                )
-            }
-            if (favorite != null) {
-                IconButton(onClick = onToggleFavorite) {
-                    Icon(
-                        imageVector = if (favorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                        contentDescription = stringResource(
-                            if (favorite) R.string.library_remove_favorite else R.string.library_add_favorite,
-                        ),
-                        tint = Color.White,
-                    )
-                }
-            }
-            IconButton(onClick = onOpenSettings) {
-                Icon(
-                    imageVector = Icons.Filled.MoreVert,
-                    contentDescription = stringResource(R.string.reader_settings),
-                    tint = Color.White,
-                )
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReaderSettingsDialog(
-    readerPreferences: ReaderPreferences,
-    activeReaderPreferences: ReaderPreferences,
-    isProUnlocked: Boolean,
-    onReaderPreferencesChanged: (ReaderPreferences) -> Unit,
-    onRequestPro: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) },
-        dragHandle = null,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 760.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, top = 18.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(15.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.reader_settings),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, stringResource(R.string.cancel))
-                }
-            }
-
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_reading_mode),
-                icon = Icons.Filled.AutoStories,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ReaderPageMode.entries.forEach { mode ->
-                        ReaderChoiceChip(
-                            label = stringResource(mode.labelRes()),
-                            selected = activeReaderPreferences.pageMode == mode,
-                            locked = !isProUnlocked && mode == ReaderPageMode.TwoPage,
-                            onClick = { onReaderPreferencesChanged(readerPreferences.copy(pageMode = mode)) },
-                            onLockedClick = onRequestPro,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_reading_direction),
-                icon = Icons.Filled.AutoStories,
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ReaderReadingDirection.entries.forEach { direction ->
-                        ReaderChoiceChip(
-                            label = stringResource(direction.labelRes()),
-                            selected = activeReaderPreferences.readingDirection == direction,
-                            locked = !isProUnlocked && direction != ReaderReadingDirection.LeftToRight,
-                            onClick = {
-                                onReaderPreferencesChanged(readerPreferences.copy(readingDirection = direction))
-                            },
-                            onLockedClick = onRequestPro,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_page_fit),
-                icon = Icons.Filled.AspectRatio,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ReaderPageFitMode.entries.forEach { fitMode ->
-                        ReaderChoiceChip(
-                            label = stringResource(fitMode.labelRes()),
-                            selected = activeReaderPreferences.pageFitMode == fitMode,
-                            locked = !isProUnlocked && fitMode != ReaderPageFitMode.FitScreen,
-                            onClick = {
-                                onReaderPreferencesChanged(readerPreferences.copy(pageFitMode = fitMode))
-                            },
-                            onLockedClick = onRequestPro,
-                        )
-                    }
-                }
-            }
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_background),
-                icon = Icons.Filled.Palette,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    ReaderBackground.entries.forEach { background ->
-                        ReaderChoiceChip(
-                            label = stringResource(background.labelRes()),
-                            selected = activeReaderPreferences.background == background,
-                            locked = !isProUnlocked && background != ReaderBackground.Black,
-                            leading = { ReaderBackgroundSwatch(background = background) },
-                            onClick = {
-                                onReaderPreferencesChanged(readerPreferences.copy(background = background))
-                            },
-                            onLockedClick = onRequestPro,
-                        )
-                    }
-                }
-            }
-
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_brightness),
-                icon = Icons.Filled.BrightnessHigh,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !isProUnlocked, onClick = onRequestPro),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(Icons.Filled.BrightnessLow, null, modifier = Modifier.size(20.dp))
-                    Slider(
-                        value = (activeReaderPreferences.brightness ?: 0.5f).coerceIn(0.05f, 1f),
-                        onValueChange = { onReaderPreferencesChanged(readerPreferences.copy(brightness = it)) },
-                        valueRange = 0.05f..1f,
-                        enabled = isProUnlocked,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(Icons.Filled.BrightnessHigh, null, modifier = Modifier.size(20.dp))
-                    if (!isProUnlocked) LockedProBadge()
-                }
-            }
-
-            ReaderSettingsSection(
-                title = stringResource(R.string.reader_margins),
-                icon = Icons.Filled.AspectRatio,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = !isProUnlocked, onClick = onRequestPro),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text("0", style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = activeReaderPreferences.marginDp.toFloat(),
-                        onValueChange = { onReaderPreferencesChanged(readerPreferences.copy(marginDp = it.roundToInt())) },
-                        valueRange = 0f..32f,
-                        steps = 31,
-                        enabled = isProUnlocked,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text("${activeReaderPreferences.marginDp}dp", style = MaterialTheme.typography.bodySmall)
-                    if (!isProUnlocked) LockedProBadge()
-                }
-            }
-
-            ReaderToggleRow(
-                label = stringResource(R.string.reader_keep_screen_on),
-                checked = activeReaderPreferences.keepScreenOn,
-                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
-            )
-            ReaderToggleRow(
-                label = stringResource(R.string.reader_show_page_number),
-                checked = activeReaderPreferences.showPageNumber,
-                onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(showPageNumber = it)) },
-            )
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onReaderPreferencesChanged(ReaderPreferences()) },
-                shape = RoundedCornerShape(14.dp),
-                color = Color.Transparent,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            ) {
-                Text(
-                    text = stringResource(R.string.reader_reset_defaults),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(15.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReaderToggleRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun ReaderSettingsSection(
-    title: String,
-    icon: ImageVector,
-    content: @Composable () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        content()
-    }
-}
-
-@Composable
-private fun ReaderChoiceChip(
-    label: String,
-    selected: Boolean,
-    locked: Boolean,
-    onClick: () -> Unit,
-    onLockedClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    leading: @Composable (() -> Unit)? = null,
-) {
-    val borderColor = when {
-        selected -> MaterialTheme.colorScheme.primary
-        locked -> MaterialTheme.colorScheme.outlineVariant
-        else -> Color.Transparent
-    }
-    val containerColor = when {
-        selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
-        locked -> MaterialTheme.colorScheme.surfaceContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerLow
-    }
-    Surface(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, borderColor, RoundedCornerShape(14.dp))
-            .semantics { this.selected = selected }
-            .clickable(
-                role = Role.RadioButton,
-                onClick = if (locked) onLockedClick else onClick,
-            ),
-        shape = RoundedCornerShape(14.dp),
-        color = containerColor,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 9.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (leading != null) {
-                leading()
-            } else {
-                Icon(
-                    imageVector = if (selected) Icons.Filled.Check else Icons.Filled.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(17.dp),
-                )
-            }
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (locked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Start,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (locked) {
-                LockedProBadge()
-            } else if (selected && leading != null) {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LockedProBadge() {
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Lock,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-            )
-            Text(
-                text = stringResource(R.string.pro_badge),
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-    }
-}
-
-@Composable
-private fun ReaderBackgroundSwatch(background: ReaderBackground) {
-    Box(
-        modifier = Modifier
-            .size(20.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(background.readerBackgroundColor())
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(6.dp),
-            ),
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ReaderPageGrid(
+internal fun ReaderPageGrid(
     book: ComicBook,
     currentPageIndex: Int,
     onPageSelected: (Int) -> Unit,
@@ -2294,95 +1846,7 @@ private fun ReaderPageGridContent(
     }
 }
 
-@Composable
-fun ReaderPageScrubber(
-    currentPageIndex: Int,
-    pageCount: Int,
-    onPageSelected: (Int) -> Unit,
-    pageText: String,
-    showPageNumber: Boolean,
-    progressPageIndex: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onOpenGrid: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val clampedPageIndex = coercePageIndex(currentPageIndex, pageCount)
-    var scrubberValue by remember(clampedPageIndex, pageCount) {
-        mutableFloatStateOf(clampedPageIndex.toFloat())
-    }
-    val progressPercent = if (pageCount <= 0) {
-        0
-    } else {
-        (((coercePageIndex(progressPageIndex, pageCount) + 1).toFloat() / pageCount) * 100)
-            .roundToInt()
-            .coerceIn(0, 100)
-    }
-    val sliderMax = max(pageCount - 1, 0).toFloat()
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = Color(0xFF101820).copy(alpha = 0.97f),
-        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-    ) {
-        Column(
-            modifier = Modifier.padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (pageCount > 1) {
-                Slider(
-                    value = scrubberValue.coerceIn(0f, sliderMax),
-                    onValueChange = { value -> scrubberValue = value },
-                    onValueChangeFinished = {
-                        onPageSelected(coercePageIndex(scrubberValue.roundToInt(), pageCount))
-                    },
-                    valueRange = 0f..sliderMax,
-                    steps = max(pageCount - 2, 0),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onPrevious) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.NavigateBefore,
-                        stringResource(R.string.reader_previous_page),
-                        tint = Color.White,
-                    )
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Filled.BrightnessHigh, stringResource(R.string.reader_settings), tint = Color.White)
-                }
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = Color.White.copy(alpha = 0.08f),
-                ) {
-                    Text(
-                        text = if (showPageNumber) pageText else "$progressPercent%",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White,
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-                    )
-                }
-                IconButton(onClick = onOpenGrid) {
-                    Icon(Icons.Filled.GridView, stringResource(R.string.reader_page_grid), tint = Color.White)
-                }
-                IconButton(onClick = onNext) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.NavigateNext,
-                        stringResource(R.string.reader_next_page),
-                        tint = Color.White,
-                    )
-                }
-            }
-        }
-    }
-}
-
-private tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
+internal tailrec fun Context.findActivity(): ComponentActivity? = when (this) {
     is ComponentActivity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null

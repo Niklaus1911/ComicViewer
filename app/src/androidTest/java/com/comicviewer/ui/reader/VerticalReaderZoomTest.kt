@@ -56,7 +56,7 @@ class VerticalReaderZoomTest {
 
     @Test
     fun verticalReader_pinchZoomsAroundTheFingers() {
-        showVerticalReader(writeTargetPdf(), ::targetIsShown)
+        showVerticalReader(writeTargetPdf(), pageShown = ::targetIsShown)
         val root = composeRule.onRoot()
         val target = targetCenterOnScreen()
 
@@ -82,7 +82,7 @@ class VerticalReaderZoomTest {
 
     @Test
     fun verticalReader_doubleTapDoesNotZoom() {
-        showVerticalReader(writeTargetPdf(), ::targetIsShown)
+        showVerticalReader(writeTargetPdf(), pageShown = ::targetIsShown)
         val root = composeRule.onRoot()
         val target = targetCenterOnScreen()
         val outside = target + Offset(targetHalfSizePx() * 1.5f, 0f)
@@ -130,7 +130,35 @@ class VerticalReaderZoomTest {
         assertTrue("Only ${"%.2f".format(hardEdgeShare)} of the zoomed stripe edges were hard", sharp)
     }
 
-    private fun showVerticalReader(file: File, pageShown: (Bitmap) -> Boolean) {
+    @Test
+    fun verticalReader_pinchThatMovesTheStripUpdatesTheCurrentPage() {
+        val selectedPages = mutableListOf<Int>()
+        showVerticalReader(writeTargetPdf(pageCount = 4), onPageSelected = { selectedPages += it }, pageShown = ::targetIsShown)
+        // The reader opens with page 1 at the top and has reported nothing yet. Zooming 2x around a
+        // point on page 2 keeps that point in place and puts page 2 in the middle of the screen.
+        val root = composeRule.onRoot()
+        val focus = Offset(rootWidth() / 2f, rootWidth() * 1.6f)
+        root.performTouchInput {
+            down(0, focus - Offset(60f, 0f))
+            down(1, focus + Offset(60f, 0f))
+            repeat(10) { step ->
+                val spread = 60f + 6f * (step + 1)
+                moveTo(0, focus - Offset(spread, 0f))
+                moveTo(1, focus + Offset(spread, 0f))
+            }
+            up(0)
+            up(1)
+        }
+        composeRule.waitForIdle()
+
+        assertEquals(1, selectedPages.lastOrNull())
+    }
+
+    private fun showVerticalReader(
+        file: File,
+        onPageSelected: (Int) -> Unit = {},
+        pageShown: (Bitmap) -> Boolean,
+    ) {
         val book: ComicBook = runBlocking { loadLocalArchiveComic(context, file) }
         composeRule.setContent {
             MaterialTheme {
@@ -140,7 +168,7 @@ class VerticalReaderZoomTest {
                     preferences = ReaderPreferences(pageMode = ReaderPageMode.Vertical, showPageNumber = false),
                     controlsVisible = false,
                     onControlsVisibleChange = {},
-                    onPageSelected = {},
+                    onPageSelected = onPageSelected,
                     onCloseComic = {},
                     onOpenSettings = {},
                     onOpenGrid = {},
@@ -172,8 +200,8 @@ class VerticalReaderZoomTest {
 
     private fun targetHalfSizePx(): Float = TARGET_HALF_SIZE_PT * pixelsPerPoint()
 
-    /** A white page with a small red square in its top-left quarter, away from the screen center. */
-    private fun writeTargetPdf(): File = writePdf("Target.pdf") { canvas ->
+    /** White pages with a small red square in their top-left quarter, away from the screen center. */
+    private fun writeTargetPdf(pageCount: Int = 1): File = writePdf("Target.pdf", pageCount) { canvas ->
         canvas.drawRect(
             TARGET_CENTER_PT - TARGET_HALF_SIZE_PT,
             TARGET_CENTER_PT - TARGET_HALF_SIZE_PT,
@@ -193,15 +221,17 @@ class VerticalReaderZoomTest {
         }
     }
 
-    private fun writePdf(name: String, draw: (Canvas) -> Unit): File {
+    private fun writePdf(name: String, pageCount: Int = 1, draw: (Canvas) -> Unit): File {
         testDir.mkdirs()
         val file = File(testDir, name)
         val document = PdfDocument()
         try {
             val size = PAGE_SIZE_PT.toInt()
-            val page = document.startPage(PdfDocument.PageInfo.Builder(size, size, 1).create())
-            draw(page.canvas)
-            document.finishPage(page)
+            for (pageNumber in 1..pageCount) {
+                val page = document.startPage(PdfDocument.PageInfo.Builder(size, size, pageNumber).create())
+                draw(page.canvas)
+                document.finishPage(page)
+            }
             file.outputStream().use(document::writeTo)
         } finally {
             document.close()

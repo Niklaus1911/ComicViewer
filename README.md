@@ -30,7 +30,7 @@ You need JDK 17 or later and the Android SDK (Android Studio is the easiest way 
 
 A signed release build (`./gradlew bundleRelease`) needs a local `keystore.properties`; copy `keystore.properties.example` and fill it in. Without it, release builds are unsigned. Never commit the keystore or its properties file.
 
-GitHub Actions runs the unit tests, lint, the debug build, a minified release build and the device-test compile on every push to `master`. Pushing a `vX.Y.Z` tag attaches a debug APK to a GitHub release.
+GitHub Actions runs the unit tests, lint, the debug build and a minified release build on every push to `master`, and runs the device tests on an emulator. Pushing a `vX.Y.Z` tag attaches a debug APK to a GitHub release.
 
 ## Project layout
 

@@ -412,6 +412,22 @@ class ReaderGestureTest {
     }
 
     @Test
+    fun verticalStripPanX_startsFromWhereTheStripIsPlaced() {
+        // Saved 600 px to the right, but a 2x strip on a 1000 px screen is placed at most 500 px over.
+        // Pinching without zooming or moving must leave it where it is shown, not jump.
+        val panX = verticalStripPanX(
+            viewportWidth = 1000f,
+            marginPx = 0f,
+            oldZoom = 2f,
+            oldPanX = 600f,
+            newZoom = 2f,
+            focusX = 300f,
+            fingerPanX = 0f,
+        )
+        assertEquals(500f, panX, 0.01f)
+    }
+
+    @Test
     fun verticalStripItemTop_keepsThePointUnderTheFingers() {
         // The page starts 100 px above the screen and is 1000 px tall; the fingers are 300 px down,
         // 40% into the page. At twice the height that point is 800 px into it.

@@ -190,6 +190,9 @@ internal fun VerticalComicReader(
                                     listState.requestScrollToItem(current.index, -top.roundToInt())
                                     anchor = PinchAnchor(current.index, top, current.height * pageScale, placements)
                                 }
+                                // A pinch that moves the strip changes which page is in the middle, like
+                                // a drag does.
+                                if (newZoom != oldZoom || fingerPan.y != 0f) readerScrolled = true
                                 zoom = newZoom
                                 event.changes.forEach { it.consume() }
                             } else if (zoom > 1f && pressed.size == 1) {
@@ -292,7 +295,10 @@ internal fun verticalStripPanX(
 ): Float {
     val oldStripWidth = viewportWidth * oldZoom
     val newStripWidth = viewportWidth * newZoom
-    val oldLeft = (viewportWidth - oldStripWidth) / 2f + oldPanX
+    // The strip is placed within its edges even when the saved offset is past them, for example
+    // after the screen rotates to a narrower width.
+    val oldMaxPan = ((oldStripWidth - viewportWidth) / 2f).coerceAtLeast(0f)
+    val oldLeft = (viewportWidth - oldStripWidth) / 2f + oldPanX.coerceIn(-oldMaxPan, oldMaxPan)
     val focusFraction = (focusX - oldLeft - marginPx) / verticalStripPageWidth(viewportWidth, marginPx, oldZoom)
     val newLeft = focusX + fingerPanX - marginPx - focusFraction * verticalStripPageWidth(viewportWidth, marginPx, newZoom)
     val maxPan = ((newStripWidth - viewportWidth) / 2f).coerceAtLeast(0f)

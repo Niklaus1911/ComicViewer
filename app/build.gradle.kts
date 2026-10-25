@@ -18,8 +18,8 @@ val keystoreProperties = Properties().apply {
     }
 }
 
-val appCompileSdk = 36
-val appCompileSdkMinor = 1
+val appCompileSdk = 37
+val appCompileSdkMinor = 0
 val appMinSdk = 24
 val appTargetSdk = 36
 val appVersionCode = 35

@@ -14,7 +14,7 @@ Unit tests are in `app/src/test/`, one class per area (`ComicArchiveTest`, `Libr
 
 ## Toolchain
 
-Gradle 9.6 wrapper, AGP 9.3 with built-in Kotlin (only the `kotlin.compose` plugin is applied; do not add `org.jetbrains.kotlin.android`), compileSdk 36.1, targetSdk 36, minSdk 24. Declare dependency and plugin versions in `gradle/libs.versions.toml`, not inline. Version code and name are the `appVersionCode` / `appVersionName` values at the top of `app/build.gradle.kts`.
+Gradle 9.8 wrapper, AGP 9.4 with built-in Kotlin (only the `kotlin.compose` plugin is applied; do not add `org.jetbrains.kotlin.android`), compileSdk 37, targetSdk 36, minSdk 24. Declare dependency and plugin versions in `gradle/libs.versions.toml`, not inline. Version code and name are the `appVersionCode` / `appVersionName` values at the top of `app/build.gradle.kts`.
 
 ## Build, Test, and Development Commands
 

@@ -9,7 +9,7 @@ This is a single-module Android app in `app/` (namespace and Play application ID
 - `billing/`: the Pro in-app purchase flow (`ProBillingRepository`, `ProPurchaseAcknowledgeWorker`).
 - `ui/`: Compose UI by feature: `app` (root scaffold, the Library, History and Settings tabs, app state), `library` (library home with search and the Add sheet, comic details), `reader` (paged and vertical readers sharing `ReaderChrome`), `browser` (import file browsers), `history`, `settings`, `welcome`, plus shared `common` components and `theme`. `MainActivity.kt` is the entry point; `ComicViewerApplication` registers the archive page fetcher with Coil.
 
-Unit tests are in `app/src/test/` (currently all in `ExampleUnitTest.kt`), instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play. `new-gui-images/` contains visual references; `play-store-dashboard-assets/` contains upload-ready store artwork and screenshots.
+Unit tests are in `app/src/test/` (currently all in `ExampleUnitTest.kt`), instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play. `new-gui-images/` contains early visual references; `play-store-dashboard-assets/` contains upload-ready store artwork, the current screenshots and the icon sources.
 
 ## Toolchain
 
@@ -23,7 +23,7 @@ Gradle 9.6 wrapper, AGP 9.3 with built-in Kotlin (only the `kotlin.compose` plug
 - `./gradlew bundleRelease` generates the signed release AAB in `app/build/outputs/bundle/release/` and the R8 mapping in `app/build/outputs/mapping/release/`; signing requires a valid local `keystore.properties` (see `keystore.properties.example`).
 - `./gradlew clean` removes generated outputs when Gradle state is stale.
 
-Use Android Studio for emulator launch and manual UI checks. GitHub Actions runs `testDebugUnitTest` and `assembleDebug` on every push and pull request; pushing a `v*` tag also attaches a debug APK to a GitHub release (it does not publish to Google Play).
+Use Android Studio for emulator launch and manual UI checks. GitHub Actions (`android-ci.yml`) runs unit tests, lint, the debug build, an unsigned minified release build and the instrumented-test compile on pushes to `master` and on pull requests; release signing only applies when `keystore.properties` exists. Pushing a `v*` tag runs `github-release.yml`, which attaches a debug APK to a GitHub release; it does not publish to Google Play. Tag each version that goes to production as `vX.Y.Z`.
 
 ## Coding Style & Naming Conventions
 

@@ -93,7 +93,8 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // CI has no keystore; it builds an unsigned release APK to check R8 and lint.
+            signingConfig = if (keystorePropertiesFile.exists()) signingConfigs.getByName("release") else null
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

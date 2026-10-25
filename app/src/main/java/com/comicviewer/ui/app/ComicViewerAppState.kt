@@ -672,17 +672,18 @@ class ComicViewerAppState(
 
     private suspend fun performLibraryAutoScan(rootUri: Uri?): LibraryScanSummary = when {
         rootUri != null -> {
-            val scanResult = scanLibraryDocumentArchives(
-                context = appContext,
-                rootUri = rootUri,
-                includeImageFolders = true,
-            )
             val existingArchiveUris = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
                 .mapTo(mutableSetOf()) { comic -> comic.path }
             val existingFolderUris = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentFolder }
                 .mapTo(mutableSetOf()) { comic -> comic.path }
+            val scanResult = scanLibraryDocumentArchives(
+                context = appContext,
+                rootUri = rootUri,
+                includeImageFolders = true,
+                knownUris = existingArchiveUris + existingFolderUris,
+            )
             val newArchiveCandidateCount = scanResult.candidates
                 .map { candidate -> candidate.uri }
                 .distinct()
@@ -717,10 +718,13 @@ class ComicViewerAppState(
 
         storageAccess is GrantedStorageAccess.RawFiles -> {
             val access = storageAccess
-            val scanResult = scanLibraryArchives(File(access.rootPath))
             val existingPaths = libraryComics
                 .filter { comic -> comic.sourceType == RecentComicSourceType.LocalArchive }
                 .mapTo(mutableSetOf()) { comic -> comic.path }
+            val scanResult = scanLibraryArchives(
+                root = File(access.rootPath),
+                knownArchivePaths = existingPaths,
+            )
             val newCandidateCount = scanResult.candidates
                 .map { candidate -> candidate.archiveFile.absolutePath }
                 .distinct()
@@ -742,14 +746,15 @@ class ComicViewerAppState(
 
         storageAccess is GrantedStorageAccess.DocumentTree -> {
             val access = storageAccess
+            val existingUris = libraryComics
+                .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
+                .mapTo(mutableSetOf()) { comic -> comic.path }
             val scanResult = scanLibraryDocumentArchives(
                 context = appContext,
                 rootUri = access.uri,
                 includeImageFolders = false,
+                knownUris = existingUris,
             )
-            val existingUris = libraryComics
-                .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
-                .mapTo(mutableSetOf()) { comic -> comic.path }
             val newCandidateCount = scanResult.candidates
                 .map { candidate -> candidate.uri }
                 .distinct()

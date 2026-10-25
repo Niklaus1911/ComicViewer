@@ -45,6 +45,23 @@ class LibraryScanTest {
     }
 
     @Test
+    fun scanLibraryArchives_reportsKnownArchivesWithoutOpeningThem() {
+        val root = temporaryFolder.newFolder("known-scan-root")
+        // Neither file is a readable archive, so only the library's own entry can be reported.
+        val knownArchive = File(root, "Known.cbz").apply { writeText("not a zip") }
+        File(root, "Unknown.cbz").writeText("not a zip")
+
+        val result = scanLibraryArchivesInDirectory(
+            root = root,
+            knownArchivePaths = setOf(knownArchive.absolutePath),
+        )
+
+        assertEquals(listOf(knownArchive.absolutePath), result.candidates.map { candidate ->
+            candidate.archiveFile.absolutePath
+        })
+    }
+
+    @Test
     fun scanLibraryArchives_doesNotAddImageFolders() {
         val root = temporaryFolder.newFolder("folder-scan-root")
         val extractedFolder = File(root, "Extracted Comic").apply { mkdirs() }
@@ -267,6 +284,41 @@ class LibraryScanTest {
 
         assertEquals(listOf("archive"), result.candidates.map { it.uri })
         assertEquals(listOf("folder"), result.folderCandidates.map { it.uri })
+    }
+
+    @Test
+    fun scanLibraryDocumentArchiveTree_skipsContentChecksForKnownArchivesAndFolders() = runBlocking {
+        val root = archiveDocumentNode("root", "Primary", isDirectory = true)
+        val knownFolder = archiveDocumentNode("known-folder", "Batman", isDirectory = true)
+        val image = archiveDocumentNode("image", "001.jpg", isFile = true)
+        val knownArchive = archiveDocumentNode("known-archive", "Annual.cbz", isFile = true)
+        val newArchive = archiveDocumentNode("new-archive", "Special.cbz", isFile = true)
+        val children = mapOf(
+            root.uri to listOf(knownFolder, knownArchive, newArchive),
+            knownFolder.uri to listOf(image),
+        )
+        val openedArchives = mutableListOf<String>()
+        val checkedImages = mutableListOf<String>()
+
+        val result = scanLibraryDocumentArchiveTree(
+            root = root,
+            includeImageFolders = true,
+            listChildren = { node -> children[node.uri].orEmpty() },
+            archiveContainsSupportedImage = { node ->
+                openedArchives += node.uri
+                true
+            },
+            imageIsSupported = { node ->
+                checkedImages += node.uri
+                true
+            },
+            knownUris = setOf(knownFolder.uri, knownArchive.uri),
+        )
+
+        assertEquals(listOf("known-archive", "new-archive"), result.candidates.map { it.uri })
+        assertEquals(listOf("known-folder"), result.folderCandidates.map { it.uri })
+        assertEquals(listOf("new-archive"), openedArchives)
+        assertTrue(checkedImages.isEmpty())
     }
 
     @Test

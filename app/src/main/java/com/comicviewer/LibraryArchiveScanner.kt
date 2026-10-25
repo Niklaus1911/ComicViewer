@@ -45,17 +45,26 @@ data class LibraryArchiveScanResult(
     val candidateLimitReached: Boolean = false,
 )
 
-suspend fun scanLibraryArchives(root: File): LibraryArchiveScanResult =
+suspend fun scanLibraryArchives(
+    root: File,
+    knownArchivePaths: Set<String> = emptySet(),
+): LibraryArchiveScanResult =
     withContext(Dispatchers.IO) {
         val coroutineContext = currentCoroutineContext()
         scanLibraryArchivesInDirectory(
             root = root,
+            knownArchivePaths = knownArchivePaths,
             shouldContinue = { coroutineContext.isActive },
         )
     }
 
+/**
+ * Walks [root] breadth-first for comic archives. Archives whose absolute path is in
+ * [knownArchivePaths] are already in the library, so they are reported without being opened again.
+ */
 internal fun scanLibraryArchivesInDirectory(
     root: File,
+    knownArchivePaths: Set<String> = emptySet(),
     maxDirectories: Int = MAX_ARCHIVE_SCAN_DIRECTORIES,
     maxCandidates: Int = MAX_ARCHIVE_SCAN_CANDIDATES,
     shouldContinue: () -> Boolean = { true },
@@ -103,7 +112,7 @@ internal fun scanLibraryArchivesInDirectory(
                 child.isDirectory -> pendingDirectories.add(child)
                 child.isFile &&
                     isSupportedArchiveName(child.name) &&
-                    archiveContainsSupportedImage(child) -> {
+                    (child.absolutePath in knownArchivePaths || archiveContainsSupportedImage(child)) -> {
                     candidates += LibraryArchiveScanCandidate(archiveFile = child.absoluteFile)
                     if (candidates.size >= maxCandidates.coerceAtLeast(1)) {
                         candidateLimitReached = true
@@ -152,22 +161,16 @@ suspend fun scanLibraryDocumentArchives(
     context: Context,
     rootUri: Uri,
     includeImageFolders: Boolean,
+    knownUris: Set<String> = emptySet(),
 ): LibraryDocumentArchiveScanResult = withContext(Dispatchers.IO) {
     val rootDocument = DocumentFile.fromTreeUri(context, rootUri)
         ?: throw IllegalArgumentException("Storage folder is not readable")
-    val documentsByUri = mutableMapOf(rootDocument.uri.toString() to rootDocument)
     scanLibraryDocumentArchiveTree(
         root = rootDocument.toArchiveDocumentNode(),
         includeImageFolders = includeImageFolders,
-        listChildren = { node ->
-            documentsByUri[node.uri]
-                ?.safeListFiles()
-                .orEmpty()
-                .map { document ->
-                    documentsByUri[document.uri.toString()] = document
-                    document.toArchiveDocumentNode()
-                }
-        },
+        knownUris = knownUris,
+        // One query per directory: DocumentFile would issue several provider queries per child.
+        listChildren = { node -> listDocumentChildren(context, node.uri.toUri()).map(::archiveDocumentNodeFor) },
         archiveContainsSupportedImage = { node ->
             documentArchiveContainsSupportedImage(context, node.uri)
         },
@@ -178,12 +181,18 @@ suspend fun scanLibraryDocumentArchives(
     )
 }
 
+/**
+ * Walks a document tree breadth-first for comic archives and, when [includeImageFolders] is set,
+ * folders of images. Archives and folders whose URI is in [knownUris] are already in the library,
+ * so they are reported without reading their contents again.
+ */
 internal suspend fun scanLibraryDocumentArchiveTree(
     root: ArchiveDocumentNode,
     includeImageFolders: Boolean,
     listChildren: suspend (ArchiveDocumentNode) -> List<ArchiveDocumentNode>,
     archiveContainsSupportedImage: suspend (ArchiveDocumentNode) -> Boolean,
     imageIsSupported: suspend (ArchiveDocumentNode) -> Boolean = { true },
+    knownUris: Set<String> = emptySet(),
     maxDirectories: Int = MAX_ARCHIVE_SCAN_DIRECTORIES,
     maxCandidates: Int = MAX_ARCHIVE_SCAN_CANDIDATES,
     shouldContinue: suspend () -> Boolean = { true },
@@ -220,8 +229,9 @@ internal suspend fun scanLibraryDocumentArchiveTree(
         if (!shouldContinue()) throw CancellationException()
 
         if (includeImageFolders) {
-            var containsSupportedDirectImage = false
+            var containsSupportedDirectImage = directory.uri in knownUris
             for (child in children) {
+                if (containsSupportedDirectImage) break
                 if (!shouldContinue()) throw CancellationException()
                 if (
                     child.isFile &&
@@ -235,7 +245,6 @@ internal suspend fun scanLibraryDocumentArchiveTree(
                     } catch (_: Exception) {
                         false
                     }
-                    if (containsSupportedDirectImage) break
                 }
             }
 
@@ -260,7 +269,7 @@ internal suspend fun scanLibraryDocumentArchiveTree(
 
                 child.isFile &&
                     isSupportedArchiveName(child.name) &&
-                    archiveContainsSupportedImage(child) -> {
+                    (child.uri in knownUris || archiveContainsSupportedImage(child)) -> {
                     candidates += LibraryDocumentArchiveScanCandidate(
                         uri = child.uri,
                         displayName = child.name,
@@ -421,8 +430,15 @@ private fun File.canonicalPathOrAbsolute(): String =
 private fun File.safeListFiles(): List<File> =
     runCatching { listFiles().orEmpty().toList() }.getOrDefault(emptyList())
 
-private fun DocumentFile.safeListFiles(): List<DocumentFile> =
-    runCatching { listFiles().toList() }.getOrDefault(emptyList())
+/** A child row without a MIME type is unreadable, matching [DocumentFile.canRead]. */
+internal fun archiveDocumentNodeFor(entry: ComicDocumentEntry): ArchiveDocumentNode =
+    ArchiveDocumentNode(
+        uri = entry.uri.toString(),
+        name = entry.displayName,
+        isDirectory = entry.isDirectory,
+        isFile = !entry.mimeType.isNullOrEmpty() && !entry.isDirectory,
+        canRead = !entry.mimeType.isNullOrEmpty(),
+    )
 
 private fun DocumentFile.toArchiveDocumentNode(): ArchiveDocumentNode =
     ArchiveDocumentNode(

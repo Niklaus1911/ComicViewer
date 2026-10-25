@@ -13,8 +13,16 @@ import coil3.request.Options
 import coil3.size.Scale
 import coil3.size.pxOrElse
 import java.io.FileNotFoundException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+
+/**
+ * Page renders wait their turn on one coroutine queue rather than as blocked IO threads on the
+ * shared pdfium lock, and a render cancelled while queued is dropped before it starts.
+ */
+private val pdfRenderDispatcher = Dispatchers.IO.limitedParallelism(1)
 
 /**
  * Renders a PDF page when Coil asks for a `comic-pdf:` page URI, at the size the request needs. The
@@ -35,17 +43,19 @@ internal class ComicPdfPageFetcher(
             if (page.pageIndex >= lease.source.pageCount) {
                 throw FileNotFoundException("Page ${page.pageIndex + 1} is no longer in the PDF.")
             }
-            lease.source.renderPage(
-                index = page.pageIndex,
-                shouldContinue = { coroutineContext.isActive },
-            ) { pageWidth, pageHeight ->
-                pdfRenderSize(
-                    pageWidth = pageWidth,
-                    pageHeight = pageHeight,
-                    requestedWidth = options.size.width.pxOrElse { 0 },
-                    requestedHeight = options.size.height.pxOrElse { 0 },
-                    fill = options.scale == Scale.FILL,
-                )
+            withContext(pdfRenderDispatcher) {
+                lease.source.renderPage(
+                    index = page.pageIndex,
+                    shouldContinue = { coroutineContext.isActive },
+                ) { pageWidth, pageHeight ->
+                    pdfRenderSize(
+                        pageWidth = pageWidth,
+                        pageHeight = pageHeight,
+                        requestedWidth = options.size.width.pxOrElse { 0 },
+                        requestedHeight = options.size.height.pxOrElse { 0 },
+                        fill = options.scale == Scale.FILL,
+                    )
+                }
             }
         }
         return ImageFetchResult(

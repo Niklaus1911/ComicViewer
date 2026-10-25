@@ -1,6 +1,7 @@
 package com.comicviewer
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,5 +28,18 @@ class StorageAccessTest {
         assertFalse(documentPermissionCovers(tree, "content://provider/tree/primary%3AOther"))
         assertFalse(documentPermissionCovers(tree, "content://other/tree/primary%3AComics"))
         assertFalse(documentPermissionCovers("content://provider/document/one", "content://provider/document/two"))
+    }
+
+    @Test
+    fun documentIdentityKey_matchesTheSameDocumentAcrossUriShapes() {
+        val picked = "content://Provider/document/primary%3AComics%2FIssue1.cbz"
+        val scanned = "content://provider/tree/primary%3AComics/document/primary%3aComics%2FIssue1.cbz"
+        val pickedFolder = "content://provider/tree/primary%3AComics%2FSaga"
+        val scannedFolder = "content://provider/tree/primary%3AComics/document/primary%3AComics%2FSaga"
+
+        assertEquals(documentIdentityKey(picked), documentIdentityKey(scanned))
+        assertEquals(documentIdentityKey(pickedFolder), documentIdentityKey(scannedFolder))
+        assertNotEquals(documentIdentityKey(picked), documentIdentityKey(pickedFolder))
+        assertEquals("/storage/emulated/0/Comic.cbz", documentIdentityKey("/storage/emulated/0/Comic.cbz"))
     }
 }

@@ -67,6 +67,20 @@ class LibraryComicsTest {
     }
 
     @Test
+    fun upsertLibraryComic_keepsExistingComicsWhenLibraryIsFull() {
+        val first = sampleLibraryComic(path = "/storage/emulated/0/Batman.cbz", addedAt = 100L)
+        val second = sampleLibraryComic(path = "/storage/emulated/0/Saga.cbz", addedAt = 200L)
+        val newcomer = sampleLibraryComic(path = "/storage/emulated/0/Monstress.cbz", addedAt = 300L)
+        val refreshedFirst = first.copy(addedAt = 400L)
+
+        assertEquals(listOf(second, first), upsertLibraryComic(listOf(second, first), newcomer, maxItems = 2))
+        assertEquals(
+            listOf(first.path, second.path),
+            upsertLibraryComic(listOf(second, first), refreshedFirst, maxItems = 2).map { it.path },
+        )
+    }
+
+    @Test
     fun upsertLibraryComics_addsMultipleComicsAndKeepsNewestFirst() {
         val existing = sampleLibraryComic(
             path = "/storage/emulated/0/Existing.cbz",

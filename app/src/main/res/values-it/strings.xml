@@ -66,6 +66,13 @@
     <string name="archive_page_too_large">Una pagina dell\'archivio supera il limite di dimensione supportato.</string>
     <string name="invalid_archive">Seleziona un file .zip, .cbz o .pdf valido.</string>
     <string name="pdf_password_protected">Questo PDF è protetto da password.</string>
+    <plurals name="library_full">
+        <item quantity="one">Libreria piena: %1$d fumetto non è stato aggiunto. La libreria contiene al massimo %2$d fumetti.</item>
+        <item quantity="many">Libreria piena: %1$d fumetti non sono stati aggiunti. La libreria contiene al massimo %2$d fumetti.</item>
+        <item quantity="other">Libreria piena: %1$d fumetti non sono stati aggiunti. La libreria contiene al massimo %2$d fumetti.</item>
+    </plurals>
+    <string name="comic_source_file">File</string>
+    <string name="comic_source_folder">Cartella</string>
     <plurals name="pdf_too_many_pages">
         <item quantity="one">PDF troppo grande: ha più di %1$d pagina.</item>
         <item quantity="many">PDF troppo grande: ha più di %1$d pagine.</item>
@@ -236,6 +243,7 @@
     <string name="pro_restore">Ripristina acquisti</string>
     <string name="pro_unavailable">Play Billing non è ancora disponibile. Assicurati che l\'app sia installata da Google Play e che il prodotto Pro sia configurato.</string>
     <string name="pro_purchase_checking">Verifico lo stato dell\'acquisto…</string>
+    <string name="pro_purchase_pending">Il pagamento è in attesa. Pro si sbloccherà appena sarà completato.</string>
     <string name="pro_purchase_failed">Non è stato possibile completare l\'acquisto. Riprova tra poco.</string>
     <string name="pro_purchase_success_title">Comic Viewer Pro è attivo</string>
     <string name="pro_purchase_success_message">Temi, controlli reader avanzati, preferiti, tag e filtri libreria sono pronti.</string>

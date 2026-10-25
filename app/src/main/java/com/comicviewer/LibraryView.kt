@@ -29,16 +29,38 @@ fun filterLibraryComicsByQuery(
 ): List<LibraryComic> {
     val normalizedQuery = query.trim()
     if (normalizedQuery.isEmpty()) return comics
+    val metadataBySource = metadata.indexBySource { it.sourceType to it.path }
+    val detailsBySource = details.indexBySource { it.sourceType to it.path }
 
     return comics.filter { comic ->
         comic.title.contains(normalizedQuery, ignoreCase = true) ||
             comic.displayName.contains(normalizedQuery, ignoreCase = true) ||
-            metadataFor(comic, metadata).tags.any { tag -> tag.contains(normalizedQuery, ignoreCase = true) } ||
-            detailsFor(comic, details)?.metadata?.searchableText()?.any { text ->
+            metadataBySource[comic.sourceKey]?.tags.orEmpty().any { tag ->
+                tag.contains(normalizedQuery, ignoreCase = true)
+            } ||
+            detailsBySource[comic.sourceKey]?.metadata?.searchableText()?.any { text ->
                 text.contains(normalizedQuery, ignoreCase = true)
             } == true
     }
 }
+
+private val LibraryComic.sourceKey: Pair<RecentComicSourceType, String>
+    get() = sourceType to path
+
+/**
+ * Lookups by comic source, built once per call so filtering and sorting stay linear in the library
+ * size instead of scanning the history or metadata lists for every comic. The first entry wins,
+ * like the list lookups it replaces.
+ */
+private inline fun <T> List<T>.indexBySource(
+    sourceKey: (T) -> Pair<RecentComicSourceType, String>,
+): Map<Pair<RecentComicSourceType, String>, T> =
+    HashMap<Pair<RecentComicSourceType, String>, T>(size).also { index ->
+        forEach { item -> index.putIfAbsent(sourceKey(item), item) }
+    }
+
+private fun List<RecentComic>.indexBySource(): Map<Pair<RecentComicSourceType, String>, RecentComic> =
+    indexBySource { it.sourceType to it.path }
 
 /** ComicInfo fields a reader is likely to search by: title, series, writers, publisher and genres. */
 private fun ComicInfoMetadata.searchableText(): List<String> =
@@ -58,16 +80,23 @@ fun filterLibraryComicsByProgress(
     recentComics: List<RecentComic>,
     metadata: List<LibraryComicMetadata>,
     filter: LibraryProgressFilter,
-): List<LibraryComic> = when (filter) {
-    LibraryProgressFilter.All -> comics
-    LibraryProgressFilter.Favorites -> comics.filter { comic -> metadataFor(comic, metadata).favorite }
-    LibraryProgressFilter.Unread -> comics.filter { comic -> comic.matchingRecentComic(recentComics) == null }
-    LibraryProgressFilter.InProgress -> comics.filter { comic ->
-        val progress = libraryProgressFraction(comic, recentComics)
-        progress != null && progress > 0f && progress < 1f
-    }
-    LibraryProgressFilter.Completed -> comics.filter { comic ->
-        libraryProgressFraction(comic, recentComics) == 1f
+): List<LibraryComic> {
+    if (filter == LibraryProgressFilter.All) return comics
+    val recentBySource = recentComics.indexBySource()
+    val metadataBySource = metadata.indexBySource { it.sourceType to it.path }
+    return when (filter) {
+        LibraryProgressFilter.All -> comics
+        LibraryProgressFilter.Favorites -> comics.filter { comic ->
+            metadataBySource[comic.sourceKey]?.favorite == true
+        }
+        LibraryProgressFilter.Unread -> comics.filter { comic -> recentBySource[comic.sourceKey] == null }
+        LibraryProgressFilter.InProgress -> comics.filter { comic ->
+            val progress = progressFraction(recentBySource[comic.sourceKey])
+            progress != null && progress > 0f && progress < 1f
+        }
+        LibraryProgressFilter.Completed -> comics.filter { comic ->
+            progressFraction(recentBySource[comic.sourceKey]) == 1f
+        }
     }
 }
 
@@ -77,8 +106,11 @@ fun filterLibraryComicsByTag(
     tag: String?,
 ): List<LibraryComic> {
     val normalizedTag = tag?.trim()?.takeIf { value -> value.isNotEmpty() } ?: return comics
+    val metadataBySource = metadata.indexBySource { it.sourceType to it.path }
     return comics.filter { comic ->
-        metadataFor(comic, metadata).tags.any { existingTag -> existingTag.equals(normalizedTag, ignoreCase = true) }
+        metadataBySource[comic.sourceKey]?.tags.orEmpty().any { existingTag ->
+            existingTag.equals(normalizedTag, ignoreCase = true)
+        }
     }
 }
 
@@ -96,13 +128,15 @@ fun sortLibraryComics(
                 .thenBy { it.path },
         )
 
-    LibrarySortOrder.RecentlyRead ->
+    LibrarySortOrder.RecentlyRead -> {
+        val recentBySource = recentComics.indexBySource()
         // Unread comics (no matching recent) sort last; ties broken by path for stable ordering.
         comics.sortedWith(
             compareByDescending<LibraryComic> { comic ->
-                comic.matchingRecentComic(recentComics)?.lastOpenedAt ?: Long.MIN_VALUE
+                recentBySource[comic.sourceKey]?.lastOpenedAt ?: Long.MIN_VALUE
             }.thenBy { it.path },
         )
+    }
 }
 
 /**
@@ -112,9 +146,10 @@ fun sortLibraryComics(
 fun libraryProgressFraction(
     comic: LibraryComic,
     recentComics: List<RecentComic>,
-): Float? {
-    val recentComic = comic.matchingRecentComic(recentComics) ?: return null
-    if (recentComic.pageCount <= 0) return null
+): Float? = progressFraction(comic.matchingRecentComic(recentComics))
+
+private fun progressFraction(recentComic: RecentComic?): Float? {
+    if (recentComic == null || recentComic.pageCount <= 0) return null
     val readPage = coercePageIndex(recentComic.lastPageIndex, recentComic.pageCount) + 1
     return (readPage.toFloat() / recentComic.pageCount.toFloat()).coerceIn(0f, 1f)
 }
@@ -147,12 +182,13 @@ fun continueReadingComics(
     recentComics: List<RecentComic>,
     maxItems: Int = MAX_CONTINUE_READING_ITEMS,
 ): List<LibraryComic> =
-    comics
-        .mapNotNull { comic ->
-            val recentComic = comic.matchingRecentComic(recentComics) ?: return@mapNotNull null
-            val progress = libraryProgressFraction(comic, recentComics) ?: return@mapNotNull null
+    recentComics.indexBySource().let { recentBySource ->
+        comics.mapNotNull { comic ->
+            val recentComic = recentBySource[comic.sourceKey] ?: return@mapNotNull null
+            val progress = progressFraction(recentComic) ?: return@mapNotNull null
             if (progress >= 1f) null else comic to recentComic.lastOpenedAt
         }
+    }
         .sortedByDescending { (_, lastOpenedAt) -> lastOpenedAt }
         .take(maxItems)
         .map { (comic, _) -> comic }

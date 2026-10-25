@@ -3,11 +3,11 @@ package com.comicviewer
 import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.FilterInputStream
 import java.io.InputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -104,7 +104,7 @@ data class ImageInfo(
 )
 
 suspend fun loadArchiveComic(context: Context, uri: Uri): ComicBook = withContext(Dispatchers.IO) {
-    val displayName = context.displayNameFor(uri) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
+    val displayName = context.queryDocumentDisplayName(uri) ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
     val location = ComicArchiveLocation.Document(uri)
     val title = displayName.withoutComicExtension()
     val source = ComicSource.Archive(uri = uri, displayName = displayName)
@@ -231,7 +231,9 @@ suspend fun loadFolderComic(context: Context, uri: Uri): ComicBook = withContext
     comicLoadErrorForPageCount(imageFiles.size)?.let { throw ComicLoadException(it) }
 
     val pages = imageFiles.mapIndexed { index, document ->
-        val displayName = document.displayName.ifBlank { "Page ${index + 1}" }
+        val displayName = document.displayName.ifBlank {
+            context.getString(R.string.reader_page_number_description, index + 1)
+        }
         ComicPage(
             index = index,
             displayName = displayName,
@@ -316,12 +318,6 @@ internal fun archiveReadFailureFor(exception: Exception): Exception = when (exce
     is IOException -> ComicLoadException(ComicLoadError.ArchiveExtractionFailed)
     else -> ComicLoadException(ComicLoadError.InvalidArchive)
 }
-
-private fun Context.displayNameFor(uri: Uri): String? =
-    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-        val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (nameColumn >= 0 && cursor.moveToFirst()) cursor.getString(nameColumn) else null
-    }
 
 fun isHiddenComicPath(path: String): Boolean =
     path.split('/').any { segment ->
@@ -467,6 +463,58 @@ fun copyToFileBounded(
     }
 
     return copiedBytes
+}
+
+/**
+ * Reads at most [maxBytes] from [input]. [limitReached] tells a source that was cut off from one
+ * that ended on its own, including one exactly [maxBytes] long.
+ */
+internal class BoundedInputStream(
+    input: InputStream,
+    maxBytes: Long,
+) : FilterInputStream(input) {
+    private var remaining = maxBytes.coerceAtLeast(0L)
+    private var probedPastLimit = false
+
+    var limitReached: Boolean = false
+        private set
+
+    override fun read(): Int {
+        if (remaining == 0L) return endOfAllowedBytes()
+        return super.read().also { if (it >= 0) remaining -= 1 }
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (length == 0) return 0
+        if (remaining == 0L) return endOfAllowedBytes()
+        val read = super.read(buffer, offset, minOf(length.toLong(), remaining).toInt())
+        if (read > 0) remaining -= read
+        return read
+    }
+
+    override fun skip(byteCount: Long): Long {
+        if (byteCount <= 0L) return 0L
+        if (remaining == 0L) {
+            endOfAllowedBytes()
+            return 0L
+        }
+        val skipped = super.skip(minOf(byteCount, remaining))
+        if (skipped > 0L) remaining -= skipped
+        return skipped
+    }
+
+    override fun available(): Int = minOf(super.available().toLong(), remaining).toInt()
+
+    override fun markSupported(): Boolean = false
+
+    /** Checks once whether the source had more bytes than allowed; the reader sees the end either way. */
+    private fun endOfAllowedBytes(): Int {
+        if (!probedPastLimit) {
+            probedPastLimit = true
+            limitReached = super.read() >= 0
+        }
+        return -1
+    }
 }
 
 private fun String.withoutComicExtension(): String =

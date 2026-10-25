@@ -223,6 +223,28 @@ class LibraryScanTest {
     }
 
     @Test
+    fun newLibraryComicsForDocumentArchiveScan_skipsTheSameDocumentUnderAnotherUri() {
+        val picked = sampleLibraryComic(
+            path = "content://provider/document/primary%3AComics%2FIssue1.cbz",
+            sourceType = RecentComicSourceType.DocumentArchive,
+        )
+        val candidates = listOf(
+            LibraryDocumentArchiveScanCandidate(
+                "content://provider/tree/primary%3AComics/document/primary%3aComics%2FIssue1.cbz",
+                "Issue1.cbz",
+            ),
+            LibraryDocumentArchiveScanCandidate(
+                "content://provider/tree/primary%3AComics/document/primary%3AComics%2FIssue2.cbz",
+                "Issue2.cbz",
+            ),
+        )
+
+        val result = newLibraryComicsForDocumentArchiveScan(listOf(picked), candidates, addedAt = 100L)
+
+        assertEquals(listOf("Issue2.cbz"), result.map { comic -> comic.displayName })
+    }
+
+    @Test
     fun newLibraryComicsForDocumentArchiveScan_skipsExistingAndRespectsLibraryLimit() {
         val existing = sampleLibraryComic(
             path = "content://provider/existing",

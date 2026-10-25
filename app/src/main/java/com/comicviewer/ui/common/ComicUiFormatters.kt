@@ -13,6 +13,7 @@ import com.comicviewer.R
 import com.comicviewer.RecentComic
 import com.comicviewer.RecentComicSourceType
 import com.comicviewer.coercePageIndex
+import com.comicviewer.isArchive
 
 @Composable
 internal fun BrowserEntryType.labelText(): String = when (this) {
@@ -54,5 +55,10 @@ private fun pageProgressText(lastPageIndex: Int, pageCount: Int): String {
     return stringResource(R.string.page_progress, coercePageIndex(lastPageIndex, pageCount) + 1, pageCount)
 }
 
-private fun subtitleText(progressText: String, sourceType: RecentComicSourceType): String =
-    "$progressText • ${sourceType.storageName.replace('_', ' ')}"
+@Composable
+private fun subtitleText(progressText: String, sourceType: RecentComicSourceType): String {
+    val sourceLabel = stringResource(
+        if (sourceType.isArchive) R.string.comic_source_file else R.string.comic_source_folder,
+    )
+    return "$progressText • $sourceLabel"
+}

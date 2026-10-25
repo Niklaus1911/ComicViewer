@@ -2,6 +2,7 @@ package com.comicviewer.ui.app
 
 import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -18,6 +19,7 @@ import com.comicviewer.GrantedStorageAccess
 import com.comicviewer.R
 import com.comicviewer.LibraryAutoScanState
 import com.comicviewer.LibraryAutomationPreferences
+import com.comicviewer.MAX_LIBRARY_COMICS
 import com.comicviewer.LibraryComic
 import com.comicviewer.LibraryComicDetails
 import com.comicviewer.LibraryComicMetadata
@@ -55,6 +57,8 @@ import com.comicviewer.releasePersistableReadPermission
 import com.comicviewer.releaseUnusedPersistableReadPermissions
 import com.comicviewer.removeLibraryComic
 import com.comicviewer.detailsFor
+import com.comicviewer.documentIdentityKey
+import com.comicviewer.libraryComicDetailsAreCurrent
 import com.comicviewer.markRecentComicRead
 import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
@@ -129,6 +133,12 @@ class ComicViewerAppState(
         private set
     private var loadJob by mutableStateOf<Job?>(null)
     private var cacheCleanupJob: Job? = null
+
+    /**
+     * Read grants taken for documents that are still being added. They are not in the library yet,
+     * so permission cleanup would otherwise release them while their names are being looked up.
+     */
+    private val pendingDocumentUris = mutableSetOf<String>()
     private var libraryAutoScanJob: Job? = null
     private val detailsRefreshSemaphore = Semaphore(permits = 2)
     private var detailsRefreshGeneration = 0
@@ -273,16 +283,11 @@ class ComicViewerAppState(
             source = recentComic.toComicSource(),
             pageIndex = recentComic.lastPageIndex,
         )
+        // A failure can be temporary (an unmounted card, an offline provider), so the history entry
+        // and its progress are kept; the user can remove it from History.
         startComicLoad(loading) { throwable ->
             if (throwable !is CancellationException) {
                 selectedComicDetails = null
-                persistRecentComics(
-                    removeRecentComic(
-                        recentComics = recentComics,
-                        sourceType = recentComic.sourceType,
-                        path = recentComic.path,
-                    ),
-                )
                 showError(throwable)
             }
         }
@@ -342,6 +347,8 @@ class ComicViewerAppState(
     fun refreshComicDetails(libraryComic: LibraryComic) {
         val refreshGeneration = detailsRefreshGeneration
         scope.launch {
+            val currentDetails = detailsFor(libraryComic, libraryDetails)
+            if (libraryComicDetailsAreCurrent(appContext, libraryComic, currentDetails)) return@launch
             val inspected = detailsRefreshSemaphore.withPermit {
                 try {
                     inspectLibraryComic(
@@ -372,11 +379,14 @@ class ComicViewerAppState(
             if (throwable !is CancellationException) showError(throwable)
         },
     ) {
-        cacheCleanupJob?.cancel()
+        // A cleanup already deleting copies cannot be interrupted, so the load waits for it to end
+        // instead of having the new comic's copy and sessions removed underneath it.
+        val pendingCleanup = cacheCleanupJob
+        pendingCleanup?.cancel()
         cacheCleanupJob = null
         loadJob?.cancel()
         uiState = loading
-        launchComicLoad(loading, onFailure)
+        launchComicLoad(loading, onFailure, pendingCleanup)
     }
 
     private fun launchComicLoad(
@@ -384,8 +394,10 @@ class ComicViewerAppState(
         onFailure: (Throwable) -> Unit = { throwable ->
             if (throwable !is CancellationException) showError(throwable)
         },
+        pendingCleanup: Job? = null,
     ) {
         loadJob = scope.launch {
+            pendingCleanup?.join()
             try {
                 val book = loadComic(loading.source)
                 showReadyComic(book = book, pageIndex = loading.pageIndex)
@@ -451,26 +463,43 @@ class ComicViewerAppState(
         val newComics = files.mapIndexed { index, file ->
             libraryComicForArchive(file, addedAt = addedAt + index)
         }
-        persistLibraryComics(
-            upsertLibraryComics(
-                libraryComics = libraryComics,
-                newComics = newComics,
-            ),
-        )
-        newComics.forEach(::refreshComicDetails)
+        persistAddedLibraryComics(newComics)
         finishAddingToLibrary()
     }
 
     fun addFolderToLibrary(folder: File) {
-        val comic = libraryComicForFolder(folder, addedAt = System.currentTimeMillis())
-        persistLibraryComics(
-            upsertLibraryComic(
-                libraryComics = libraryComics,
-                libraryComic = comic,
-            ),
-        )
-        refreshComicDetails(comic)
+        persistAddedLibraryComics(listOf(libraryComicForFolder(folder, addedAt = System.currentTimeMillis())))
         finishAddingToLibrary()
+    }
+
+    /**
+     * Saves comics the user chose to add. Comics already in the library under another form of the same
+     * document URI are skipped, and a full library keeps its comics and says so instead of dropping any.
+     */
+    private fun persistAddedLibraryComics(newComics: List<LibraryComic>) {
+        val existingDocumentKeys = libraryComics
+            .filter { comic -> comic.sourceType.isDocumentSource() }
+            .associateBy { comic -> comic.sourceType to documentIdentityKey(comic.path) }
+        val comicsToAdd = newComics.filter { comic ->
+            val existing = existingDocumentKeys[comic.sourceType to documentIdentityKey(comic.path)]
+            existing == null || existing.path == comic.path
+        }
+        val nextLibraryComics = upsertLibraryComics(libraryComics = libraryComics, newComics = comicsToAdd)
+        persistLibraryComics(nextLibraryComics)
+        val addedComics = comicsToAdd.filter { comic ->
+            nextLibraryComics.any { stored -> stored.sourceType == comic.sourceType && stored.path == comic.path }
+        }
+        addedComics.forEach(::refreshComicDetails)
+        val skippedForSpace = comicsToAdd.size - addedComics.size
+        if (skippedForSpace > 0) {
+            val message = appContext.resources.getQuantityString(
+                R.plurals.library_full,
+                skippedForSpace,
+                skippedForSpace,
+                MAX_LIBRARY_COMICS,
+            )
+            Toast.makeText(appContext, message, Toast.LENGTH_LONG).show()
+        }
     }
 
     fun addArchiveDocumentsToLibrary(uris: List<Uri>) {
@@ -478,45 +507,38 @@ class ComicViewerAppState(
         if (distinctUris.isEmpty()) return
 
         scope.launch {
-            val documents = withContext(Dispatchers.IO) {
-                distinctUris.map { uri -> archiveDocumentFor(appContext, uri) }
+            holdingDocumentPermissions(distinctUris) {
+                val documents = withContext(Dispatchers.IO) {
+                    distinctUris.map { uri -> archiveDocumentFor(appContext, uri) }
+                }
+                val addedAt = System.currentTimeMillis()
+                val newComics = documents.mapIndexed { index, document ->
+                    libraryComicForDocumentArchive(
+                        uri = document.uri.toString(),
+                        displayName = document.displayName,
+                        addedAt = addedAt + index,
+                    )
+                }
+                persistAddedLibraryComics(newComics)
+                finishAddingToLibrary()
             }
-            val addedAt = System.currentTimeMillis()
-            val newComics = documents.mapIndexed { index, document ->
-                libraryComicForDocumentArchive(
-                    uri = document.uri.toString(),
-                    displayName = document.displayName,
-                    addedAt = addedAt + index,
-                )
-            }
-            persistLibraryComics(
-                upsertLibraryComics(
-                    libraryComics = libraryComics,
-                    newComics = newComics,
-                ),
-            )
-            newComics.forEach(::refreshComicDetails)
-            finishAddingToLibrary()
-            documents.forEach { document -> releasePermissionIfUnused(document.uri) }
+            distinctUris.forEach(::releasePermissionIfUnused)
         }
     }
 
     fun addFolderDocumentToLibrary(uri: Uri) {
         scope.launch {
-            val document = withContext(Dispatchers.IO) { folderDocumentFor(appContext, uri) }
-            val comic = libraryComicForDocumentFolder(
-                uri = document.uri.toString(),
-                displayName = document.displayName,
-                addedAt = System.currentTimeMillis(),
-            )
-            persistLibraryComics(
-                upsertLibraryComic(
-                    libraryComics = libraryComics,
-                    libraryComic = comic,
-                ),
-            )
-            refreshComicDetails(comic)
-            finishAddingToLibrary()
+            holdingDocumentPermissions(listOf(uri)) {
+                val document = withContext(Dispatchers.IO) { folderDocumentFor(appContext, uri) }
+                val comic = libraryComicForDocumentFolder(
+                    uri = document.uri.toString(),
+                    displayName = document.displayName,
+                    addedAt = System.currentTimeMillis(),
+                )
+                persistAddedLibraryComics(listOf(comic))
+                finishAddingToLibrary()
+            }
+            releasePermissionIfUnused(uri)
         }
     }
 
@@ -656,7 +678,7 @@ class ComicViewerAppState(
                 throw cancellation
             } catch (throwable: Exception) {
                 libraryAutoScanState = LibraryAutoScanState.Failed(
-                    throwable.message?.takeIf(String::isNotBlank)
+                    (throwable as? ComicLoadException)?.localizedMessage(appContext)
                         ?: appContext.getString(R.string.library_auto_scan_failed),
                 )
                 onFinished?.invoke(false)
@@ -685,14 +707,16 @@ class ComicViewerAppState(
                 includePdfs = true,
                 knownUris = existingArchiveUris + existingFolderUris,
             )
+            val existingArchiveKeys = existingArchiveUris.mapTo(mutableSetOf(), ::documentIdentityKey)
+            val existingFolderKeys = existingFolderUris.mapTo(mutableSetOf(), ::documentIdentityKey)
             val newArchiveCandidateCount = scanResult.candidates
-                .map { candidate -> candidate.uri }
+                .map { candidate -> documentIdentityKey(candidate.uri) }
                 .distinct()
-                .count { uri -> uri !in existingArchiveUris }
+                .count { key -> key !in existingArchiveKeys }
             val newFolderCandidateCount = scanResult.folderCandidates
-                .map { candidate -> candidate.uri }
+                .map { candidate -> documentIdentityKey(candidate.uri) }
                 .distinct()
-                .count { uri -> uri !in existingFolderUris }
+                .count { key -> key !in existingFolderKeys }
             val addedAt = System.currentTimeMillis()
             val newArchives = newLibraryComicsForDocumentArchiveScan(
                 libraryComics = libraryComics,
@@ -756,10 +780,11 @@ class ComicViewerAppState(
                 includeImageFolders = false,
                 knownUris = existingUris,
             )
+            val existingKeys = existingUris.mapTo(mutableSetOf(), ::documentIdentityKey)
             val newCandidateCount = scanResult.candidates
-                .map { candidate -> candidate.uri }
+                .map { candidate -> documentIdentityKey(candidate.uri) }
                 .distinct()
-                .count { uri -> uri !in existingUris }
+                .count { key -> key !in existingKeys }
             val newComics = newLibraryComicsForDocumentArchiveScan(
                 libraryComics = libraryComics,
                 candidates = scanResult.candidates,
@@ -899,6 +924,7 @@ class ComicViewerAppState(
             pageIndex = pageIndex,
             lastOpenedAt = 0L,
         ) ?: return
+        // A page turn cannot change which documents are kept, so permissions are left alone.
         persistRecentComics(
             updateRecentComicPage(
                 recentComics = recentComics,
@@ -907,6 +933,7 @@ class ComicViewerAppState(
                 pageIndex = pageIndex,
                 pageCount = ready.book.pages.size,
             ),
+            releasePermissions = false,
         )
     }
 
@@ -948,7 +975,19 @@ class ComicViewerAppState(
         }
     }
 
+    /** Keeps [uris] out of permission cleanup while [block] adds them to the app's saved state. */
+    suspend fun <T> holdingDocumentPermissions(uris: List<Uri>, block: suspend () -> T): T {
+        val keys = uris.map(Uri::toString)
+        pendingDocumentUris += keys
+        try {
+            return block()
+        } finally {
+            pendingDocumentUris -= keys.toSet()
+        }
+    }
+
     private fun retainedDocumentUris(): Set<String> = buildSet {
+        addAll(pendingDocumentUris)
         (storageAccess as? GrantedStorageAccess.DocumentTree)?.uri?.toString()?.let(::add)
         importFolderUri?.let(::add)
         addAll(persistedDocumentUris())

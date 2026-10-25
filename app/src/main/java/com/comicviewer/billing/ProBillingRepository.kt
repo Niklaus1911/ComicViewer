@@ -38,6 +38,7 @@ sealed interface ProBillingStatus {
 
 enum class ProBillingMessage {
     CheckingPurchase,
+    PurchasePending,
     PurchaseUnavailable,
     PurchaseFailed,
 }
@@ -301,6 +302,9 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
         val proPurchase = purchases.firstOrNull { purchase ->
             PRO_UNLOCK_PRODUCT_ID in purchase.products && purchase.purchaseState == Purchase.PurchaseState.PURCHASED
         }
+        val proPurchasePending = purchases.any { purchase ->
+            PRO_UNLOCK_PRODUCT_ID in purchase.products && purchase.purchaseState == Purchase.PurchaseState.PENDING
+        }
         if (proPurchase != null) {
             acknowledgeIfNeeded(proPurchase)
             val shouldEmitSuccess = allowSuccessEvent && purchaseFlowInProgress && !wasUnlocked
@@ -314,6 +318,15 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
                 isProUnlocked = true,
                 message = null,
                 purchaseSuccessEventId = purchaseSuccessEventId,
+            )
+        } else if (proPurchasePending) {
+            // Paid with a delayed method such as cash: Pro unlocks when Play reports the purchase as
+            // completed. The purchase flow stays open so that completion still shows the success screen.
+            purchaseRecheckAttempts = 0
+            cancelScheduledRetry(BillingRetryOperation.PurchaseFlow)
+            _state.value = _state.value.copy(
+                isProUnlocked = false,
+                message = ProBillingMessage.PurchasePending,
             )
         } else {
             if (allowSuccessEvent && purchaseFlowInProgress) {

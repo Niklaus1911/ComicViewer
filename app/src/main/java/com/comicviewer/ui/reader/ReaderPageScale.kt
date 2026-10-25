@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.IntSize
 import com.comicviewer.ReaderPageFitMode
+import com.comicviewer.ReaderReadingDirection
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -146,6 +147,32 @@ internal fun Offset.clampedFor(
     return Offset(
         x = x.coerceIn(-maxX, maxX),
         y = y.coerceIn(-maxY, maxY),
+    )
+}
+
+/**
+ * Where a page larger than the viewport starts: at its top edge, and at its left edge (right edge
+ * when reading right to left), so the first panel is in view rather than the middle of the page.
+ */
+internal fun readerPageStartOffset(
+    pageWidth: Int,
+    pageHeight: Int,
+    scale: Float,
+    viewportSize: IntSize,
+    readingDirection: ReaderReadingDirection,
+): Offset {
+    if (viewportSize.width <= 0 || viewportSize.height <= 0) return Offset.Zero
+    val fitSize = fitPageSizeInViewport(
+        pageWidth = pageWidth,
+        pageHeight = pageHeight,
+        viewportWidth = viewportSize.width,
+        viewportHeight = viewportSize.height,
+    )
+    val maxX = max(0f, (fitSize.width * scale - viewportSize.width) / 2f)
+    val maxY = max(0f, (fitSize.height * scale - viewportSize.height) / 2f)
+    return Offset(
+        x = if (readingDirection == ReaderReadingDirection.RightToLeft) -maxX else maxX,
+        y = maxY,
     )
 }
 

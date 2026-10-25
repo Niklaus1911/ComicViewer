@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicPage
 import com.comicviewer.ComicSource
@@ -68,8 +69,11 @@ import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.coercePageIndex
 import kotlin.math.abs
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 700f
 private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 380
@@ -155,6 +159,12 @@ internal fun PagedComicReader(
         secondSpreadPage?.imageUri,
         activeReaderPreferences.pageMode,
     ) { mutableStateOf(Offset.Zero) }
+    // A page larger than the viewport is moved once to where reading starts, as soon as its size is known.
+    var pageOffsetPlaced by remember(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+    ) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
     var activeSwipeDirection by remember { mutableStateOf<ReaderSwipeDirection?>(null) }
@@ -345,12 +355,18 @@ internal fun PagedComicReader(
     }
 
     LaunchedEffect(book.pages, visualPage.index, imageLoader) {
-        book.pages.preloadAround(
-            currentIndex = visualPage.index,
-            context = context,
-            source = book.source,
-            imageLoader = imageLoader,
-        )
+        // Building a request stats the source file for its cache key, so that happens off the main thread.
+        val requests = withContext(Dispatchers.IO) {
+            book.pages.preloadRequests(currentIndex = visualPage.index, context = context, source = book.source)
+        }
+        // Preloads for pages left behind, or for a closed reader, are cancelled: they would otherwise
+        // delay the visible page and reopen sources that closing the comic just released.
+        val preloads = requests.map(imageLoader::enqueue)
+        try {
+            awaitCancellation()
+        } finally {
+            preloads.forEach { preload -> preload.dispose() }
+        }
     }
 
     LaunchedEffect(painterState, visualPage.imageUri, resources) {
@@ -433,14 +449,28 @@ internal fun PagedComicReader(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
         viewportSize,
+        layoutPageWidth,
+        layoutPageHeight,
         effectivePageScale,
     ) {
-        pageOffset = pageOffset.clampedFor(
-            pageWidth = layoutPageWidth,
-            pageHeight = layoutPageHeight,
-            scale = effectivePageScale,
-            viewportSize = viewportSize,
-        )
+        val pageSizeKnown = layoutPageWidth > 0 && layoutPageHeight > 0 && viewportSize != IntSize.Zero
+        pageOffset = if (!pageOffsetPlaced && pageSizeKnown) {
+            pageOffsetPlaced = true
+            readerPageStartOffset(
+                pageWidth = layoutPageWidth,
+                pageHeight = layoutPageHeight,
+                scale = effectivePageScale,
+                viewportSize = viewportSize,
+                readingDirection = activeReaderPreferences.readingDirection,
+            )
+        } else {
+            pageOffset.clampedFor(
+                pageWidth = layoutPageWidth,
+                pageHeight = layoutPageHeight,
+                scale = effectivePageScale,
+                viewportSize = viewportSize,
+            )
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -815,18 +845,14 @@ private suspend fun PointerInputScope.detectPageGestures(
     }
 }
 
-private fun List<ComicPage>.preloadAround(
+private fun List<ComicPage>.preloadRequests(
     currentIndex: Int,
     context: Context,
     source: ComicSource,
-    imageLoader: coil3.ImageLoader,
-) {
+): List<ImageRequest> =
     listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1, currentIndex - 2)
         .filter { index -> index in indices }
-        .forEach { index ->
-            imageLoader.enqueue(get(index).imageRequest(context = context, source = source))
-        }
-}
+        .map { index -> get(index).imageRequest(context = context, source = source) }
 
 @Composable
 fun PageImageError(

@@ -9,7 +9,6 @@ import android.provider.OpenableColumns
 import androidx.core.graphics.scale
 import androidx.core.net.toUri
 import java.io.File
-import java.io.FilterInputStream
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -140,10 +139,8 @@ private suspend fun loadComicThumbnailUri(
     withContext(Dispatchers.IO) {
         when (sourceType) {
             RecentComicSourceType.LocalArchive -> {
+                // The cache is trimmed after each new thumbnail is written, not on every lookup.
                 val cacheDir = File(context.cacheDir, LIBRARY_THUMBNAIL_CACHE_DIR_NAME).apply { mkdirs() }
-                synchronized(thumbnailCacheLock) {
-                    trimThumbnailCache(cacheDir)
-                }
                 File(path).extractArchiveThumbnailTo(cacheDir)?.toUri()
             }
 
@@ -173,14 +170,23 @@ private suspend fun loadComicThumbnailUri(
         }
     }
 
-fun firstLocalFolderCoverFile(folder: File): File? =
-    if (!folder.isDirectory || !folder.canRead()) {
-        null
+fun firstLocalFolderCoverFile(folder: File): File? = firstLocalFolderImages(folder, count = 1).firstOrNull()
+
+/**
+ * The first [count] valid images of a folder comic in reading order. Files are sorted by name first
+ * and only checked until enough images are found, instead of decoding every file in the folder.
+ */
+internal fun firstLocalFolderImages(folder: File, count: Int): List<File> =
+    if (count <= 0 || !folder.isDirectory || !folder.canRead()) {
+        emptyList()
     } else {
         folder.listFiles().orEmpty()
-            .filter { file -> file.isFile && !isHiddenComicPath(file.name) && detectImageInfo(file) != null }
+            .asSequence()
+            .filter { file -> file.isFile && !isHiddenComicPath(file.name) }
             .sortedWith { left, right -> compareComicPageNames(left.name, right.name) }
-            .firstOrNull()
+            .filter { file -> detectImageInfo(file) != null }
+            .take(count)
+            .toList()
     }
 
 private fun File.toBrowserEntry(): BrowserEntry {
@@ -282,8 +288,8 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
             // Stream-only providers: scan from the start, as far as the source limit allows.
             val source = contentResolver.openInputStream(uri) ?: return@runCatching null
             ZipInputStream(
-                LimitedInputStream(
-                    inputStream = source.buffered(),
+                BoundedInputStream(
+                    input = source.buffered(),
                     maxBytes = MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES,
                 ),
             ).use { archive ->
@@ -507,42 +513,6 @@ private fun copyDocumentArchiveEntry(
     }
     if (!copiedSuccessfully) outputFile.delete()
     return copiedSuccessfully
-}
-
-private fun Context.queryDocumentLong(uri: Uri, column: String): Long? = runCatching {
-    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(column)
-        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
-    }
-}.getOrNull()?.takeIf { it >= 0L }
-
-private class LimitedInputStream(
-    inputStream: InputStream,
-    maxBytes: Long,
-) : FilterInputStream(inputStream) {
-    private var remainingBytes = maxBytes.coerceAtLeast(0L)
-
-    override fun read(): Int {
-        if (remainingBytes == 0L) return -1
-        val value = super.read()
-        if (value >= 0) remainingBytes -= 1
-        return value
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (remainingBytes == 0L) return -1
-        val boundedLength = minOf(length.toLong(), remainingBytes).toInt()
-        val bytesRead = super.read(buffer, offset, boundedLength)
-        if (bytesRead > 0) remainingBytes -= bytesRead
-        return bytesRead
-    }
-
-    override fun skip(byteCount: Long): Long {
-        if (remainingBytes == 0L) return 0L
-        val skippedBytes = super.skip(minOf(byteCount, remainingBytes))
-        remainingBytes -= skippedBytes
-        return skippedBytes
-    }
 }
 
 internal data class ThumbnailDimensions(

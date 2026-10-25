@@ -298,7 +298,10 @@ fun ProUpgradeDialog(
                     Text(
                         text = proBillingMessageText(message),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (message == ProBillingMessage.CheckingPurchase) {
+                        color = if (
+                            message == ProBillingMessage.CheckingPurchase ||
+                            message == ProBillingMessage.PurchasePending
+                        ) {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         } else {
                             MaterialTheme.colorScheme.error
@@ -363,6 +366,7 @@ private fun proBillingMessageText(message: ProBillingMessage): String =
     stringResource(
         when (message) {
             ProBillingMessage.CheckingPurchase -> R.string.pro_purchase_checking
+            ProBillingMessage.PurchasePending -> R.string.pro_purchase_pending
             ProBillingMessage.PurchaseUnavailable -> R.string.pro_unavailable
             ProBillingMessage.PurchaseFailed -> R.string.pro_purchase_failed
         },

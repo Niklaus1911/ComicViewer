@@ -5,7 +5,6 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
-import java.io.FilterInputStream
 import java.io.InputStream
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
@@ -165,7 +164,7 @@ suspend fun scanLibraryDocumentArchives(
     knownUris: Set<String> = emptySet(),
 ): LibraryDocumentArchiveScanResult = withContext(Dispatchers.IO) {
     val rootDocument = DocumentFile.fromTreeUri(context, rootUri)
-        ?: throw IllegalArgumentException("Storage folder is not readable")
+        ?: throw ComicLoadException(ComicLoadError.FolderNotReadable)
     scanLibraryDocumentArchiveTree(
         root = rootDocument.toArchiveDocumentNode(),
         includeImageFolders = includeImageFolders,
@@ -336,16 +335,16 @@ fun newLibraryComicsForDocumentArchiveScan(
     addedAt: Long,
     maxItems: Int = MAX_LIBRARY_COMICS,
 ): List<LibraryComic> {
-    val existingArchiveUris = libraryComics
+    val existingArchiveKeys = libraryComics
         .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentArchive }
-        .mapTo(mutableSetOf()) { comic -> comic.path }
-    val seenCandidateUris = mutableSetOf<String>()
+        .mapTo(mutableSetOf()) { comic -> documentIdentityKey(comic.path) }
+    val seenCandidateKeys = mutableSetOf<String>()
     val availableSlots = (maxItems - libraryComics.size).coerceAtLeast(0)
 
     return candidates
         .asSequence()
-        .filter { candidate -> seenCandidateUris.add(candidate.uri) }
-        .filterNot { candidate -> candidate.uri in existingArchiveUris }
+        .filter { candidate -> seenCandidateKeys.add(documentIdentityKey(candidate.uri)) }
+        .filterNot { candidate -> documentIdentityKey(candidate.uri) in existingArchiveKeys }
         .take(availableSlots)
         .mapIndexed { index, candidate ->
             libraryComicForDocumentArchive(
@@ -363,16 +362,16 @@ fun newLibraryComicsForDocumentFolderScan(
     addedAt: Long,
     maxItems: Int = MAX_LIBRARY_COMICS,
 ): List<LibraryComic> {
-    val existingFolderUris = libraryComics
+    val existingFolderKeys = libraryComics
         .filter { comic -> comic.sourceType == RecentComicSourceType.DocumentFolder }
-        .mapTo(mutableSetOf()) { comic -> comic.path }
-    val seenCandidateUris = mutableSetOf<String>()
+        .mapTo(mutableSetOf()) { comic -> documentIdentityKey(comic.path) }
+    val seenCandidateKeys = mutableSetOf<String>()
     val availableSlots = (maxItems - libraryComics.size).coerceAtLeast(0)
 
     return candidates
         .asSequence()
-        .filter { candidate -> seenCandidateUris.add(candidate.uri) }
-        .filterNot { candidate -> candidate.uri in existingFolderUris }
+        .filter { candidate -> seenCandidateKeys.add(documentIdentityKey(candidate.uri)) }
+        .filterNot { candidate -> documentIdentityKey(candidate.uri) in existingFolderKeys }
         .take(availableSlots)
         .mapIndexed { index, candidate ->
             libraryComicForDocumentFolder(
@@ -405,8 +404,8 @@ private fun documentArchiveContainsSupportedImage(
     // Stream-only providers: read from the start, within the source limit.
     val source = context.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching false
     ZipInputStream(
-        ScanLimitedInputStream(
-            inputStream = source.buffered(),
+        BoundedInputStream(
+            input = source.buffered(),
             maxBytes = MAX_ARCHIVE_SCAN_SOURCE_BYTES,
         ),
     ).use { archive ->
@@ -457,24 +456,3 @@ private fun DocumentFile.toArchiveDocumentNode(): ArchiveDocumentNode =
         isFile = isFile,
         canRead = canRead(),
     )
-
-private class ScanLimitedInputStream(
-    inputStream: InputStream,
-    maxBytes: Long,
-) : FilterInputStream(inputStream) {
-    private var remainingBytes = maxBytes.coerceAtLeast(0L)
-
-    override fun read(): Int {
-        if (remainingBytes == 0L) return -1
-        val value = super.read()
-        if (value >= 0) remainingBytes -= 1
-        return value
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (remainingBytes == 0L) return -1
-        val read = super.read(buffer, offset, length.coerceAtMost(remainingBytes.toInt()))
-        if (read > 0) remainingBytes -= read
-        return read
-    }
-}

@@ -64,6 +64,12 @@
     <string name="archive_page_too_large">An archive page exceeds the supported size limit.</string>
     <string name="invalid_archive">Select a valid .zip, .cbz or .pdf file.</string>
     <string name="pdf_password_protected">This PDF is password protected.</string>
+    <plurals name="library_full">
+        <item quantity="one">Library full: %1$d comic was not added. The library holds up to %2$d comics.</item>
+        <item quantity="other">Library full: %1$d comics were not added. The library holds up to %2$d comics.</item>
+    </plurals>
+    <string name="comic_source_file">File</string>
+    <string name="comic_source_folder">Folder</string>
     <plurals name="pdf_too_many_pages">
         <item quantity="one">PDF too large: it has more than %1$d page.</item>
         <item quantity="other">PDF too large: it has more than %1$d pages.</item>
@@ -226,6 +232,7 @@
     <string name="pro_restore">Restore purchases</string>
     <string name="pro_unavailable">Play Billing is not available yet. Make sure the app is installed from Google Play and the Pro product is configured.</string>
     <string name="pro_purchase_checking">Checking your purchase status…</string>
+    <string name="pro_purchase_pending">Your payment is pending. Pro unlocks as soon as it completes.</string>
     <string name="pro_purchase_failed">Purchase could not be completed. Try again in a moment.</string>
     <string name="pro_purchase_success_title">Comic Viewer Pro is active</string>
     <string name="pro_purchase_success_message">Themes, advanced reader controls, favorites, tags, and library filters are ready.</string>

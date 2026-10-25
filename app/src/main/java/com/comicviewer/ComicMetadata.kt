@@ -6,7 +6,6 @@ import android.provider.OpenableColumns
 import androidx.core.net.toUri
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.FilterInputStream
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.Locale
@@ -139,6 +138,33 @@ suspend fun inspectLibraryComic(
         metadata = sourceFacts.metadata,
         refreshedAt = nowMs,
     ).normalized()
+}
+
+/**
+ * Whether [details] still describe [comic]'s archive: it has the same size and modification time, so
+ * inspecting it again would read the same pages and ComicInfo.xml. Folders are always re-inspected,
+ * since adding a page does not reliably change the folder's own timestamp.
+ */
+suspend fun libraryComicDetailsAreCurrent(
+    context: Context,
+    comic: LibraryComic,
+    details: LibraryComicDetails?,
+): Boolean = withContext(Dispatchers.IO) {
+    if (details?.pageCount == null) return@withContext false
+    val size = details.fileSizeBytes ?: return@withContext false
+    val lastModified = details.lastModifiedAt ?: return@withContext false
+    when (comic.sourceType) {
+        RecentComicSourceType.LocalArchive -> File(comic.path).let { file ->
+            file.isFile && file.length() == size && file.lastModified() == lastModified
+        }
+        RecentComicSourceType.DocumentArchive -> runCatching { comic.path.toUri() }.getOrNull()?.let { uri ->
+            context.queryDocumentLong(uri, OpenableColumns.SIZE) == size &&
+                context.queryDocumentLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED) == lastModified
+        } == true
+        RecentComicSourceType.LocalFolder,
+        RecentComicSourceType.DocumentFolder,
+        -> false
+    }
 }
 
 internal fun parseComicInfoXml(bytes: ByteArray): ComicInfoMetadata? {
@@ -290,7 +316,7 @@ private fun inspectDocumentArchive(
         }
         // Stream-only providers: read from the start, within the source limit.
         val source = context.contentResolver.openInputStream(uri) ?: return@runCatching null
-        val limitedSource = MetadataLimitedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)
+        val limitedSource = BoundedInputStream(source.buffered(), MAX_COMIC_INFO_SOURCE_BYTES)
         ZipInputStream(limitedSource).use { zip ->
             var visited = 0
             var pageCount = 0
@@ -328,8 +354,8 @@ private fun inspectDocumentArchive(
         null
     } ?: SourceFacts()
     return archiveFacts.copy(
-        fileSizeBytes = context.queryLong(uri, OpenableColumns.SIZE),
-        lastModifiedAt = context.queryLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+        fileSizeBytes = context.queryDocumentLong(uri, OpenableColumns.SIZE),
+        lastModifiedAt = context.queryDocumentLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             ?.takeIf { it > 0L },
     )
 }
@@ -382,13 +408,6 @@ private fun readComicInfoBounded(input: InputStream): ByteArray? {
     return output.toByteArray().takeIf { it.isNotEmpty() }
 }
 
-private fun Context.queryLong(uri: android.net.Uri, column: String): Long? = runCatching {
-    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(column)
-        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
-    }
-}.getOrNull()?.takeIf { it >= 0L }
-
 private fun Element.firstText(tag: String): String? {
     val nodes = getElementsByTagName(tag)
     if (nodes.length == 0) return null
@@ -432,45 +451,6 @@ internal fun inspectedComicPageCount(
 ): Int? = sourcePageCount?.takeIf { it > 0 }
     ?: recentPageCount?.takeIf { it > 0 }
     ?: metadataPageCount?.takeIf { it > 0 }
-
-internal class MetadataLimitedInputStream(
-    input: InputStream,
-    maxBytes: Long,
-) : FilterInputStream(input) {
-    private var remaining = maxBytes.coerceAtLeast(0L)
-    var limitReached: Boolean = false
-        private set
-
-    override fun read(): Int {
-        if (remaining == 0L) {
-            limitReached = true
-            return -1
-        }
-        return super.read().also { if (it >= 0) remaining -= 1 }
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (length == 0) return 0
-        if (remaining == 0L) {
-            limitReached = true
-            return -1
-        }
-        val read = super.read(buffer, offset, minOf(length.toLong(), remaining).toInt())
-        if (read > 0) remaining -= read
-        return read
-    }
-
-    override fun skip(byteCount: Long): Long {
-        if (byteCount <= 0L) return 0L
-        if (remaining == 0L) {
-            limitReached = true
-            return 0L
-        }
-        val skipped = super.skip(minOf(byteCount, remaining))
-        if (skipped > 0L) remaining -= skipped
-        return skipped
-    }
-}
 
 internal fun encodeLibraryComicDetails(details: List<LibraryComicDetails>): String = JSONArray().apply {
     details.take(MAX_METADATA_RECORDS).forEach { item ->

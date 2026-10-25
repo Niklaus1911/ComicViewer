@@ -159,17 +159,6 @@ fun removeRecentComic(
 ): List<RecentComic> =
     recentComics.filterNot { comic -> comic.sourceType == sourceType && comic.path == path }
 
-fun RecentComic.isReadableOnDisk(): Boolean {
-    val file = File(path)
-    return when (sourceType) {
-        RecentComicSourceType.LocalArchive -> file.isFile && file.canRead()
-        RecentComicSourceType.LocalFolder -> file.isDirectory && file.canRead()
-        RecentComicSourceType.DocumentArchive,
-        RecentComicSourceType.DocumentFolder,
-        -> false
-    }
-}
-
 val RecentComicSourceType.isArchive: Boolean
     get() = this == RecentComicSourceType.LocalArchive || this == RecentComicSourceType.DocumentArchive
 

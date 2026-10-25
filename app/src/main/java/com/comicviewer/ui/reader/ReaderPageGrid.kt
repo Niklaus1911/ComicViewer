@@ -368,7 +368,8 @@ private fun ReaderPageGridContent(
                     ) {
                         Image(
                             painter = rememberAsyncImagePainter(
-                                model = page.imageRequest(context, book.source),
+                                // Building a request stats the source file, so it is not redone on every recomposition.
+                                model = remember(page, book.source) { page.imageRequest(context, book.source) },
                                 imageLoader = imageLoader,
                             ),
                             contentDescription = page.accessibilityLabel(book.pages.size),

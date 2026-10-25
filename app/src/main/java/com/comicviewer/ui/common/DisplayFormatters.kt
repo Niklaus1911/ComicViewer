@@ -1,6 +1,5 @@
 package com.comicviewer.ui.common
 
-import android.content.Context
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.runtime.Composable
@@ -32,11 +31,3 @@ fun fileSizeText(bytes: Long?): String? {
     val context = LocalContext.current
     return bytes?.takeIf { it >= 0L }?.let { Formatter.formatShortFileSize(context, it) }
 }
-
-fun Context.relativeTimeText(timestamp: Long, nowMs: Long = System.currentTimeMillis()): String =
-    DateUtils.getRelativeTimeSpanString(
-        timestamp,
-        nowMs,
-        DateUtils.MINUTE_IN_MILLIS,
-        DateUtils.FORMAT_ABBREV_RELATIVE,
-    ).toString()

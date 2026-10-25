@@ -9,6 +9,7 @@ import androidx.core.net.toUri
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileNotFoundException
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.Locale
@@ -62,7 +63,8 @@ internal fun openLocalComicArchive(
 
 /**
  * A random-access descriptor for a picked document, or null when the provider only offers a one-way
- * stream (a pipe), which cannot be read without a copy.
+ * stream (a pipe) or a section of a larger file ("Not a whole file"), which cannot be read without a
+ * copy. A document that is really missing fails again, with a clear error, when it is streamed.
  */
 internal fun openSeekableDocumentDescriptor(context: Context, uri: Uri): ParcelFileDescriptor? {
     val descriptor = try {
@@ -70,6 +72,8 @@ internal fun openSeekableDocumentDescriptor(context: Context, uri: Uri): ParcelF
     } catch (_: UnsupportedOperationException) {
         null
     } catch (_: IllegalArgumentException) {
+        null
+    } catch (_: FileNotFoundException) {
         null
     } ?: return null
     if (descriptor.statSize <= 0L) {
@@ -170,13 +174,6 @@ internal fun Context.documentArchiveFingerprint(uri: Uri): String? {
     val lastModified = queryDocumentLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
     return if (size != null || lastModified != null) "${size ?: -1L}:${lastModified ?: -1L}" else null
 }
-
-private fun Context.queryDocumentLong(uri: Uri, column: String): Long? = runCatching {
-    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
-        val index = cursor.getColumnIndex(column)
-        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
-    }
-}.getOrNull()?.takeIf { it >= 0L }
 
 private fun sha256Hex(value: String): String =
     MessageDigest.getInstance("SHA-256")
@@ -427,7 +424,7 @@ suspend fun loadComicPagePreviews(
                     }
                 }.orEmpty()
             }
-            RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(path)).pages.take(maxPages).map { it.imageUri }
+            RecentComicSourceType.LocalFolder -> firstLocalFolderImages(File(path), maxPages).map { it.toUri() }
             RecentComicSourceType.DocumentFolder ->
                 loadFolderComic(context, path.toUri()).pages.take(maxPages).map { it.imageUri }
         }

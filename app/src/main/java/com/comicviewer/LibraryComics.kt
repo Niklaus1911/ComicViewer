@@ -76,14 +76,19 @@ fun libraryComicForDocumentFolder(
         addedAt = addedAt,
     )
 
+/**
+ * Adds [libraryComic], or refreshes it when the same source is already there. A full library is left
+ * unchanged rather than dropping older comics, whose favorites and tags would be lost with them.
+ */
 fun upsertLibraryComic(
     libraryComics: List<LibraryComic>,
     libraryComic: LibraryComic,
     maxItems: Int = MAX_LIBRARY_COMICS,
-): List<LibraryComic> =
-    (listOf(libraryComic) + libraryComics.filterNot { comic -> comic.hasSameSourceAs(libraryComic) })
-        .sortedByDescending { comic -> comic.addedAt }
-        .take(maxItems)
+): List<LibraryComic> {
+    val otherComics = libraryComics.filterNot { comic -> comic.hasSameSourceAs(libraryComic) }
+    if (otherComics.size >= maxItems) return libraryComics
+    return (listOf(libraryComic) + otherComics).sortedByDescending { comic -> comic.addedAt }
+}
 
 fun upsertLibraryComics(
     libraryComics: List<LibraryComic>,
@@ -109,17 +114,6 @@ fun LibraryComic.matchingRecentComic(recentComics: List<RecentComic>): RecentCom
     recentComics.firstOrNull { recentComic ->
         recentComic.sourceType == sourceType && recentComic.path == path
     }
-
-fun LibraryComic.isReadableOnDisk(): Boolean {
-    val file = File(path)
-    return when (sourceType) {
-        RecentComicSourceType.LocalArchive -> file.isFile && file.canRead()
-        RecentComicSourceType.LocalFolder -> file.isDirectory && file.canRead()
-        RecentComicSourceType.DocumentArchive,
-        RecentComicSourceType.DocumentFolder,
-        -> false
-    }
-}
 
 private fun Context.libraryComicsPrefs() =
     getSharedPreferences(LIBRARY_COMICS_PREFS_NAME, Context.MODE_PRIVATE)

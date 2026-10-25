@@ -77,6 +77,7 @@ import com.comicviewer.AppLanguage
 import com.comicviewer.AppThemeMode
 import com.comicviewer.BuildConfig
 import com.comicviewer.AppBackupData
+import com.comicviewer.ComicDocument
 import com.comicviewer.LibraryAutomationPreferences
 import com.comicviewer.RestoreMode
 import com.comicviewer.GrantedStorageAccess
@@ -301,9 +302,11 @@ fun ComicViewerApp(
     val chooseImportFolderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null && persistSelection(uri)) {
             scope.launch {
-                val document = withContext(Dispatchers.IO) {
-                    folderDocumentFor(context.applicationContext, uri)
+                val lookUpFolder: suspend () -> ComicDocument = {
+                    withContext(Dispatchers.IO) { folderDocumentFor(context.applicationContext, uri) }
                 }
+                // The new grant is not saved anywhere until the preferences below are written.
+                val document = appState?.holdingDocumentPermissions(listOf(uri), lookUpFolder) ?: lookUpFolder()
                 val next = automationPreferences.copy(
                     importFolderUri = uri.toString(),
                     importFolderName = document.displayName,

@@ -57,6 +57,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -96,36 +97,40 @@ private val MAX_SCRUBBER_WIDTH = 640.dp
 @Composable
 internal fun ReaderWindowEffect(preferences: ReaderPreferences) {
     val view = LocalView.current
-    DisposableEffect(view, preferences.keepScreenOn, preferences.brightness) {
-        val window = view.context.findActivity()?.window
-        if (window == null) {
-            onDispose { }
-        } else {
-            val controller = WindowCompat.getInsetsController(window, view)
-            val previousSystemBarsBehavior = controller.systemBarsBehavior
-            val hadKeepScreenOn = window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
-            val previousBrightness = window.attributes.screenBrightness
-            if (preferences.keepScreenOn) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            } else if (!hadKeepScreenOn) {
+    val window = remember(view) { view.context.findActivity()?.window } ?: return
+    // The window as it was before the reader changed it, restored when the reader goes away.
+    val hadKeepScreenOn = remember(window) {
+        window.attributes.flags and WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON != 0
+    }
+    val previousBrightness = remember(window) { window.attributes.screenBrightness }
+
+    DisposableEffect(window, view) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        val previousSystemBarsBehavior = controller.systemBarsBehavior
+        controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.hide(WindowInsetsCompat.Type.statusBars())
+
+        onDispose {
+            controller.show(WindowInsetsCompat.Type.statusBars())
+            controller.systemBarsBehavior = previousSystemBarsBehavior
+            window.attributes = window.attributes.apply { screenBrightness = previousBrightness }
+            if (!hadKeepScreenOn) {
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
-            preferences.brightness?.let { brightness ->
-                window.attributes = window.attributes.apply {
-                    screenBrightness = brightness.coerceIn(0.05f, 1f)
-                }
-            }
-            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+    }
 
-            onDispose {
-                controller.show(WindowInsetsCompat.Type.statusBars())
-                controller.systemBarsBehavior = previousSystemBarsBehavior
-                window.attributes = window.attributes.apply { screenBrightness = previousBrightness }
-                if (!hadKeepScreenOn) {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                }
-            }
+    // Brightness and keep-screen-on follow the settings live, for example while a slider is dragged,
+    // without touching the status bar.
+    SideEffect {
+        if (preferences.keepScreenOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else if (!hadKeepScreenOn) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        val brightness = preferences.brightness?.coerceIn(0.05f, 1f) ?: previousBrightness
+        if (window.attributes.screenBrightness != brightness) {
+            window.attributes = window.attributes.apply { screenBrightness = brightness }
         }
     }
 }

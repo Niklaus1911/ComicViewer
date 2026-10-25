@@ -1,9 +1,12 @@
 package com.comicviewer
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.IntSize
 import com.comicviewer.ui.reader.ReaderSwipeDirection
 import com.comicviewer.ui.reader.readerEffectivePageScale
 import com.comicviewer.ui.reader.readerFitWidthScaleMultiplier
 import com.comicviewer.ui.reader.readerPageGridInitialItemIndex
+import com.comicviewer.ui.reader.readerPageStartOffset
 import com.comicviewer.ui.reader.readerProgressPercent
 import com.comicviewer.ui.reader.readerReportedPageIndex
 import com.comicviewer.ui.reader.readerResolvedPageDimension
@@ -16,6 +19,19 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReaderLayoutTest {
+    @Test
+    fun readerPageStartOffset_startsLargePagesAtTheirTopAndReadingEdge() {
+        val viewport = IntSize(1000, 1000)
+        // A square page fits the viewport, then is shown at twice that size.
+        val leftToRight = readerPageStartOffset(1000, 1000, 2f, viewport, ReaderReadingDirection.LeftToRight)
+        val rightToLeft = readerPageStartOffset(1000, 1000, 2f, viewport, ReaderReadingDirection.RightToLeft)
+
+        assertEquals(Offset(500f, 500f), leftToRight)
+        assertEquals(Offset(-500f, 500f), rightToLeft)
+        assertEquals(Offset.Zero, readerPageStartOffset(1000, 1000, 1f, viewport, ReaderReadingDirection.LeftToRight))
+        assertEquals(Offset.Zero, readerPageStartOffset(1000, 1000, 2f, IntSize.Zero, ReaderReadingDirection.LeftToRight))
+    }
+
     @Test
     fun readerFitWidthScaleMultiplier_scalesTallPagesToViewportWidth() {
         assertEquals(

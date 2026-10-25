@@ -129,12 +129,21 @@ class ComicMetadataTest {
             ),
         )
 
-        val truncated = MetadataLimitedInputStream(ByteArrayInputStream(ByteArray(8)), maxBytes = 4)
+        val truncated = BoundedInputStream(ByteArrayInputStream(ByteArray(8)), maxBytes = 4)
         assertEquals(4, truncated.readBytes().size)
         assertTrue(truncated.limitReached)
 
-        val complete = MetadataLimitedInputStream(ByteArrayInputStream(ByteArray(4)), maxBytes = 8)
+        val complete = BoundedInputStream(ByteArrayInputStream(ByteArray(4)), maxBytes = 8)
         assertEquals(4, complete.readBytes().size)
         assertFalse(complete.limitReached)
+    }
+
+    @Test
+    fun boundedInputStream_sourceOfExactlyTheLimitIsNotCutOff() {
+        val exact = BoundedInputStream(ByteArrayInputStream(ByteArray(4)), maxBytes = 4)
+
+        assertEquals(4, exact.readBytes().size)
+        assertEquals(-1, exact.read())
+        assertFalse(exact.limitReached)
     }
 }

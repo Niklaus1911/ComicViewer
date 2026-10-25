@@ -181,7 +181,15 @@ internal fun releaseUnusedPersistableReadPermissions(
     }
 }
 
-private fun Context.queryDocumentDisplayName(uri: Uri): String? =
+/** A non-negative numeric column of a document, such as its size or modification time. */
+internal fun Context.queryDocumentLong(uri: Uri, column: String): Long? = runCatching {
+    contentResolver.query(uri, arrayOf(column), null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(column)
+        if (index >= 0 && cursor.moveToFirst() && !cursor.isNull(index)) cursor.getLong(index) else null
+    }
+}.getOrNull()?.takeIf { it >= 0L }
+
+internal fun Context.queryDocumentDisplayName(uri: Uri): String? =
     runCatching {
         contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             val nameColumn = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -199,6 +207,27 @@ private fun String?.normalizedDocumentName(): String? =
         ?.trim()
         ?.takeIf(String::isNotEmpty)
         ?.take(MAX_DOCUMENT_DISPLAY_NAME_CHARS)
+
+/**
+ * The same document can be reached through differently shaped URIs: a picked document
+ * (`…/document/ID`), a picked tree (`…/tree/ID`) or a child found while walking a tree
+ * (`…/tree/ROOT/document/ID`). This key is equal for all of them, so library entries can be
+ * de-duplicated; strings that are not document URIs are their own key.
+ */
+internal fun documentIdentityKey(uri: String): String {
+    val parsed = runCatching { URI(uri) }.getOrNull() ?: return uri
+    val pathSegments = parsed.rawPath
+        ?.split('/')
+        ?.filter(String::isNotEmpty)
+        .orEmpty()
+    val documentIndex = pathSegments.lastIndexOf("document").takeIf { it >= 0 }
+        ?: pathSegments.indexOf("tree").takeIf { it >= 0 }
+        ?: return uri
+    val documentId = pathSegments.getOrNull(documentIndex + 1)?.normalizePercentEscapes() ?: return uri
+    val scheme = parsed.scheme?.lowercase(Locale.ROOT) ?: return uri
+    val authority = parsed.rawAuthority?.lowercase(Locale.ROOT) ?: return uri
+    return "$scheme://$authority/$documentId"
+}
 
 private data class DocumentTreeIdentity(
     val scheme: String,

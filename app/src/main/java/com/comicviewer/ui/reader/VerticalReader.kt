@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.aspectRatio
@@ -80,14 +81,25 @@ internal fun VerticalComicReader(
     var lastReportedPage by remember(book) { mutableIntStateOf(coercePageIndex(pageIndex, pageCount)) }
     var zoom by remember(book) { mutableFloatStateOf(1f) }
     var panX by remember(book) { mutableFloatStateOf(0f) }
-    val currentPage by remember(listState, pageCount) {
+    val measuredPage by remember(listState, pageCount) {
         derivedStateOf { verticalReaderCurrentPage(listState, pageCount) }
     }
+    // A restored or jumped-to page is placed at the top of the viewport, but the current page is
+    // measured at its middle (or as the last page at the end). Short pages would make every reopen
+    // report, and save, a later page, so the measurement only counts once the reader scrolls.
+    var readerScrolled by remember(book) { mutableStateOf(false) }
+    val currentPage = if (readerScrolled) measuredPage else lastReportedPage
 
-    LaunchedEffect(currentPage) {
-        if (currentPage != lastReportedPage) {
-            lastReportedPage = currentPage
-            onPageSelected(currentPage)
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) readerScrolled = true
+        }
+    }
+
+    LaunchedEffect(measuredPage, readerScrolled) {
+        if (readerScrolled && measuredPage != lastReportedPage) {
+            lastReportedPage = measuredPage
+            onPageSelected(measuredPage)
         }
     }
 
@@ -96,12 +108,15 @@ internal fun VerticalComicReader(
         val target = coercePageIndex(pageIndex, pageCount)
         if (target != lastReportedPage) {
             lastReportedPage = target
+            readerScrolled = false
             listState.scrollToItem(target)
         }
     }
 
     fun scrollBy(pages: Int) {
         val target = coercePageIndex(currentPage + pages, pageCount)
+        lastReportedPage = target
+        onPageSelected(target)
         scope.launch { listState.animateScrollToItem(target) }
     }
 

@@ -51,6 +51,18 @@ Publishing reaches real users: run the script without `--dry-run` only when the 
 
 Use short imperative commit subjects, matching history such as `Overhaul comic viewer interface` and `Fix GUI overhaul regressions`. Pull requests should include a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
 
+## Reporting to the User
+
+Keep replies short and easy to scan:
+
+- Open with one sentence giving the outcome: what was done and whether it worked.
+- Follow with at most five bullets, one fact each, using bold labels such as **Tests:**, **Play:**, **GitHub:**.
+- Put anything the user must do on its own line labeled **Needs you:**.
+- End with at most one suggested next step or question.
+- Use plain words before identifiers. Include a path, commit hash or run ID only when the user needs it to act, and put it in backticks.
+- Use a small table to compare several items, such as tracks, versions or files.
+- Don't restate the request or narrate each step. Give details only when asked or when something failed.
+
 ## Security & Configuration Tips
 
 Preserve SAF access controls, archive bounds (entry count, per-page size, inflated output capped at the declared entry size), image header validation, hidden-path filtering, free-space checks for fallback copies, and cache cleanup behavior. Never commit `keystore.properties`, signing keys, generated build outputs, IDE state, or device-specific paths. The Google Play service account JSON key stays outside the repository (`.gitignore` does not exclude `.json` files); pass its path to the publish script, and never copy it into the project or print its contents.

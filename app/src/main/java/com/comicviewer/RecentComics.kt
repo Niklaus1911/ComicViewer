@@ -126,6 +126,32 @@ fun updateRecentComicPage(
         }
     }
 
+/**
+ * Marks a library comic as finished without opening it. The page count comes from the existing
+ * history entry or the inspected archive; when neither is known the comic counts as one page.
+ */
+fun markRecentComicRead(
+    recentComics: List<RecentComic>,
+    libraryComic: LibraryComic,
+    knownPageCount: Int?,
+    nowMs: Long,
+): List<RecentComic> {
+    val existing = libraryComic.matchingRecentComic(recentComics)
+    val pageCount = (existing?.pageCount?.takeIf { it > 0 } ?: knownPageCount?.takeIf { it > 0 } ?: 1)
+        .coerceAtMost(MAX_PERSISTED_PAGE_COUNT)
+    val finished = RecentComic(
+        sourceType = libraryComic.sourceType,
+        path = libraryComic.path,
+        displayName = existing?.displayName ?: libraryComic.displayName,
+        title = existing?.title ?: libraryComic.title,
+        lastPageIndex = pageCount - 1,
+        pageCount = pageCount,
+        lastOpenedAt = nowMs,
+        completedAt = nowMs,
+    )
+    return upsertRecentComic(recentComics, finished)
+}
+
 fun removeRecentComic(
     recentComics: List<RecentComic>,
     sourceType: RecentComicSourceType,

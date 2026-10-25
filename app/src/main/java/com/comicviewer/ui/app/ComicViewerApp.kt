@@ -121,14 +121,12 @@ import com.comicviewer.ui.common.ProPurchaseSuccessOverlay
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.softContentTransform
 import com.comicviewer.ui.history.HistoryScreen
-import com.comicviewer.ui.importer.ImportScreen
 import com.comicviewer.ui.library.ComicDetailsScreen
 import com.comicviewer.ui.library.ReferenceLibraryScreen
 import com.comicviewer.ui.reader.ComicReaderScreen
 import com.comicviewer.ui.reader.ErrorComicScreen
 import com.comicviewer.ui.reader.LoadingComicScreen
 import com.comicviewer.ui.settings.ReferenceSettingsScreen
-import com.comicviewer.ui.search.SearchScreen
 import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 import com.comicviewer.ui.theme.ComicViewerTheme
@@ -540,7 +538,8 @@ fun ComicViewerApp(
                     onThemePresetSelected = onThemePresetSelected,
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = appState::selectTab,
-                    onStartAddToLibrary = appState::startAddToLibrary,
+                    onMarkRead = appState::markRead,
+                    onMarkUnread = appState::markUnread,
                     onStartArchiveImportBrowser = appState::startArchiveImportBrowser,
                     onCloseImportBrowser = appState::closeImportBrowser,
                     onAutoScanLibrary = appState::autoScanLibraryArchives,
@@ -673,7 +672,8 @@ fun ComicViewerScreen(
     onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
-    onStartAddToLibrary: () -> Unit,
+    onMarkRead: (LibraryComic) -> Unit,
+    onMarkUnread: (LibraryComic) -> Unit,
     onStartArchiveImportBrowser: () -> Unit,
     onCloseImportBrowser: () -> Unit,
     onAutoScanLibrary: () -> Unit,
@@ -792,7 +792,9 @@ fun ComicViewerScreen(
                     onThemePresetSelected = onThemePresetSelected,
                     onAmoledThemeChanged = onAmoledThemeChanged,
                     onTabSelected = onTabSelected,
-                    onStartAddToLibrary = onStartAddToLibrary,
+                    onReadLibraryComic = onReadLibraryComic,
+                    onMarkRead = onMarkRead,
+                    onMarkUnread = onMarkUnread,
                     onStartArchiveImportBrowser = onStartArchiveImportBrowser,
                     onCloseImportBrowser = onCloseImportBrowser,
                     onAutoScanLibrary = onAutoScanLibrary,
@@ -870,7 +872,8 @@ fun HomeScreen(
     onThemePresetSelected: (AppThemePreset) -> Unit,
     onAmoledThemeChanged: (Boolean) -> Unit,
     onTabSelected: (AppTab) -> Unit,
-    onStartAddToLibrary: () -> Unit,
+    onMarkRead: (LibraryComic) -> Unit,
+    onMarkUnread: (LibraryComic) -> Unit,
     onStartArchiveImportBrowser: () -> Unit,
     onCloseImportBrowser: () -> Unit,
     onAutoScanLibrary: () -> Unit,
@@ -885,6 +888,7 @@ fun HomeScreen(
     onOpenRecentComic: (RecentComic) -> Unit,
     onShowRecentComicDetails: (RecentComic) -> Unit,
     onOpenLibraryComic: (LibraryComic) -> Unit,
+    onReadLibraryComic: (LibraryComic) -> Unit,
     onAddLocalArchivesToLibrary: (List<File>) -> Unit,
     onAddLocalFolderToLibrary: (File) -> Unit,
     onAddDocumentArchivesToLibrary: (List<Uri>) -> Unit,
@@ -908,30 +912,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                     ) { targetTab ->
                         when (targetTab) {
-                            AppTab.Library -> ReferenceLibraryScreen(
-                                libraryComics = libraryComics,
-                                libraryMetadata = libraryMetadata,
-                                libraryDetails = libraryDetails,
-                                libraryAutoScanState = libraryAutoScanState,
-                                recentComics = recentComics,
-                                proBillingState = proBillingState,
-                                onOpenSearch = { onTabSelected(AppTab.Search) },
-                                onStartAddToLibrary = onStartAddToLibrary,
-                                onAutoScanLibrary = onAutoScanLibrary,
-                                onClearAutoScanResult = onClearLibraryAutoScanResult,
-                                onBuyPro = onBuyPro,
-                                onRestorePro = onRestorePro,
-                                isDebugBuild = isDebugBuild,
-                                debugProUnlocked = debugProUnlocked,
-                                onDebugProUnlockedChanged = onDebugProUnlockedChanged,
-                                onOpenLibraryComic = onOpenLibraryComic,
-                                onRemoveLibraryComic = onRemoveLibraryComic,
-                                onToggleFavorite = onToggleLibraryFavorite,
-                                onSetTags = onSetLibraryTags,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-
-                            AppTab.Import -> when {
+                            AppTab.Library -> when {
                                 rawFileBrowserEnabled && isAddingToLibrary -> FileBrowserScreen(
                                     currentDirectoryPath = currentDirectoryPath,
                                     browserRootPath = browserRootPath,
@@ -954,35 +935,39 @@ fun HomeScreen(
                                     modifier = Modifier.fillMaxSize(),
                                 )
 
-                                else -> ImportScreen(
+                                else -> ReferenceLibraryScreen(
                                     libraryComics = libraryComics,
+                                    libraryMetadata = libraryMetadata,
                                     libraryDetails = libraryDetails,
+                                    libraryAutoScanState = libraryAutoScanState,
                                     recentComics = recentComics,
+                                    proBillingState = proBillingState,
                                     onImportArchives = if (rawFileBrowserEnabled || documentBrowserRootUri != null) {
                                         onStartArchiveImportBrowser
                                     } else {
                                         onAddArchivesPicker
                                     },
+                                    onAutoScanLibrary = onAutoScanLibrary,
                                     onScanFolder = onChooseImportFolder,
-                                    onOpenArchiveWithoutImporting = onOpenArchivePicker,
-                                    onOpenFolderWithoutImporting = onOpenFolderPicker,
                                     onAddFolderAsComic = onAddFolderPicker,
-                                    onOpenComic = onOpenLibraryComic,
-                                    onRemoveComic = onRemoveLibraryComic,
+                                    onOpenArchiveWithoutAdding = onOpenArchivePicker,
+                                    onOpenFolderWithoutAdding = onOpenFolderPicker,
+                                    onClearAutoScanResult = onClearLibraryAutoScanResult,
+                                    onBuyPro = onBuyPro,
+                                    onRestorePro = onRestorePro,
+                                    isDebugBuild = isDebugBuild,
+                                    debugProUnlocked = debugProUnlocked,
+                                    onDebugProUnlockedChanged = onDebugProUnlockedChanged,
+                                    onOpenLibraryComic = onOpenLibraryComic,
+                                    onReadLibraryComic = onReadLibraryComic,
+                                    onMarkRead = onMarkRead,
+                                    onMarkUnread = onMarkUnread,
+                                    onRemoveLibraryComic = onRemoveLibraryComic,
+                                    onToggleFavorite = onToggleLibraryFavorite,
+                                    onSetTags = onSetLibraryTags,
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             }
-
-                            AppTab.Search -> SearchScreen(
-                                libraryComics = libraryComics,
-                                libraryMetadata = libraryMetadata,
-                                libraryDetails = libraryDetails,
-                                recentComics = recentComics,
-                                isProUnlocked = proBillingState.isProUnlocked,
-                                onOpenComic = onOpenLibraryComic,
-                                onBack = { onTabSelected(AppTab.Library) },
-                                modifier = Modifier.fillMaxSize(),
-                            )
 
                             AppTab.History -> HistoryScreen(
                                 recentComics = recentComics,
@@ -1057,8 +1042,6 @@ fun AppBottomNavigation(
     modifier: Modifier = Modifier,
 ) {
     val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
-    val throttledImportClick = rememberThrottledAction { onTabSelected(AppTab.Import) }
-    val throttledSearchClick = rememberThrottledAction { onTabSelected(AppTab.Search) }
     val throttledHistoryClick = rememberThrottledAction { onTabSelected(AppTab.History) }
     val throttledSettingsClick = rememberThrottledAction { onTabSelected(AppTab.Settings) }
     NavigationBar(
@@ -1071,18 +1054,6 @@ fun AppBottomNavigation(
             onClick = throttledLibraryClick,
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_library)) },
-        )
-        NavigationBarItem(
-            selected = selectedTab == AppTab.Import,
-            onClick = throttledImportClick,
-            icon = { Icon(Icons.Filled.Upload, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_import)) },
-        )
-        NavigationBarItem(
-            selected = selectedTab == AppTab.Search,
-            onClick = throttledSearchClick,
-            icon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_search)) },
         )
         NavigationBarItem(
             selected = selectedTab == AppTab.History,
@@ -1106,8 +1077,6 @@ fun AppNavigationRail(
     modifier: Modifier = Modifier,
 ) {
     val throttledLibraryClick = rememberThrottledAction { onTabSelected(AppTab.Library) }
-    val throttledImportClick = rememberThrottledAction { onTabSelected(AppTab.Import) }
-    val throttledSearchClick = rememberThrottledAction { onTabSelected(AppTab.Search) }
     val throttledHistoryClick = rememberThrottledAction { onTabSelected(AppTab.History) }
     val throttledSettingsClick = rememberThrottledAction { onTabSelected(AppTab.Settings) }
     NavigationRail(
@@ -1121,18 +1090,6 @@ fun AppNavigationRail(
             onClick = throttledLibraryClick,
             icon = { Icon(Icons.AutoMirrored.Filled.LibraryBooks, contentDescription = null) },
             label = { Text(stringResource(R.string.nav_library)) },
-        )
-        NavigationRailItem(
-            selected = selectedTab == AppTab.Import,
-            onClick = throttledImportClick,
-            icon = { Icon(Icons.Filled.Upload, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_import)) },
-        )
-        NavigationRailItem(
-            selected = selectedTab == AppTab.Search,
-            onClick = throttledSearchClick,
-            icon = { Icon(Icons.Filled.Search, contentDescription = null) },
-            label = { Text(stringResource(R.string.nav_search)) },
         )
         NavigationRailItem(
             selected = selectedTab == AppTab.History,

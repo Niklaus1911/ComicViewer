@@ -1,5 +1,7 @@
 package com.comicviewer
 
+private const val MAX_CONTINUE_READING_ITEMS = 12
+
 /**
  * Pure, UI-agnostic view logic for the Library tab: how the persisted [LibraryComic] list is
  * searched, filtered, sorted, and turned into per-comic reading progress. Kept free of Compose
@@ -22,6 +24,7 @@ fun filterLibraryComicsByQuery(
     comics: List<LibraryComic>,
     query: String,
     metadata: List<LibraryComicMetadata> = emptyList(),
+    details: List<LibraryComicDetails> = emptyList(),
 ): List<LibraryComic> {
     val normalizedQuery = query.trim()
     if (normalizedQuery.isEmpty()) return comics
@@ -29,9 +32,16 @@ fun filterLibraryComicsByQuery(
     return comics.filter { comic ->
         comic.title.contains(normalizedQuery, ignoreCase = true) ||
             comic.displayName.contains(normalizedQuery, ignoreCase = true) ||
-            metadataFor(comic, metadata).tags.any { tag -> tag.contains(normalizedQuery, ignoreCase = true) }
+            metadataFor(comic, metadata).tags.any { tag -> tag.contains(normalizedQuery, ignoreCase = true) } ||
+            detailsFor(comic, details)?.metadata?.searchableText()?.any { text ->
+                text.contains(normalizedQuery, ignoreCase = true)
+            } == true
     }
 }
+
+/** ComicInfo fields a reader is likely to search by: title, series, writers, publisher and genres. */
+private fun ComicInfoMetadata.searchableText(): List<String> =
+    listOfNotNull(title, series, publisher) + writers + genres
 
 fun filterLibraryComicsBySource(
     comics: List<LibraryComic>,
@@ -121,10 +131,27 @@ fun libraryView(
     metadata: List<LibraryComicMetadata> = emptyList(),
     progressFilter: LibraryProgressFilter = LibraryProgressFilter.All,
     tagFilter: String? = null,
+    details: List<LibraryComicDetails> = emptyList(),
 ): List<LibraryComic> {
     val bySource = filterLibraryComicsBySource(comics, filter)
     val byProgress = filterLibraryComicsByProgress(bySource, recentComics, metadata, progressFilter)
     val byTag = filterLibraryComicsByTag(byProgress, metadata, tagFilter)
-    val byQuery = filterLibraryComicsByQuery(byTag, query, metadata)
+    val byQuery = filterLibraryComicsByQuery(byTag, query, metadata, details)
     return sortLibraryComics(byQuery, order, recentComics)
 }
+
+/** Started but unfinished comics, most recently opened first, for the Continue reading shelf. */
+fun continueReadingComics(
+    comics: List<LibraryComic>,
+    recentComics: List<RecentComic>,
+    maxItems: Int = MAX_CONTINUE_READING_ITEMS,
+): List<LibraryComic> =
+    comics
+        .mapNotNull { comic ->
+            val recentComic = comic.matchingRecentComic(recentComics) ?: return@mapNotNull null
+            val progress = libraryProgressFraction(comic, recentComics) ?: return@mapNotNull null
+            if (progress >= 1f) null else comic to recentComic.lastOpenedAt
+        }
+        .sortedByDescending { (_, lastOpenedAt) -> lastOpenedAt }
+        .take(maxItems)
+        .map { (comic, _) -> comic }

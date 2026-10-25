@@ -2338,10 +2338,77 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun restoredAppTab_mapsLegacyBrowseAndFallsBackSafely() {
-        assertEquals(AppTab.Import, restoredAppTab("Browse"))
-        assertEquals(AppTab.Search, restoredAppTab("Search"))
+    fun restoredAppTab_mapsRemovedTabsToLibrary() {
+        assertEquals(AppTab.Library, restoredAppTab("Browse"))
+        assertEquals(AppTab.Library, restoredAppTab("Import"))
+        assertEquals(AppTab.Library, restoredAppTab("Search"))
+        assertEquals(AppTab.History, restoredAppTab("History"))
+        assertEquals(AppTab.Settings, restoredAppTab("Settings"))
         assertEquals(AppTab.Library, restoredAppTab("Unknown"))
+    }
+
+    @Test
+    fun filterLibraryComicsByQuery_matchesComicInfoWritersGenresAndSeries() {
+        val first = sampleLibraryComic(title = "Issue 1", path = "/storage/emulated/0/a.cbz")
+        val second = sampleLibraryComic(title = "Issue 2", path = "/storage/emulated/0/b.cbz")
+        val details = listOf(
+            LibraryComicDetails(
+                sourceType = first.sourceType,
+                path = first.path,
+                metadata = ComicInfoMetadata(
+                    series = "Storm Beacon",
+                    writers = listOf("Mara Quell"),
+                    publisher = "Northlight Press",
+                    genres = listOf("Adventure"),
+                ),
+            ),
+        )
+
+        listOf("quell", "storm", "northlight", "ADVENTURE").forEach { query ->
+            assertEquals(listOf(first), filterLibraryComicsByQuery(listOf(first, second), query, details = details))
+        }
+        assertEquals(emptyList<LibraryComic>(), filterLibraryComicsByQuery(listOf(first, second), "fantasy", details = details))
+    }
+
+    @Test
+    fun continueReadingComics_keepsStartedUnfinishedComicsByLastOpened() {
+        val unread = sampleLibraryComic(title = "Unread", path = "/c/unread.cbz")
+        val older = sampleLibraryComic(title = "Older", path = "/c/older.cbz")
+        val newer = sampleLibraryComic(title = "Newer", path = "/c/newer.cbz")
+        val finished = sampleLibraryComic(title = "Finished", path = "/c/finished.cbz")
+        val recent = listOf(
+            sampleRecentComic(path = older.path, lastPageIndex = 2, pageCount = 10, lastOpenedAt = 100L),
+            sampleRecentComic(path = newer.path, lastPageIndex = 5, pageCount = 10, lastOpenedAt = 200L),
+            sampleRecentComic(path = finished.path, lastPageIndex = 9, pageCount = 10, lastOpenedAt = 300L),
+        )
+
+        assertEquals(
+            listOf(newer, older),
+            continueReadingComics(listOf(unread, older, newer, finished), recent),
+        )
+        assertEquals(listOf(newer), continueReadingComics(listOf(unread, older, newer, finished), recent, maxItems = 1))
+    }
+
+    @Test
+    fun markRecentComicRead_finishesUnopenedAndStartedComics() {
+        val unopened = sampleLibraryComic(title = "Unopened", path = "/c/unopened.cbz")
+        val started = sampleLibraryComic(title = "Started", path = "/c/started.cbz")
+        val recent = listOf(sampleRecentComic(path = started.path, lastPageIndex = 3, pageCount = 20, lastOpenedAt = 5L))
+
+        val afterUnopened = markRecentComicRead(recent, unopened, knownPageCount = 24, nowMs = 1_000L)
+        val finishedUnopened = afterUnopened.first { it.path == unopened.path }
+        assertEquals(23, finishedUnopened.lastPageIndex)
+        assertEquals(24, finishedUnopened.pageCount)
+        assertEquals(1_000L, finishedUnopened.completedAt)
+        assertEquals(1f, libraryProgressFraction(unopened, afterUnopened))
+
+        val afterStarted = markRecentComicRead(recent, started, knownPageCount = null, nowMs = 2_000L)
+        assertEquals(1, afterStarted.size)
+        assertEquals(19, afterStarted.single().lastPageIndex)
+        assertEquals(1f, libraryProgressFraction(started, afterStarted))
+
+        val unknownCount = markRecentComicRead(emptyList(), unopened, knownPageCount = null, nowMs = 3_000L)
+        assertEquals(1f, libraryProgressFraction(unopened, unknownCount))
     }
 
     @Test

@@ -54,6 +54,8 @@ import com.comicviewer.recentComicFor
 import com.comicviewer.releasePersistableReadPermission
 import com.comicviewer.releaseUnusedPersistableReadPermissions
 import com.comicviewer.removeLibraryComic
+import com.comicviewer.detailsFor
+import com.comicviewer.markRecentComicRead
 import com.comicviewer.removeRecentComic
 import com.comicviewer.saveLibraryComics
 import com.comicviewer.saveLibraryMetadata
@@ -164,30 +166,24 @@ class ComicViewerAppState(
         get() = uiState !is ReaderUiState.Empty ||
             selectedComicDetails != null ||
             isAddingToLibrary ||
-            currentTab == AppTab.Search ||
-            (currentTab == AppTab.Import && browserBackPath != null)
+            currentTab != AppTab.Library
 
     fun selectTab(tab: AppTab) {
         selectedTabName = tab.name
         selectedComicDetails = null
-        if (tab != AppTab.Import) isAddingToLibrary = false
+        if (tab != AppTab.Library) isAddingToLibrary = false
     }
 
-    fun startAddToLibrary() {
-        selectedComicDetails = null
-        selectedTabName = AppTab.Import.name
-        isAddingToLibrary = false
-    }
-
+    /** The import file browser replaces the Library grid until files are added or it is closed. */
     fun startArchiveImportBrowser() {
         selectedComicDetails = null
-        selectedTabName = AppTab.Import.name
+        selectedTabName = AppTab.Library.name
         isAddingToLibrary = true
     }
 
     fun closeImportBrowser() {
         isAddingToLibrary = false
-        selectedTabName = AppTab.Import.name
+        selectedTabName = AppTab.Library.name
     }
 
     fun dismissWelcome() {
@@ -204,7 +200,7 @@ class ComicViewerAppState(
 
     fun startWelcomeManualBrowse() {
         dismissWelcome()
-        startAddToLibrary()
+        startArchiveImportBrowser()
     }
 
     fun changeDirectory(path: String) {
@@ -523,7 +519,7 @@ class ComicViewerAppState(
 
     private fun finishAddingToLibrary() {
         dismissWelcome()
-        selectedTabName = AppTab.Import.name
+        selectedTabName = AppTab.Library.name
         isAddingToLibrary = false
     }
 
@@ -540,6 +536,27 @@ class ComicViewerAppState(
         if (target?.comic?.sourceType == libraryComic.sourceType && target.comic.path == libraryComic.path) {
             selectedComicDetails = null
         }
+    }
+
+    fun markRead(libraryComic: LibraryComic) {
+        persistRecentComics(
+            markRecentComicRead(
+                recentComics = recentComics,
+                libraryComic = libraryComic,
+                knownPageCount = detailsFor(libraryComic, libraryDetails)?.pageCount,
+                nowMs = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun markUnread(libraryComic: LibraryComic) {
+        persistRecentComics(
+            removeRecentComic(
+                recentComics = recentComics,
+                sourceType = libraryComic.sourceType,
+                path = libraryComic.path,
+            ),
+        )
     }
 
     fun toggleFavorite(libraryComic: LibraryComic) {
@@ -780,12 +797,9 @@ class ComicViewerAppState(
                 if (isAddingToLibrary && backPath != null) {
                     currentDirectoryPath = backPath
                 } else if (isAddingToLibrary) {
-                    isAddingToLibrary = false
-                    selectedTabName = AppTab.Import.name
-                } else if (currentTab == AppTab.Search) {
+                    closeImportBrowser()
+                } else if (currentTab != AppTab.Library) {
                     selectedTabName = AppTab.Library.name
-                } else if (currentTab == AppTab.Import && backPath != null) {
-                    currentDirectoryPath = backPath
                 }
             }
 

@@ -75,9 +75,9 @@ import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.resolvedReaderPreferences
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.ui.app.ThemeUiState
-import com.comicviewer.ui.common.ReferenceCardShape
-import com.comicviewer.ui.common.ReferenceScreenHeader
-import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
+import com.comicviewer.ui.common.CardShape
+import com.comicviewer.ui.common.ScreenHeader
+import com.comicviewer.ui.common.ScreenHorizontalPadding
 import com.comicviewer.ui.common.readableContentWidth
 import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.reader.ReaderSettingsDialog
@@ -85,7 +85,7 @@ import com.comicviewer.ui.theme.AppColor
 import com.comicviewer.ui.theme.AppThemePreset
 
 @Composable
-fun ReferenceSettingsScreen(
+fun SettingsScreen(
     selectedLanguage: AppLanguage,
     themeUiState: ThemeUiState,
     readerPreferences: ReaderPreferences,
@@ -130,16 +130,16 @@ fun ReferenceSettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .readableContentWidth(),
         ) {
-            ReferenceScreenHeader(title = stringResource(R.string.settings_title))
+            ScreenHeader(title = stringResource(R.string.settings_title))
             SettingsSection(title = stringResource(R.string.settings_appearance_title)) {
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.Palette,
                     title = stringResource(R.string.settings_theme_mode_title),
                     subtitle = stringResource(themeUiState.themeMode.labelRes()),
                     showDivider = false,
                     onClick = { showTheme = true },
                 )
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.Language,
                     title = stringResource(R.string.settings_language_title),
                     subtitle = stringResource(selectedLanguage.labelRes()),
@@ -147,32 +147,32 @@ fun ReferenceSettingsScreen(
                 )
             }
             SettingsSection(title = stringResource(R.string.settings_section_reading)) {
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.AutoStories,
                     title = stringResource(R.string.settings_default_reading_mode),
                     subtitle = stringResource(activeReaderPreferences.pageMode.labelRes()),
                     showDivider = false,
                     onClick = { showReader = true },
                 )
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.SwapHoriz,
                     title = stringResource(R.string.settings_default_direction),
                     subtitle = stringResource(activeReaderPreferences.readingDirection.labelRes()),
                     onClick = { showReader = true },
                 )
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.TouchApp,
                     title = stringResource(R.string.settings_tap_zones),
                     subtitle = stringResource(R.string.settings_tap_zones_summary),
                     onClick = { showTapZones = true },
                 )
-                SettingsReferenceToggleRow(
+                SettingsToggleRow(
                     icon = Icons.Filled.ScreenLockPortrait,
                     title = stringResource(R.string.reader_keep_screen_on),
                     checked = readerPreferences.keepScreenOn,
                     onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
                 )
-                SettingsReferenceToggleRow(
+                SettingsToggleRow(
                     icon = Icons.Filled.Visibility,
                     title = stringResource(R.string.reader_show_page_number),
                     checked = readerPreferences.showPageNumber,
@@ -180,14 +180,14 @@ fun ReferenceSettingsScreen(
                 )
             }
             SettingsSection(title = stringResource(R.string.settings_section_library)) {
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.Folder,
                     title = stringResource(R.string.settings_import_folder),
                     subtitle = automationPreferences.importFolderName ?: stringResource(R.string.settings_import_folder_not_set),
                     showDivider = false,
                     onClick = onChooseImportFolder,
                 )
-                SettingsReferenceToggleRow(
+                SettingsToggleRow(
                     icon = Icons.Filled.HistoryToggleOff,
                     title = stringResource(R.string.settings_auto_scan_folder),
                     checked = automationPreferences.autoScanEnabled,
@@ -196,7 +196,7 @@ fun ReferenceSettingsScreen(
                         onAutomationPreferencesChanged(automationPreferences.copy(autoScanEnabled = it))
                     },
                 )
-                SettingsReferenceToggleRow(
+                SettingsToggleRow(
                     icon = Icons.Filled.CleaningServices,
                     title = stringResource(R.string.settings_auto_delete_temp),
                     subtitle = stringResource(R.string.settings_auto_delete_temp_description),
@@ -205,14 +205,14 @@ fun ReferenceSettingsScreen(
                         onAutomationPreferencesChanged(automationPreferences.copy(autoDeleteTempFiles = it))
                     },
                 )
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.Backup,
                     title = stringResource(R.string.settings_backup_restore),
                     onClick = { showBackup = true },
                 )
             }
             SettingsSection(title = stringResource(R.string.app_name)) {
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.WorkspacePremium,
                     title = stringResource(if (proBillingState.isProUnlocked) R.string.pro_unlocked else R.string.pro_upgrade),
                     subtitle = stringResource(
@@ -221,7 +221,7 @@ fun ReferenceSettingsScreen(
                     showDivider = false,
                     onClick = { showPro = true },
                 )
-                SettingsReferenceRow(
+                SettingsRow(
                     icon = Icons.Filled.Info,
                     title = stringResource(R.string.settings_about_title),
                     subtitle = "${buildInfo.versionName} (${buildInfo.versionCode})",
@@ -411,7 +411,7 @@ private fun SettingsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = ReferenceScreenHorizontalPadding),
+            .padding(horizontal = ScreenHorizontalPadding),
     ) {
         Text(
             text = title,
@@ -420,7 +420,7 @@ private fun SettingsSection(
             modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
         )
         Surface(
-            shape = ReferenceCardShape,
+            shape = CardShape,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
         ) {
             Column(content = content)
@@ -429,7 +429,7 @@ private fun SettingsSection(
 }
 
 @Composable
-private fun SettingsReferenceRow(
+private fun SettingsRow(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
@@ -452,7 +452,7 @@ private fun SettingsReferenceRow(
 }
 
 @Composable
-private fun SettingsReferenceToggleRow(
+private fun SettingsToggleRow(
     icon: ImageVector,
     title: String,
     checked: Boolean,

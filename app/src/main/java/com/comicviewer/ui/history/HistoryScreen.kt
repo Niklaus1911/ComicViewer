@@ -69,8 +69,8 @@ import com.comicviewer.groupedHistory
 import com.comicviewer.isFinished
 import com.comicviewer.progressFraction
 import com.comicviewer.ui.browser.RecentComicThumbnail
-import com.comicviewer.ui.common.ReferenceScreenHeader
-import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
+import com.comicviewer.ui.common.ScreenHeader
+import com.comicviewer.ui.common.ScreenHorizontalPadding
 import com.comicviewer.ui.common.StatusContent
 import com.comicviewer.ui.common.absoluteDateText
 import com.comicviewer.ui.common.readableContentWidth
@@ -120,7 +120,7 @@ fun HistoryScreen(
                     .windowInsetsPadding(WindowInsets.tabScreen)
                     .readableContentWidth(),
             ) {
-                ReferenceScreenHeader(
+                ScreenHeader(
                     title = stringResource(R.string.nav_history),
                     actions = {
                         if (recentComics.isNotEmpty()) {
@@ -168,8 +168,8 @@ fun HistoryScreen(
                         LazyColumn(
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(
-                                start = ReferenceScreenHorizontalPadding,
-                                end = ReferenceScreenHorizontalPadding,
+                                start = ScreenHorizontalPadding,
+                                end = ScreenHorizontalPadding,
                                 bottom = 24.dp,
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -235,7 +235,7 @@ private fun HistoryFilterRow(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = ReferenceScreenHorizontalPadding, vertical = 4.dp),
+            .padding(horizontal = ScreenHorizontalPadding, vertical = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         HistoryFilter.entries.forEach { item ->

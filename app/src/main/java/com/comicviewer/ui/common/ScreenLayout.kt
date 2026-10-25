@@ -23,7 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-val ReferenceScreenHorizontalPadding = 20.dp
+val ScreenHorizontalPadding = 20.dp
 private val ReadableContentMaxWidth = 760.dp
 
 /** Keeps text-heavy screens at a comfortable line length on tablets, centered in the window. */
@@ -32,8 +32,7 @@ fun Modifier.readableContentWidth(maxWidth: Dp = ReadableContentMaxWidth): Modif
         .wrapContentWidth(Alignment.CenterHorizontally)
         .widthIn(max = maxWidth)
         .fillMaxWidth()
-val ReferenceCardShape = RoundedCornerShape(16.dp)
-val ReferenceLargeCardShape = RoundedCornerShape(22.dp)
+val CardShape = RoundedCornerShape(16.dp)
 
 /**
  * Insets for screens shown above the bottom navigation bar: the navigation bar (or, on tablets,
@@ -43,7 +42,7 @@ val WindowInsets.Companion.tabScreen: WindowInsets
     @Composable get() = safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
 
 @Composable
-fun ReferenceScreenHeader(
+fun ScreenHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
@@ -54,7 +53,7 @@ fun ReferenceScreenHeader(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                start = if (navigation == null) ReferenceScreenHorizontalPadding else 8.dp,
+                start = if (navigation == null) ScreenHorizontalPadding else 8.dp,
                 top = 18.dp,
                 end = 8.dp,
                 bottom = 12.dp,
@@ -86,28 +85,5 @@ fun ReferenceScreenHeader(
             }
         }
         actions()
-    }
-}
-
-@Composable
-fun ReferenceSectionHeader(
-    title: String,
-    modifier: Modifier = Modifier,
-    action: (@Composable () -> Unit)? = null,
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = ReferenceScreenHorizontalPadding, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.weight(1f),
-        )
-        action?.invoke()
     }
 }

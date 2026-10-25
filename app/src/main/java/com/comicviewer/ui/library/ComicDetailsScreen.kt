@@ -106,7 +106,7 @@ import com.comicviewer.progressFraction
 import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.app.ComicDetailsTarget
 import com.comicviewer.ui.browser.RecentComicThumbnail
-import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
+import com.comicviewer.ui.common.ScreenHorizontalPadding
 import com.comicviewer.ui.common.absoluteDateText
 import com.comicviewer.ui.common.fileSizeText
 import com.comicviewer.ui.common.readableContentWidth
@@ -225,7 +225,7 @@ fun ComicDetailsScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = ReferenceScreenHorizontalPadding),
+                            .padding(horizontal = ScreenHorizontalPadding),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
@@ -263,7 +263,7 @@ fun ComicDetailsScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = ReferenceScreenHorizontalPadding, vertical = 18.dp),
+                            .padding(horizontal = ScreenHorizontalPadding, vertical = 18.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -311,7 +311,7 @@ fun ComicDetailsScreen(
                             currentPage = currentPage ?: 1,
                             pageCount = recentComic.pageCount,
                             completedAt = recentComic.completedAt,
-                            modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
+                            modifier = Modifier.padding(horizontal = ScreenHorizontalPadding),
                         )
                     }
 
@@ -329,7 +329,7 @@ fun ComicDetailsScreen(
                         DetailsSectionTitle(stringResource(R.string.comic_summary_section))
                         ExpandableSummary(
                             text = summary,
-                            modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
+                            modifier = Modifier.padding(horizontal = ScreenHorizontalPadding),
                         )
                     }
 
@@ -337,7 +337,7 @@ fun ComicDetailsScreen(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = ReferenceScreenHorizontalPadding),
+                            .padding(horizontal = ScreenHorizontalPadding),
                         shape = RoundedCornerShape(16.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                     ) {
@@ -683,8 +683,8 @@ private fun DetailsSectionTitle(text: String) {
         style = MaterialTheme.typography.titleMedium,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(
-            start = ReferenceScreenHorizontalPadding,
-            end = ReferenceScreenHorizontalPadding,
+            start = ScreenHorizontalPadding,
+            end = ScreenHorizontalPadding,
             top = 24.dp,
             bottom = 10.dp,
         ),
@@ -700,7 +700,7 @@ private fun PagePreviewStrip(
 ) {
     val currentPageState = stringResource(R.string.reader_current_page)
     LazyRow(
-        contentPadding = PaddingValues(horizontal = ReferenceScreenHorizontalPadding),
+        contentPadding = PaddingValues(horizontal = ScreenHorizontalPadding),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         itemsIndexed(pages, key = { _, uri -> uri.toString() }) { index, uri ->

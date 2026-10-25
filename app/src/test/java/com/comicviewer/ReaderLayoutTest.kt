@@ -2,9 +2,11 @@ package com.comicviewer
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
+import com.comicviewer.ui.reader.MAX_PAGE_DETAIL_STEP
 import com.comicviewer.ui.reader.ReaderSwipeDirection
 import com.comicviewer.ui.reader.readerEffectivePageScale
 import com.comicviewer.ui.reader.readerFitWidthScaleMultiplier
+import com.comicviewer.ui.reader.readerPageDetailStep
 import com.comicviewer.ui.reader.readerPageGridInitialItemIndex
 import com.comicviewer.ui.reader.readerPageStartOffset
 import com.comicviewer.ui.reader.readerProgressPercent
@@ -19,6 +21,17 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReaderLayoutTest {
+    @Test
+    fun readerPageDetailStep_roundsZoomUpToWholeStepsWithinBounds() {
+        assertEquals(1, readerPageDetailStep(1f))
+        assertEquals(1, readerPageDetailStep(1.05f))
+        assertEquals(2, readerPageDetailStep(1.5f))
+        assertEquals(2, readerPageDetailStep(2f))
+        assertEquals(3, readerPageDetailStep(2.6f))
+        assertEquals(MAX_PAGE_DETAIL_STEP, readerPageDetailStep(5f))
+        assertEquals(1, readerPageDetailStep(Float.NaN))
+    }
+
     @Test
     fun readerPageStartOffset_startsLargePagesAtTheirTopAndReadingEdge() {
         val viewport = IntSize(1000, 1000)

@@ -60,15 +60,19 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import coil3.size.Precision
+import coil3.size.Size as CoilSize
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicPage
 import com.comicviewer.ComicSource
 import com.comicviewer.R
+import com.comicviewer.ReaderPageFitMode
 import com.comicviewer.ReaderPageMode
 import com.comicviewer.ReaderPreferences
 import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.coercePageIndex
 import kotlin.math.abs
+import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
@@ -128,8 +132,26 @@ internal fun PagedComicReader(
         listOf(visualPage.index)
     }
     val secondSpreadPage = spreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
-    val currentRequest = remember(book.source, visualPage.imageUri, visualPage.relativePath) {
-        visualPage.imageRequest(context = context, source = book.source)
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    val originalSize = activeReaderPreferences.pageFitMode == ReaderPageFitMode.Original
+    // Detail for pages about to be shown: what the fit mode needs before any pinch.
+    var baseDetailStep by remember(book, activeReaderPreferences.pageFitMode) { mutableIntStateOf(1) }
+    // Detail for the visible page: it rises while the page is zoomed and never falls, so zooming
+    // back out keeps the sharper copy instead of loading the page again.
+    var pageDetailStep by remember(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+    ) { mutableIntStateOf(baseDetailStep) }
+    val currentRequest = remember(
+        book.source,
+        visualPage.imageUri,
+        visualPage.relativePath,
+        viewportSize,
+        pageDetailStep,
+        originalSize,
+    ) {
+        visualPage.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize)
     }
     val painter = rememberAsyncImagePainter(
         model = currentRequest,
@@ -138,17 +160,24 @@ internal fun PagedComicReader(
     )
     val painterState by painter.state.collectAsState()
     val secondPainter = rememberAsyncImagePainter(
-        model = remember(book.source, secondSpreadPage?.imageUri, secondSpreadPage?.relativePath) {
-            secondSpreadPage?.imageRequest(context = context, source = book.source)
+        model = remember(
+            book.source,
+            secondSpreadPage?.imageUri,
+            secondSpreadPage?.relativePath,
+            viewportSize,
+            pageDetailStep,
+            originalSize,
+        ) {
+            secondSpreadPage?.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize)
         },
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
     )
     val secondPainterState by secondPainter.state.collectAsState()
     var lastSuccessfulPainter by remember(book) { mutableStateOf<RememberedPagePainter?>(null) }
+    var lastSuccessfulSecondPainter by remember(book) { mutableStateOf<RememberedPagePainter?>(null) }
     var primaryPageLoadError by remember(visualPage.imageUri) { mutableStateOf<String?>(null) }
     var secondaryPageLoadError by remember(secondSpreadPage?.imageUri) { mutableStateOf<String?>(null) }
-    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var pageScale by remember(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
@@ -159,11 +188,15 @@ internal fun PagedComicReader(
         secondSpreadPage?.imageUri,
         activeReaderPreferences.pageMode,
     ) { mutableStateOf(Offset.Zero) }
-    // A page larger than the viewport is moved once to where reading starts, as soon as its size is known.
+    // A page larger than the viewport is moved to where reading starts as soon as its size is known,
+    // and again when the viewport or the fit settings change, for example when the screen rotates.
     var pageOffsetPlaced by remember(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
         activeReaderPreferences.pageMode,
+        activeReaderPreferences.pageFitMode,
+        activeReaderPreferences.readingDirection,
+        viewportSize,
     ) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
@@ -200,8 +233,16 @@ internal fun PagedComicReader(
         listOfNotNull(adjacentPageIndex)
     }
     val adjacentSecondPage = adjacentSpreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
-    val adjacentRequest = remember(book.source, adjacentPage?.imageUri, adjacentPage?.relativePath) {
-        adjacentPage?.imageRequest(context = context, source = book.source)
+    // Neighbours use the preload size, so a preloaded page is already in memory when swiped in.
+    val adjacentRequest = remember(
+        book.source,
+        adjacentPage?.imageUri,
+        adjacentPage?.relativePath,
+        viewportSize,
+        baseDetailStep,
+        originalSize,
+    ) {
+        adjacentPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize)
     }
     val adjacentPainter = rememberAsyncImagePainter(
         model = adjacentRequest,
@@ -209,8 +250,15 @@ internal fun PagedComicReader(
         contentScale = ContentScale.Fit,
     )
     val adjacentSecondPainter = rememberAsyncImagePainter(
-        model = remember(book.source, adjacentSecondPage?.imageUri, adjacentSecondPage?.relativePath) {
-            adjacentSecondPage?.imageRequest(context = context, source = book.source)
+        model = remember(
+            book.source,
+            adjacentSecondPage?.imageUri,
+            adjacentSecondPage?.relativePath,
+            viewportSize,
+            baseDetailStep,
+            originalSize,
+        ) {
+            adjacentSecondPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize)
         },
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
@@ -354,10 +402,17 @@ internal fun PagedComicReader(
         }
     }
 
-    LaunchedEffect(book.pages, visualPage.index, imageLoader) {
+    LaunchedEffect(book.pages, visualPage.index, imageLoader, viewportSize, baseDetailStep, originalSize) {
         // Building a request stats the source file for its cache key, so that happens off the main thread.
         val requests = withContext(Dispatchers.IO) {
-            book.pages.preloadRequests(currentIndex = visualPage.index, context = context, source = book.source)
+            book.pages.preloadRequests(
+                currentIndex = visualPage.index,
+                context = context,
+                source = book.source,
+                viewportSize = viewportSize,
+                detailStep = baseDetailStep,
+                originalSize = originalSize,
+            )
         }
         // Preloads for pages left behind, or for a closed reader, are cancelled: they would otherwise
         // delay the visible page and reopen sources that closing the comic just released.
@@ -388,6 +443,13 @@ internal fun PagedComicReader(
     }
 
     LaunchedEffect(secondPainterState, secondSpreadPage?.imageUri, resources) {
+        val state = secondPainterState
+        if (secondSpreadPage != null && state is AsyncImagePainter.State.Success) {
+            lastSuccessfulSecondPainter = RememberedPagePainter(
+                imageUri = secondSpreadPage.imageUri.toString(),
+                painter = state.painter,
+            )
+        }
         secondaryPageLoadError = when {
             secondSpreadPage == null -> null
             secondPainterState is AsyncImagePainter.State.Error -> resources.getString(
@@ -399,14 +461,22 @@ internal fun PagedComicReader(
         }
     }
 
-    val primaryIntrinsicSize = (painterState as? AsyncImagePainter.State.Success)
-        ?.painter
-        ?.intrinsicSize
-        ?: Size.Unspecified
-    val secondaryIntrinsicSize = (secondPainterState as? AsyncImagePainter.State.Success)
-        ?.painter
-        ?.intrinsicSize
-        ?: Size.Unspecified
+    // While a sharper copy of a page loads, the copy already shown stands in for it, so the page
+    // neither blinks nor changes size.
+    val displayedPainter = if (painterState is AsyncImagePainter.State.Success) {
+        painter
+    } else {
+        lastSuccessfulPainter?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }?.painter
+    }
+    val displayedSecondPainter = if (secondPainterState is AsyncImagePainter.State.Success) {
+        secondPainter
+    } else {
+        lastSuccessfulSecondPainter
+            ?.takeIf { remembered -> remembered.imageUri == secondSpreadPage?.imageUri?.toString() }
+            ?.painter
+    }
+    val primaryIntrinsicSize = displayedPainter?.intrinsicSize ?: Size.Unspecified
+    val secondaryIntrinsicSize = displayedSecondPainter?.intrinsicSize ?: Size.Unspecified
     val primaryPageWidth = readerResolvedPageDimension(visualPage.width, primaryIntrinsicSize.width)
     val primaryPageHeight = readerResolvedPageDimension(visualPage.height, primaryIntrinsicSize.height)
     val secondaryPageWidth = secondSpreadPage?.let { page ->
@@ -435,6 +505,23 @@ internal fun PagedComicReader(
         viewportHeight = viewportSize.height,
         userScale = pageScale,
     )
+    val pageSizeKnown = layoutPageWidth > 0 && layoutPageHeight > 0 && viewportSize != IntSize.Zero
+
+    LaunchedEffect(pageSizeKnown, effectivePageScale, layoutPageWidth, layoutPageHeight, viewportSize) {
+        if (!pageSizeKnown || originalSize) return@LaunchedEffect
+        baseDetailStep = readerPageDetailStep(
+            readerEffectivePageScale(
+                pageFitMode = activeReaderPreferences.pageFitMode,
+                pageWidth = layoutPageWidth,
+                pageHeight = layoutPageHeight,
+                viewportWidth = viewportSize.width,
+                viewportHeight = viewportSize.height,
+                userScale = MIN_PAGE_SCALE,
+            ),
+        )
+        pageDetailStep = max(pageDetailStep, readerPageDetailStep(effectivePageScale))
+    }
+
     val horizontalSwipeEnabled = readerHorizontalSwipeEnabled(
         pageWidth = layoutPageWidth,
         pageHeight = layoutPageHeight,
@@ -453,7 +540,6 @@ internal fun PagedComicReader(
         layoutPageHeight,
         effectivePageScale,
     ) {
-        val pageSizeKnown = layoutPageWidth > 0 && layoutPageHeight > 0 && viewportSize != IntSize.Zero
         pageOffset = if (!pageOffsetPlaced && pageSizeKnown) {
             pageOffsetPlaced = true
             readerPageStartOffset(
@@ -582,15 +668,11 @@ internal fun PagedComicReader(
                 }
             }
 
-            val fallbackPainter = lastSuccessfulPainter
-                ?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }
-                ?.painter
-            val displayedPainter = if (painterState is AsyncImagePainter.State.Success) painter else fallbackPainter
             displayedPainter?.let { pagePainter ->
                 if (secondSpreadPage != null) {
                     ZoomableSpreadImages(
                         firstPainter = pagePainter,
-                        secondPainter = secondPainter,
+                        secondPainter = displayedSecondPainter ?: secondPainter,
                         firstDescription = visualPage.accessibilityLabel(book.pages.size),
                         secondDescription = secondSpreadPage.accessibilityLabel(book.pages.size),
                         readingDirection = activeReaderPreferences.readingDirection,
@@ -849,10 +931,38 @@ private fun List<ComicPage>.preloadRequests(
     currentIndex: Int,
     context: Context,
     source: ComicSource,
+    viewportSize: IntSize,
+    detailStep: Int,
+    originalSize: Boolean,
 ): List<ImageRequest> =
     listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1, currentIndex - 2)
         .filter { index -> index in indices }
-        .map { index -> get(index).imageRequest(context = context, source = source) }
+        .mapNotNull { index -> get(index).readerPageRequest(context, source, viewportSize, detailStep, originalSize) }
+
+/**
+ * A page request sized for the reader: [detailStep] times the viewport, or the page's own full size in
+ * the Original fit mode, so that mode shows every page at its real pixel size. Inexact precision lets
+ * Coil keep a decoded size between the request and the page's own instead of scaling a page up.
+ * Nothing is requested until the viewport has been measured.
+ */
+private fun ComicPage.readerPageRequest(
+    context: Context,
+    source: ComicSource,
+    viewportSize: IntSize,
+    detailStep: Int,
+    originalSize: Boolean,
+): ImageRequest? {
+    if (viewportSize == IntSize.Zero) return null
+    val size = if (originalSize) {
+        CoilSize.ORIGINAL
+    } else {
+        CoilSize(viewportSize.width * detailStep, viewportSize.height * detailStep)
+    }
+    return imageRequest(context, source).newBuilder()
+        .size(size)
+        .precision(Precision.INEXACT)
+        .build()
+}
 
 @Composable
 fun PageImageError(

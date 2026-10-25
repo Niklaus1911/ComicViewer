@@ -5,11 +5,24 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.IntSize
 import com.comicviewer.ReaderPageFitMode
 import com.comicviewer.ReaderReadingDirection
+import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 internal const val MIN_PAGE_SCALE = 1f
 internal const val MAX_PAGE_SCALE = 5f
+internal const val MAX_PAGE_DETAIL_STEP = 3
+private const val PAGE_DETAIL_STEP_TOLERANCE = 0.1f
+
+/**
+ * How much detail to load for a page shown at [scale] times its fitted size, in whole multiples of
+ * the viewport. Whole steps mean pinching reloads a page only a few times; a scale just over a step
+ * stays on it, and [MAX_PAGE_DETAIL_STEP] bounds the memory one page can take.
+ */
+internal fun readerPageDetailStep(scale: Float): Int {
+    if (!scale.isFinite()) return 1
+    return ceil(scale - PAGE_DETAIL_STEP_TOLERANCE).toInt().coerceIn(1, MAX_PAGE_DETAIL_STEP)
+}
 
 internal fun readerFitWidthScaleMultiplier(
     pageWidth: Int,

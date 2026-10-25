@@ -5,15 +5,19 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.comicviewer.R
 import java.text.DateFormat
 import java.util.Date
 
 @Composable
 fun relativeTimeText(timestamp: Long): String {
     if (timestamp <= 0L) return ""
+    val now = System.currentTimeMillis()
+    if (now - timestamp in 0L until DateUtils.MINUTE_IN_MILLIS) return stringResource(R.string.time_just_now)
     return DateUtils.getRelativeTimeSpanString(
         timestamp,
-        System.currentTimeMillis(),
+        now,
         DateUtils.MINUTE_IN_MILLIS,
         DateUtils.FORMAT_ABBREV_RELATIVE,
     ).toString()

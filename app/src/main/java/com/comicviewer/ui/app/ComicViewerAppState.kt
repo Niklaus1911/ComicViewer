@@ -562,6 +562,25 @@ class ComicViewerAppState(
         )
     }
 
+    fun removeFromHistory(recentComic: RecentComic) {
+        persistRecentComics(
+            nextRecentComics = removeRecentComic(
+                recentComics = recentComics,
+                sourceType = recentComic.sourceType,
+                path = recentComic.path,
+            ),
+            releasePermissions = false,
+        )
+    }
+
+    fun restoreToHistory(recentComic: RecentComic) {
+        persistRecentComics(upsertRecentComic(recentComics, recentComic), releasePermissions = false)
+    }
+
+    fun clearHistory() {
+        persistRecentComics(emptyList())
+    }
+
     fun toggleFavorite(libraryComic: LibraryComic) {
         persistLibraryMetadata(
             toggleLibraryFavorite(
@@ -825,10 +844,14 @@ class ComicViewerAppState(
         failedDocumentUri?.let(::releasePermissionIfUnused)
     }
 
-    private fun persistRecentComics(nextRecentComics: List<RecentComic>) {
+    /**
+     * With [releasePermissions] false, document permissions no longer needed are kept until the
+     * next save, so an Undo can still restore an entry that was opened without adding it.
+     */
+    private fun persistRecentComics(nextRecentComics: List<RecentComic>, releasePermissions: Boolean = true) {
         recentComics = nextRecentComics
         saveRecentComics(appContext, nextRecentComics)
-        releaseUnusedPersistableReadPermissions(appContext, retainedDocumentUris())
+        if (releasePermissions) releaseUnusedPersistableReadPermissions(appContext, retainedDocumentUris())
     }
 
     private fun persistLibraryComics(nextLibraryComics: List<LibraryComic>) {

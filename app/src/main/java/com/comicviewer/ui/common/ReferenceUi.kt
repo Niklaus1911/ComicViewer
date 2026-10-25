@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -18,9 +20,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 val ReferenceScreenHorizontalPadding = 20.dp
+private val ReadableContentMaxWidth = 760.dp
+
+/** Keeps text-heavy screens at a comfortable line length on tablets, centered in the window. */
+fun Modifier.readableContentWidth(maxWidth: Dp = ReadableContentMaxWidth): Modifier =
+    fillMaxWidth()
+        .wrapContentWidth(Alignment.CenterHorizontally)
+        .widthIn(max = maxWidth)
+        .fillMaxWidth()
 val ReferenceCardShape = RoundedCornerShape(16.dp)
 val ReferenceLargeCardShape = RoundedCornerShape(22.dp)
 

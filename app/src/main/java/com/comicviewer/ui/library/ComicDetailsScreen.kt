@@ -105,6 +105,7 @@ import com.comicviewer.ui.browser.RecentComicThumbnail
 import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
 import com.comicviewer.ui.common.absoluteDateText
 import com.comicviewer.ui.common.fileSizeText
+import com.comicviewer.ui.common.readableContentWidth
 import kotlin.math.roundToInt
 
 private const val MAX_PAGE_PREVIEWS = 12
@@ -216,160 +217,162 @@ fun ComicDetailsScreen(
                     .navigationBarsPadding(),
             ) {
                 DetailsHero(cover = cover)
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ReferenceScreenHorizontalPadding),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        text = metadata?.title ?: title,
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    authors?.let {
+                Column(modifier = Modifier.readableContentWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ReferenceScreenHorizontalPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Text(
-                            text = it,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary,
+                            text = metadata?.title ?: title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        authors?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        Text(
+                            text = listOfNotNull(
+                                pageCount?.let { pluralStringResource(R.plurals.comic_pages, it, it) },
+                                fileSizeText(details?.fileSizeBytes),
+                                archiveFormat,
+                            ).joinToString("  •  "),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
+                        if (tags.isNotEmpty()) {
+                            DetailTags(tags = tags, modifier = Modifier.padding(top = 4.dp))
+                        }
                     }
-                    Text(
-                        text = listOfNotNull(
-                            pageCount?.let { pluralStringResource(R.plurals.comic_pages, it, it) },
-                            fileSizeText(details?.fileSizeBytes),
-                            archiveFormat,
-                        ).joinToString("  •  "),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                    if (tags.isNotEmpty()) {
-                        DetailTags(tags = tags, modifier = Modifier.padding(top = 4.dp))
-                    }
-                }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ReferenceScreenHorizontalPadding, vertical = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Button(
-                        onClick = { read(fromStart = completed) },
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
+                            .fillMaxWidth()
+                            .padding(horizontal = ReferenceScreenHorizontalPadding, vertical = 18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(if (completed) Icons.Filled.Replay else Icons.Filled.PlayArrow, contentDescription = null)
-                        Spacer(Modifier.size(8.dp))
-                        Text(
-                            text = when {
-                                completed -> stringResource(R.string.read_again)
-                                currentPage != null && currentPage > 1 -> stringResource(R.string.continue_reading_page, currentPage)
-                                else -> stringResource(R.string.start_reading)
-                            },
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                    }
-                    if (libraryComic != null) {
-                        val favorite = userMetadata?.favorite == true
-                        FilledTonalIconButton(
-                            onClick = {
-                                if (proBillingState.isProUnlocked) onToggleFavorite(libraryComic) else showProDialog = true
-                            },
-                            modifier = Modifier.size(52.dp),
+                        Button(
+                            onClick = { read(fromStart = completed) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {
-                            Icon(
-                                imageVector = if (favorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                                contentDescription = stringResource(
-                                    if (favorite) R.string.library_remove_favorite else R.string.library_add_favorite,
-                                ),
-                            )
-                        }
-                    }
-                }
-
-                if (recentComic != null && progress != null) {
-                    ReadingProgressCard(
-                        progress = progress,
-                        completed = completed,
-                        currentPage = currentPage ?: 1,
-                        pageCount = recentComic.pageCount,
-                        completedAt = recentComic.completedAt,
-                        modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
-                    )
-                }
-
-                if (pagePreviews.isNotEmpty()) {
-                    DetailsSectionTitle(stringResource(R.string.comic_pages_section))
-                    PagePreviewStrip(
-                        pages = pagePreviews,
-                        currentPageIndex = currentPage?.minus(1),
-                        onPageSelected = ::readAt,
-                    )
-                }
-
-                metadata?.summary?.let { summary ->
-                    DetailsSectionTitle(stringResource(R.string.comic_summary_section))
-                    ExpandableSummary(
-                        text = summary,
-                        modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
-                    )
-                }
-
-                DetailsSectionTitle(stringResource(R.string.comic_details))
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = ReferenceScreenHorizontalPadding),
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        val locale = LocalConfiguration.current.locales[0]
-                        val rows = listOfNotNull(
-                            metadata?.series?.let { series ->
-                                stringResource(R.string.comic_series) to (
-                                    metadata.number?.let { number -> stringResource(R.string.comic_series_issue, series, number) }
-                                        ?: series
-                                    )
-                            },
-                            metadata?.publisher?.let { stringResource(R.string.comic_publisher) to it },
-                            metadata?.year?.let { stringResource(R.string.comic_published) to it.toString() },
-                            metadata?.language?.let { stringResource(R.string.comic_language) to comicLanguageDisplayName(it, locale) },
-                            pageCount?.let { stringResource(R.string.comic_pages_label) to it.toString() },
-                            displayName.takeIf(String::isNotBlank)?.let { stringResource(R.string.comic_file) to it },
-                            libraryComic?.addedAt?.takeIf { it > 0L }?.let { stringResource(R.string.comic_added) to absoluteDateText(it) },
-                        )
-                        rows.forEachIndexed { index, (label, value) ->
-                            if (index > 0) {
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-                            }
-                            DetailRow(label = label, value = value)
-                        }
-                        if (metadata == null && details != null) {
-                            if (rows.isNotEmpty()) {
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-                            }
+                            Icon(if (completed) Icons.Filled.Replay else Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.size(8.dp))
                             Text(
-                                text = stringResource(R.string.comic_metadata_unavailable),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 12.dp),
+                                text = when {
+                                    completed -> stringResource(R.string.read_again)
+                                    currentPage != null && currentPage > 1 -> stringResource(R.string.continue_reading_page, currentPage)
+                                    else -> stringResource(R.string.start_reading)
+                                },
+                                style = MaterialTheme.typography.titleSmall,
                             )
                         }
+                        if (libraryComic != null) {
+                            val favorite = userMetadata?.favorite == true
+                            FilledTonalIconButton(
+                                onClick = {
+                                    if (proBillingState.isProUnlocked) onToggleFavorite(libraryComic) else showProDialog = true
+                                },
+                                modifier = Modifier.size(52.dp),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(
+                                    imageVector = if (favorite) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                                    contentDescription = stringResource(
+                                        if (favorite) R.string.library_remove_favorite else R.string.library_add_favorite,
+                                    ),
+                                )
+                            }
+                        }
                     }
+
+                    if (recentComic != null && progress != null) {
+                        ReadingProgressCard(
+                            progress = progress,
+                            completed = completed,
+                            currentPage = currentPage ?: 1,
+                            pageCount = recentComic.pageCount,
+                            completedAt = recentComic.completedAt,
+                            modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
+                        )
+                    }
+
+                    if (pagePreviews.isNotEmpty()) {
+                        DetailsSectionTitle(stringResource(R.string.comic_pages_section))
+                        PagePreviewStrip(
+                            pages = pagePreviews,
+                            currentPageIndex = currentPage?.minus(1),
+                            onPageSelected = ::readAt,
+                        )
+                    }
+
+                    metadata?.summary?.let { summary ->
+                        DetailsSectionTitle(stringResource(R.string.comic_summary_section))
+                        ExpandableSummary(
+                            text = summary,
+                            modifier = Modifier.padding(horizontal = ReferenceScreenHorizontalPadding),
+                        )
+                    }
+
+                    DetailsSectionTitle(stringResource(R.string.comic_details))
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ReferenceScreenHorizontalPadding),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            val locale = LocalConfiguration.current.locales[0]
+                            val rows = listOfNotNull(
+                                metadata?.series?.let { series ->
+                                    stringResource(R.string.comic_series) to (
+                                        metadata.number?.let { number -> stringResource(R.string.comic_series_issue, series, number) }
+                                            ?: series
+                                        )
+                                },
+                                metadata?.publisher?.let { stringResource(R.string.comic_publisher) to it },
+                                metadata?.year?.let { stringResource(R.string.comic_published) to it.toString() },
+                                metadata?.language?.let { stringResource(R.string.comic_language) to comicLanguageDisplayName(it, locale) },
+                                pageCount?.let { stringResource(R.string.comic_pages_label) to it.toString() },
+                                displayName.takeIf(String::isNotBlank)?.let { stringResource(R.string.comic_file) to it },
+                                libraryComic?.addedAt?.takeIf { it > 0L }?.let { stringResource(R.string.comic_added) to absoluteDateText(it) },
+                            )
+                            rows.forEachIndexed { index, (label, value) ->
+                                if (index > 0) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                }
+                                DetailRow(label = label, value = value)
+                            }
+                            if (metadata == null && details != null) {
+                                if (rows.isNotEmpty()) {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                }
+                                Text(
+                                    text = stringResource(R.string.comic_metadata_unavailable),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(vertical = 12.dp),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(28.dp))
                 }
-                Spacer(Modifier.height(28.dp))
             }
 
             DetailsTopBar(

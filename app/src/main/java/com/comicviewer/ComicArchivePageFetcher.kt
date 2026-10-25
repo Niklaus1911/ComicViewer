@@ -1,7 +1,7 @@
 package com.comicviewer
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import coil3.ImageLoader
 import coil3.Uri as CoilUri
 import coil3.decode.DataSource
@@ -57,7 +57,7 @@ internal class ComicArchivePageFetcher(
     class Factory : Fetcher.Factory<CoilUri> {
         override fun create(data: CoilUri, options: Options, imageLoader: ImageLoader): Fetcher? {
             if (data.scheme != COMIC_ARCHIVE_PAGE_SCHEME) return null
-            val page = parseComicArchivePageUri(Uri.parse(data.toString())) ?: return null
+            val page = parseComicArchivePageUri(data.toString().toUri()) ?: return null
             return ComicArchivePageFetcher(options.context, page, options)
         }
     }

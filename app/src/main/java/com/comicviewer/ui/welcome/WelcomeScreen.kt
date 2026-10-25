@@ -8,6 +8,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,15 +26,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.LibraryBooks
-import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.WorkspacePremium
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -47,25 +49,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.comicviewer.R
-import com.comicviewer.billing.ProBillingState
-import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.ui.common.StaggeredReveal
 import com.comicviewer.ui.common.rememberThrottledAction
 import com.comicviewer.ui.common.sheen
 import com.comicviewer.ui.common.softPress
-import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.theme.ComicViewerTheme
 import kotlin.math.PI
 import kotlin.math.cos
@@ -73,22 +75,15 @@ import kotlin.math.sin
 
 @Composable
 fun WelcomeScreen(
-    proBillingState: ProBillingState,
-    isDebugBuild: Boolean,
-    debugProUnlocked: Boolean,
     onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
-    onBuyPro: () -> Unit,
-    onRestorePro: () -> Unit,
-    onDebugProUnlockedChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val throttledAutoScan = rememberThrottledAction(action = onAutoScan)
     val throttledBrowseManually = rememberThrottledAction(action = onBrowseManually)
     val throttledSkip = rememberThrottledAction(action = onSkip)
     var visible by remember { mutableStateOf(false) }
-    var showProDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         visible = true
@@ -140,8 +135,6 @@ fun WelcomeScreen(
                         }
                         WelcomeContent(
                             visible = visible,
-                            proBillingState = proBillingState,
-                            onShowPro = { showProDialog = true },
                             onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
@@ -166,8 +159,6 @@ fun WelcomeScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         WelcomeContent(
                             visible = visible,
-                            proBillingState = proBillingState,
-                            onShowPro = { showProDialog = true },
                             onAutoScan = throttledAutoScan,
                             onBrowseManually = throttledBrowseManually,
                             onSkip = throttledSkip,
@@ -176,18 +167,6 @@ fun WelcomeScreen(
                 }
             }
         }
-    }
-
-    if (showProDialog) {
-        ProUpgradeDialog(
-            billingState = proBillingState,
-            onBuyPro = onBuyPro,
-            onRestorePro = onRestorePro,
-            isDebugBuild = isDebugBuild,
-            debugProUnlocked = debugProUnlocked,
-            onDebugProUnlockedChanged = onDebugProUnlockedChanged,
-            onDismiss = { showProDialog = false },
-        )
     }
 }
 
@@ -268,8 +247,6 @@ private fun WelcomeBackground(
 @Composable
 private fun WelcomeContent(
     visible: Boolean,
-    proBillingState: ProBillingState,
-    onShowPro: () -> Unit,
     onAutoScan: () -> Unit,
     onBrowseManually: () -> Unit,
     onSkip: () -> Unit,
@@ -292,53 +269,53 @@ private fun WelcomeContent(
     )
 
     Column(
-        modifier = modifier,
+        modifier = modifier
+            .wrapContentWidth(Alignment.CenterHorizontally)
+            .widthIn(max = 460.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        StaggeredReveal(visible = visible, delayMillis = 140) {
-            WelcomeBadge()
-        }
-        Spacer(modifier = Modifier.height(18.dp))
-        StaggeredReveal(visible = visible, delayMillis = 210) {
+        StaggeredReveal(visible = visible, delayMillis = 200) {
             Text(
                 text = stringResource(R.string.welcome_title),
                 style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center,
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        StaggeredReveal(visible = visible, delayMillis = 280) {
+        Spacer(modifier = Modifier.height(10.dp))
+        StaggeredReveal(visible = visible, delayMillis = 270) {
             Text(
-                text = stringResource(R.string.welcome_message),
+                text = stringResource(R.string.welcome_tagline),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }
-        Spacer(modifier = Modifier.height(18.dp))
-        StaggeredReveal(visible = visible, delayMillis = 350) {
-            WelcomeReassurance()
+        Spacer(modifier = Modifier.height(14.dp))
+        StaggeredReveal(visible = visible, delayMillis = 340) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(15.dp),
+                )
+                Text(
+                    text = stringResource(R.string.welcome_footnote),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(18.dp))
-        StaggeredReveal(visible = visible, delayMillis = 420) {
-            WelcomeFormatRow()
-        }
-        Spacer(modifier = Modifier.height(18.dp))
+        Spacer(modifier = Modifier.height(32.dp))
         StaggeredReveal(
             visible = visible,
-            delayMillis = 490,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            WelcomeProTeaser(
-                billingState = proBillingState,
-                onShowPro = onShowPro,
-            )
-        }
-        Spacer(modifier = Modifier.height(20.dp))
-        StaggeredReveal(
-            visible = visible,
-            delayMillis = 570,
+            delayMillis = 420,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Button(
@@ -346,22 +323,23 @@ private fun WelcomeContent(
                 interactionSource = autoScanInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(54.dp)
                     .softPress(autoScanInteraction)
                     .sheen(progress = sheenProgress, alpha = 0.28f),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Search,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.welcome_auto_scan))
+                Text(stringResource(R.string.welcome_auto_scan), style = MaterialTheme.typography.titleSmall)
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
         StaggeredReveal(
             visible = visible,
-            delayMillis = 640,
+            delayMillis = 490,
             modifier = Modifier.fillMaxWidth(),
         ) {
             FilledTonalButton(
@@ -369,19 +347,20 @@ private fun WelcomeContent(
                 interactionSource = browseInteraction,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(54.dp)
                     .softPress(browseInteraction),
             ) {
                 Icon(
                     imageVector = Icons.Filled.Folder,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.welcome_browse_manually))
+                Text(stringResource(R.string.welcome_browse_manually), style = MaterialTheme.typography.titleSmall)
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
-        StaggeredReveal(visible = visible, delayMillis = 710) {
+        StaggeredReveal(visible = visible, delayMillis = 560) {
             TextButton(
                 onClick = onSkip,
                 interactionSource = skipInteraction,
@@ -390,164 +369,6 @@ private fun WelcomeContent(
                 Text(stringResource(R.string.welcome_skip))
             }
         }
-    }
-}
-
-@Composable
-private fun WelcomeProTeaser(
-    billingState: ProBillingState,
-    onShowPro: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 1.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Surface(
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.WorkspacePremium,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .padding(8.dp)
-                        .size(20.dp),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(
-                        if (billingState.isProUnlocked) {
-                            R.string.welcome_pro_unlocked_title
-                        } else {
-                            R.string.welcome_pro_title
-                        },
-                    ),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = stringResource(
-                        if (billingState.isProUnlocked) {
-                            R.string.welcome_pro_unlocked_message
-                        } else {
-                            R.string.welcome_pro_message
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!billingState.isProUnlocked) {
-                    billingState.formattedPrice?.let { price ->
-                        Text(
-                            text = stringResource(R.string.welcome_pro_price, price),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-            if (!billingState.isProUnlocked) {
-                TextButton(onClick = onShowPro) {
-                    Text(stringResource(R.string.welcome_pro_cta))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun WelcomeBadge(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer,
-        tonalElevation = 2.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Archive,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = stringResource(R.string.welcome_archive_only),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
-    }
-}
-
-@Composable
-private fun WelcomeReassurance(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp),
-            )
-            Text(
-                text = stringResource(R.string.welcome_local_files),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}
-
-@Composable
-private fun WelcomeFormatRow(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        WelcomeFormatChip(text = stringResource(R.string.welcome_format_zip))
-        Spacer(modifier = Modifier.width(8.dp))
-        WelcomeFormatChip(text = stringResource(R.string.welcome_format_cbz))
-    }
-}
-
-@Composable
-private fun WelcomeFormatChip(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        tonalElevation = 1.dp,
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -612,8 +433,7 @@ private fun WelcomeHero(visible: Boolean, modifier: Modifier = Modifier) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        WelcomeCoverCard(
-            icon = Icons.Filled.Folder,
+        WelcomeComicCover(
             modifier = Modifier
                 .size(width = 142.dp, height = 210.dp)
                 .graphicsLayer {
@@ -623,13 +443,13 @@ private fun WelcomeHero(visible: Boolean, modifier: Modifier = Modifier) {
                     alpha = intro
                 },
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            iconColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconSize = 54,
+            inkColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            accentColor = MaterialTheme.colorScheme.tertiary,
+            layout = 1,
             sheenProgress = scanProgress,
             sheenAlpha = shimmerAlpha,
         )
-        WelcomeCoverCard(
-            icon = Icons.Filled.Archive,
+        WelcomeComicCover(
             modifier = Modifier
                 .size(width = 132.dp, height = 198.dp)
                 .graphicsLayer {
@@ -639,13 +459,13 @@ private fun WelcomeHero(visible: Boolean, modifier: Modifier = Modifier) {
                     alpha = intro
                 },
             containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            iconSize = 50,
+            inkColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            accentColor = MaterialTheme.colorScheme.secondary,
+            layout = 2,
             sheenProgress = scanProgress,
             sheenAlpha = shimmerAlpha,
         )
-        WelcomeCoverCard(
-            icon = Icons.AutoMirrored.Filled.LibraryBooks,
+        WelcomeComicCover(
             modifier = Modifier
                 .size(width = 154.dp, height = 230.dp)
                 .graphicsLayer {
@@ -656,10 +476,11 @@ private fun WelcomeHero(visible: Boolean, modifier: Modifier = Modifier) {
                     translationY = -9f * sin(phase * 0.6f) - 12f * (1f - intro)
                     alpha = intro
                 }
-                .shadow(20.dp, RoundedCornerShape(8.dp), clip = false),
+                .shadow(20.dp, RoundedCornerShape(10.dp), clip = false),
             containerColor = MaterialTheme.colorScheme.primaryContainer,
-            iconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            iconSize = 68,
+            inkColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            accentColor = MaterialTheme.colorScheme.primary,
+            layout = 0,
             sheenProgress = scanProgress,
             sheenAlpha = shimmerAlpha,
         )
@@ -667,54 +488,120 @@ private fun WelcomeHero(visible: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * A drawn comic cover: masthead, a page of panels, a speech bubble and halftone dots, all in theme
+ * colors so it follows light, dark, AMOLED and Pro themes.
+ */
 @Composable
-private fun WelcomeCoverCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    containerColor: androidx.compose.ui.graphics.Color,
-    iconColor: androidx.compose.ui.graphics.Color,
-    iconSize: Int,
+private fun WelcomeComicCover(
+    containerColor: Color,
+    inkColor: Color,
+    accentColor: Color,
+    layout: Int,
     sheenProgress: Float,
     sheenAlpha: Float,
     modifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = containerColor,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(9.dp)
+                .sheen(progress = sheenProgress, alpha = sheenAlpha, color = inkColor),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            // Masthead
+            Box(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 14.dp, top = 16.dp)
-                    .sheen(progress = sheenProgress, alpha = sheenAlpha, color = iconColor),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+                    .fillMaxWidth()
+                    .height(22.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(inkColor.copy(alpha = 0.85f)),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                WelcomeCoverLine(width = 42.dp, color = iconColor.copy(alpha = 0.32f))
-                WelcomeCoverLine(width = 64.dp, color = iconColor.copy(alpha = 0.22f))
-                WelcomeCoverLine(width = 50.dp, color = iconColor.copy(alpha = 0.22f))
+                Box(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(width = 46.dp, height = 7.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(containerColor.copy(alpha = 0.9f)),
+                )
             }
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = iconColor,
-                modifier = Modifier.size(iconSize.dp),
-            )
+            when (layout) {
+                0 -> {
+                    Row(modifier = Modifier.weight(1.2f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ComicPanel(inkColor, accentColor, halftone = true, bubble = true, modifier = Modifier.weight(1.4f))
+                        ComicPanel(inkColor, accentColor, modifier = Modifier.weight(1f))
+                    }
+                    ComicPanel(inkColor, accentColor, modifier = Modifier.weight(1f).fillMaxWidth())
+                }
+                1 -> {
+                    ComicPanel(inkColor, accentColor, halftone = true, modifier = Modifier.weight(1f).fillMaxWidth())
+                    Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ComicPanel(inkColor, accentColor, modifier = Modifier.weight(1f))
+                        ComicPanel(inkColor, accentColor, bubble = true, modifier = Modifier.weight(1f))
+                    }
+                }
+                else -> {
+                    ComicPanel(inkColor, accentColor, bubble = true, modifier = Modifier.weight(1.6f).fillMaxWidth())
+                    Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ComicPanel(inkColor, accentColor, halftone = true, modifier = Modifier.weight(1f))
+                        ComicPanel(inkColor, accentColor, modifier = Modifier.weight(1f))
+                        ComicPanel(inkColor, accentColor, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun WelcomeCoverLine(
-    width: androidx.compose.ui.unit.Dp,
-    color: androidx.compose.ui.graphics.Color,
+private fun ComicPanel(
+    inkColor: Color,
+    accentColor: Color,
     modifier: Modifier = Modifier,
+    halftone: Boolean = false,
+    bubble: Boolean = false,
 ) {
-    Surface(
-        modifier = modifier.size(width = width, height = 5.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = color,
-    ) {}
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .clip(RoundedCornerShape(4.dp))
+            .background(accentColor.copy(alpha = 0.55f))
+            .border(1.5.dp, inkColor.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+            .drawBehind {
+                if (halftone) {
+                    val step = 6.dp.toPx()
+                    val dot = 1.3.dp.toPx()
+                    var y = step / 2
+                    var row = 0
+                    while (y < size.height) {
+                        var x = if (row % 2 == 0) step / 2 else step
+                        while (x < size.width) {
+                            drawCircle(inkColor.copy(alpha = 0.25f), radius = dot, center = Offset(x, y))
+                            x += step
+                        }
+                        y += step
+                        row += 1
+                    }
+                }
+                if (bubble) {
+                    val radius = size.minDimension * 0.24f
+                    val center = Offset(size.width * 0.66f, size.height * 0.3f)
+                    drawCircle(Color.White.copy(alpha = 0.92f), radius = radius, center = center)
+                    drawCircle(
+                        inkColor.copy(alpha = 0.7f),
+                        radius = radius,
+                        center = center,
+                        style = Stroke(width = 1.2.dp.toPx()),
+                    )
+                }
+            },
+    )
 }
 
 @Composable
@@ -743,15 +630,9 @@ private fun WelcomeScanBeam(scanProgress: Float, modifier: Modifier = Modifier) 
 private fun WelcomeScreenPreview() {
     ComicViewerTheme(dynamicColor = false) {
         WelcomeScreen(
-            proBillingState = previewProBillingState(),
-            isDebugBuild = false,
-            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
-            onBuyPro = {},
-            onRestorePro = {},
-            onDebugProUnlockedChanged = {},
         )
     }
 }
@@ -761,15 +642,9 @@ private fun WelcomeScreenPreview() {
 private fun WelcomeScreenLightPreview() {
     ComicViewerTheme(darkTheme = false, dynamicColor = false) {
         WelcomeScreen(
-            proBillingState = previewProBillingState(),
-            isDebugBuild = false,
-            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
-            onBuyPro = {},
-            onRestorePro = {},
-            onDebugProUnlockedChanged = {},
         )
     }
 }
@@ -779,20 +654,9 @@ private fun WelcomeScreenLightPreview() {
 private fun WelcomeScreenAmoledPreview() {
     ComicViewerTheme(darkTheme = true, dynamicColor = false, amoledTheme = true) {
         WelcomeScreen(
-            proBillingState = previewProBillingState(),
-            isDebugBuild = false,
-            debugProUnlocked = false,
             onAutoScan = {},
             onBrowseManually = {},
             onSkip = {},
-            onBuyPro = {},
-            onRestorePro = {},
-            onDebugProUnlockedChanged = {},
         )
     }
 }
-
-private fun previewProBillingState() = ProBillingState(
-    status = ProBillingStatus.Available,
-    formattedPrice = "$2.99",
-)

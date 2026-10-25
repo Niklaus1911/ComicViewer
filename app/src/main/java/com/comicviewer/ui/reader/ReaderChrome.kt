@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
@@ -66,8 +67,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +90,7 @@ import kotlin.math.roundToInt
 private val ReaderChromeColor = Color(0xFF101820)
 private const val MAX_SCRUBBER_TICKS = 30
 private const val MAX_READER_MARGIN_DP = 32
+private val MAX_SCRUBBER_WIDTH = 640.dp
 
 /** Keeps the screen on, applies reader brightness and hides the status bar while reading. */
 @Composable
@@ -302,9 +305,10 @@ fun ReaderPageScrubber(
 
     Surface(
         modifier = modifier
-            .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+            .widthIn(max = MAX_SCRUBBER_WIDTH)
+            .fillMaxWidth(),
         color = ReaderChromeColor.copy(alpha = 0.9f),
         contentColor = Color.White,
         shape = RoundedCornerShape(26.dp),
@@ -381,7 +385,8 @@ fun ReaderSettingsDialog(
     onDismiss: () -> Unit,
     livePreview: Boolean = false,
 ) {
-    val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * if (livePreview) 0.58f else 0.9f).dp
+    val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
+    val maxSheetHeight = windowHeight * if (livePreview) 0.58f else 0.9f
     val vertical = activeReaderPreferences.pageMode == ReaderPageMode.Vertical
     ModalBottomSheet(
         onDismissRequest = onDismiss,

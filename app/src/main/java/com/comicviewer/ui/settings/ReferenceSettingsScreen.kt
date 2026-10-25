@@ -78,6 +78,7 @@ import com.comicviewer.ui.app.ThemeUiState
 import com.comicviewer.ui.common.ReferenceCardShape
 import com.comicviewer.ui.common.ReferenceScreenHeader
 import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
+import com.comicviewer.ui.common.readableContentWidth
 import com.comicviewer.ui.library.ProUpgradeDialog
 import com.comicviewer.ui.reader.ReaderSettingsDialog
 import com.comicviewer.ui.theme.AppColor
@@ -126,7 +127,8 @@ fun ReferenceSettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.tabScreen)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .readableContentWidth(),
         ) {
             ReferenceScreenHeader(title = stringResource(R.string.settings_title))
             SettingsSection(title = stringResource(R.string.settings_appearance_title)) {

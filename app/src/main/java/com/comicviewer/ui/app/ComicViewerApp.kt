@@ -459,22 +459,9 @@ fun ComicViewerApp(
                 )
             } else if (appState.showWelcome) {
                 WelcomeScreen(
-                    proBillingState = effectiveProBillingState,
-                    isDebugBuild = BuildConfig.DEBUG,
-                    debugProUnlocked = debugProUnlocked,
                     onAutoScan = appState::startWelcomeAutoScan,
                     onBrowseManually = appState::startWelcomeManualBrowse,
                     onSkip = appState::dismissWelcome,
-                    onBuyPro = {
-                        (context as? ComponentActivity)?.let(billingRepository::launchPurchase)
-                    },
-                    onRestorePro = billingRepository::restorePurchases,
-                    onDebugProUnlockedChanged = { unlocked ->
-                        if (BuildConfig.DEBUG) {
-                            saveDebugProUnlocked(context, unlocked)
-                            debugProUnlocked = unlocked
-                        }
-                    },
                 )
             } else {
                 ComicViewerScreen(
@@ -540,6 +527,9 @@ fun ComicViewerApp(
                     onTabSelected = appState::selectTab,
                     onMarkRead = appState::markRead,
                     onMarkUnread = appState::markUnread,
+                    onRemoveFromHistory = appState::removeFromHistory,
+                    onRestoreToHistory = appState::restoreToHistory,
+                    onClearHistory = appState::clearHistory,
                     onStartArchiveImportBrowser = appState::startArchiveImportBrowser,
                     onCloseImportBrowser = appState::closeImportBrowser,
                     onAutoScanLibrary = appState::autoScanLibraryArchives,
@@ -675,6 +665,9 @@ fun ComicViewerScreen(
     onTabSelected: (AppTab) -> Unit,
     onMarkRead: (LibraryComic) -> Unit,
     onMarkUnread: (LibraryComic) -> Unit,
+    onRemoveFromHistory: (RecentComic) -> Unit,
+    onRestoreToHistory: (RecentComic) -> Unit,
+    onClearHistory: () -> Unit,
     onStartArchiveImportBrowser: () -> Unit,
     onCloseImportBrowser: () -> Unit,
     onAutoScanLibrary: () -> Unit,
@@ -800,6 +793,9 @@ fun ComicViewerScreen(
                     onReadLibraryComic = onReadLibraryComic,
                     onMarkRead = onMarkRead,
                     onMarkUnread = onMarkUnread,
+                    onRemoveFromHistory = onRemoveFromHistory,
+                    onRestoreToHistory = onRestoreToHistory,
+                    onClearHistory = onClearHistory,
                     onStartArchiveImportBrowser = onStartArchiveImportBrowser,
                     onCloseImportBrowser = onCloseImportBrowser,
                     onAutoScanLibrary = onAutoScanLibrary,
@@ -879,6 +875,9 @@ fun HomeScreen(
     onTabSelected: (AppTab) -> Unit,
     onMarkRead: (LibraryComic) -> Unit,
     onMarkUnread: (LibraryComic) -> Unit,
+    onRemoveFromHistory: (RecentComic) -> Unit,
+    onRestoreToHistory: (RecentComic) -> Unit,
+    onClearHistory: () -> Unit,
     onStartArchiveImportBrowser: () -> Unit,
     onCloseImportBrowser: () -> Unit,
     onAutoScanLibrary: () -> Unit,
@@ -978,6 +977,9 @@ fun HomeScreen(
                                 recentComics = recentComics,
                                 libraryDetails = libraryDetails,
                                 onOpenComic = onShowRecentComicDetails,
+                                onRemoveFromHistory = onRemoveFromHistory,
+                                onRestoreToHistory = onRestoreToHistory,
+                                onClearHistory = onClearHistory,
                                 modifier = Modifier.fillMaxSize(),
                             )
 

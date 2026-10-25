@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
@@ -275,7 +276,7 @@ internal fun comicArchivePageUri(location: ComicArchiveLocation, entry: ZipArchi
 
 internal fun parseComicArchivePageUri(uri: Uri): ComicArchivePageRef? {
     if (uri.scheme != COMIC_ARCHIVE_PAGE_SCHEME || uri.authority != COMIC_ARCHIVE_PAGE_AUTHORITY) return null
-    val location = uri.getQueryParameter(PAGE_URI_DOCUMENT_PARAM)?.let { ComicArchiveLocation.Document(Uri.parse(it)) }
+    val location = uri.getQueryParameter(PAGE_URI_DOCUMENT_PARAM)?.let { ComicArchiveLocation.Document(it.toUri()) }
         ?: uri.getQueryParameter(PAGE_URI_FILE_PARAM)?.let(ComicArchiveLocation::LocalFile)
         ?: return null
     val entryIndex = uri.getQueryParameter(PAGE_URI_ENTRY_PARAM)?.toIntOrNull()?.takeIf { it >= 0 } ?: return null
@@ -394,7 +395,7 @@ suspend fun loadComicPagePreviews(
                 }
             }
             RecentComicSourceType.DocumentArchive -> {
-                val uri = Uri.parse(path)
+                val uri = path.toUri()
                 val location = ComicArchiveLocation.Document(uri)
                 openSeekableDocumentComicArchive(context, uri)?.use { archive ->
                     archive.reader.firstComicPages(maxPages).map { comicArchivePageUri(location, it) }
@@ -402,7 +403,7 @@ suspend fun loadComicPagePreviews(
             }
             RecentComicSourceType.LocalFolder -> loadLocalFolderComic(File(path)).pages.take(maxPages).map { it.imageUri }
             RecentComicSourceType.DocumentFolder ->
-                loadFolderComic(context, Uri.parse(path)).pages.take(maxPages).map { it.imageUri }
+                loadFolderComic(context, path.toUri()).pages.take(maxPages).map { it.imageUri }
         }
     } catch (cancellation: CancellationException) {
         throw cancellation

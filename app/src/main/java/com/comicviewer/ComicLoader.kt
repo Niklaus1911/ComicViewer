@@ -517,8 +517,6 @@ internal class BoundedInputStream(
     }
 }
 
-private fun String.withoutComicExtension(): String =
-    substringBeforeLast('.', missingDelimiterValue = this).ifBlank { this }
 
 private data class LocalImageFile(
     val file: File,

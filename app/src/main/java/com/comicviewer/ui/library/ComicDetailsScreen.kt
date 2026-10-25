@@ -98,9 +98,11 @@ import com.comicviewer.billing.ProBillingState
 import com.comicviewer.coercePageIndex
 import com.comicviewer.comicLanguageDisplayName
 import com.comicviewer.detailsFor
+import com.comicviewer.isFinished
 import com.comicviewer.loadComicPagePreviews
 import com.comicviewer.matchingRecentComic
 import com.comicviewer.metadataFor
+import com.comicviewer.progressFraction
 import com.comicviewer.resolvedComicPageCount
 import com.comicviewer.ui.app.ComicDetailsTarget
 import com.comicviewer.ui.browser.RecentComicThumbnail
@@ -164,7 +166,7 @@ fun ComicDetailsScreen(
     }
     val pageCount = resolvedComicPageCount(details, recentComic)
     val progress = recentComic?.progressFraction()
-    val completed = progress != null && progress >= 1f
+    val completed = recentComic?.isFinished() == true
     val currentPage = recentComic?.let { coercePageIndex(it.lastPageIndex, it.pageCount) + 1 }
     val authors = metadata?.writers?.joinToString()?.takeIf(String::isNotBlank)
     val tags = (metadata?.genres.orEmpty() + userMetadata?.tags.orEmpty()).distinct()
@@ -791,11 +793,6 @@ private fun DetailRow(label: String, value: String) {
             modifier = Modifier.weight(1.6f),
         )
     }
-}
-
-private fun RecentComic.progressFraction(): Float? {
-    if (pageCount <= 0) return null
-    return ((coercePageIndex(lastPageIndex, pageCount) + 1).toFloat() / pageCount).coerceIn(0f, 1f)
 }
 
 internal fun currentRecentComicForDetails(

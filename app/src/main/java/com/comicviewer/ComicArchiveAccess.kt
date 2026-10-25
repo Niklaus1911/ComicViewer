@@ -320,7 +320,8 @@ internal class ComicArchivePageScan(
 
 /**
  * Lists the archive's image pages in reading order. Only each entry's first bytes are read to check
- * that it really is an image; pages are decoded later, when shown.
+ * that it really is an image; pages are decoded later, when shown. A page over [maxPageBytes] is left
+ * out like any other unreadable entry, so one oversized scan does not make the whole comic unreadable.
  */
 internal fun ZipArchiveReader.scanComicPages(
     maxPageBytes: Long = MAX_ARCHIVE_PAGE_BYTES,
@@ -339,8 +340,7 @@ internal fun ZipArchiveReader.scanComicPages(
             if (comicInfoEntry == null) comicInfoEntry = entry
             continue
         }
-        if (entry.size > 0L && sniffImageFormat(entry) != null) {
-            if (entry.size > maxPageBytes) throw ComicLoadException(ComicLoadError.ArchivePageTooLarge)
+        if (entry.size in 1L..maxPageBytes && sniffImageFormat(entry) != null) {
             pages += entry
         } else if (rejectedExamples.size < MAX_PAGE_REJECTION_EXAMPLES) {
             rejectedExamples += entry.name.substringAfterLast('/')

@@ -152,6 +152,19 @@ fun markRecentComicRead(
     return upsertRecentComic(recentComics, finished)
 }
 
+/**
+ * Finished once the last page was reached, and it stays finished while the comic is read again,
+ * until it is marked unread. History, the library and the details screen all use this.
+ */
+fun RecentComic.isFinished(): Boolean =
+    completedAt != null || (pageCount > 0 && coercePageIndex(lastPageIndex, pageCount) == pageCount - 1)
+
+/** One-based reading progress in 0f..1f, or null when the page count is unknown. */
+fun RecentComic.progressFraction(): Float? {
+    if (pageCount <= 0) return null
+    return ((coercePageIndex(lastPageIndex, pageCount) + 1).toFloat() / pageCount).coerceIn(0f, 1f)
+}
+
 fun removeRecentComic(
     recentComics: List<RecentComic>,
     sourceType: RecentComicSourceType,

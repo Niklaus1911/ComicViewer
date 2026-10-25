@@ -249,13 +249,20 @@ class ComicArchiveTest {
     }
 
     @Test
-    fun scanComicPages_rejectsOversizedPagesAndReportsEmptyArchives() {
+    fun scanComicPages_skipsOversizedPagesAndReportsEmptyArchives() {
         val archive = File(temporaryFolder.root, "Oversized.cbz")
-        writeZipArchive(archive, linkedMapOf("001.jpg" to sampleJpegHeader() + ByteArray(100)))
-        val oversized = assertThrows(ComicLoadException::class.java) {
-            openLocalComicArchive(archive).use { opened -> opened.reader.scanComicPages(maxPageBytes = 10L) }
+        writeZipArchive(
+            archive,
+            linkedMapOf(
+                "001.jpg" to sampleJpegHeader() + ByteArray(100),
+                "002.jpg" to sampleJpegHeader(),
+            ),
+        )
+        val withOversizedPage = openLocalComicArchive(archive).use { opened ->
+            opened.reader.scanComicPages(maxPageBytes = 10L)
         }
-        assertEquals(ComicLoadError.ArchivePageTooLarge, oversized.error)
+        assertEquals(listOf("002.jpg"), withOversizedPage.pages.map { it.name })
+        assertEquals(listOf("001.jpg"), withOversizedPage.rejectedExamples)
 
         val empty = File(temporaryFolder.root, "Empty.cbz")
         writeZipArchive(empty, linkedMapOf("readme.txt" to "hello".encodeToByteArray()))

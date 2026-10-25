@@ -3,7 +3,6 @@ package com.comicviewer
 import java.io.BufferedInputStream
 import java.io.ByteArrayInputStream
 import java.io.EOFException
-import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.SequenceInputStream
@@ -84,7 +83,8 @@ internal class ZipArchiveReader private constructor(
             METHOD_DEFLATED -> ZipInflaterInputStream(rawData, bufferSize)
             else -> throw ZipException("Unsupported compression method ${entry.method}.")
         }
-        return SizeLimitedInputStream(content, entry.size)
+        // Ends after the size declared in the central directory, so a lying entry cannot inflate forever.
+        return BoundedInputStream(content, entry.size)
     }
 
     companion object {
@@ -367,35 +367,4 @@ private class ZipInflaterInputStream(input: InputStream, bufferSize: Int) : Infl
             inf.end()
         }
     }
-}
-
-/** Ends the stream after the size declared in the central directory, so a lying entry cannot inflate forever. */
-private class SizeLimitedInputStream(
-    input: InputStream,
-    maxBytes: Long,
-) : FilterInputStream(input) {
-    private var remaining = maxBytes
-
-    override fun read(): Int {
-        if (remaining <= 0L) return -1
-        return super.read().also { value -> if (value >= 0) remaining -= 1L }
-    }
-
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
-        if (length == 0) return 0
-        if (remaining <= 0L) return -1
-        val read = super.read(buffer, offset, minOf(length.toLong(), remaining).toInt())
-        if (read > 0) remaining -= read
-        return read
-    }
-
-    override fun skip(byteCount: Long): Long {
-        val skipped = super.skip(byteCount.coerceIn(0L, remaining.coerceAtLeast(0L)))
-        if (skipped > 0L) remaining -= skipped
-        return skipped
-    }
-
-    override fun available(): Int = minOf(super.available().toLong(), remaining.coerceAtLeast(0L)).toInt()
-
-    override fun markSupported(): Boolean = false
 }

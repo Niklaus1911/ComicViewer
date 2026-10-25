@@ -91,11 +91,11 @@ fun filterLibraryComicsByProgress(
         }
         LibraryProgressFilter.Unread -> comics.filter { comic -> recentBySource[comic.sourceKey] == null }
         LibraryProgressFilter.InProgress -> comics.filter { comic ->
-            val progress = progressFraction(recentBySource[comic.sourceKey])
-            progress != null && progress > 0f && progress < 1f
+            val recentComic = recentBySource[comic.sourceKey]
+            recentComic?.progressFraction() != null && !recentComic.isFinished()
         }
         LibraryProgressFilter.Completed -> comics.filter { comic ->
-            progressFraction(recentBySource[comic.sourceKey]) == 1f
+            recentBySource[comic.sourceKey]?.isFinished() == true
         }
     }
 }
@@ -146,13 +146,7 @@ fun sortLibraryComics(
 fun libraryProgressFraction(
     comic: LibraryComic,
     recentComics: List<RecentComic>,
-): Float? = progressFraction(comic.matchingRecentComic(recentComics))
-
-private fun progressFraction(recentComic: RecentComic?): Float? {
-    if (recentComic == null || recentComic.pageCount <= 0) return null
-    val readPage = coercePageIndex(recentComic.lastPageIndex, recentComic.pageCount) + 1
-    return (readPage.toFloat() / recentComic.pageCount.toFloat()).coerceIn(0f, 1f)
-}
+): Float? = comic.matchingRecentComic(recentComics)?.progressFraction()
 
 /**
  * Full pipeline behind the visible grid: source filter, then title query, then sort. Order matters
@@ -176,7 +170,7 @@ fun libraryView(
     return sortLibraryComics(byQuery, order, recentComics)
 }
 
-/** Started but unfinished comics, most recently opened first, for the Continue reading shelf. */
+/** Started comics not yet finished (see [isFinished]), most recently opened first, for the Continue reading shelf. */
 fun continueReadingComics(
     comics: List<LibraryComic>,
     recentComics: List<RecentComic>,
@@ -185,8 +179,7 @@ fun continueReadingComics(
     recentComics.indexBySource().let { recentBySource ->
         comics.mapNotNull { comic ->
             val recentComic = recentBySource[comic.sourceKey] ?: return@mapNotNull null
-            val progress = progressFraction(recentComic) ?: return@mapNotNull null
-            if (progress >= 1f) null else comic to recentComic.lastOpenedAt
+            if (recentComic.progressFraction() == null || recentComic.isFinished()) null else comic to recentComic.lastOpenedAt
         }
     }
         .sortedByDescending { (_, lastOpenedAt) -> lastOpenedAt }

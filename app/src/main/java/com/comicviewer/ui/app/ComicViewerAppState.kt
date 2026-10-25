@@ -419,26 +419,15 @@ class ComicViewerAppState(
         is ComicSource.LocalFolder -> loadLocalFolderComic(File(source.folderPath))
     }
 
-    private fun RecentComic.toComicSource(): ComicSource = when (sourceType) {
-        RecentComicSourceType.LocalArchive -> ComicSource.LocalArchive(
-            filePath = path,
-            displayName = displayName,
-        )
-        RecentComicSourceType.LocalFolder -> ComicSource.LocalFolder(
-            folderPath = path,
-            displayName = displayName,
-        )
-        RecentComicSourceType.DocumentArchive -> ComicSource.Archive(
-            uri = path.toUri(),
-            displayName = displayName,
-        )
-        RecentComicSourceType.DocumentFolder -> ComicSource.Folder(
-            uri = path.toUri(),
-            displayName = displayName,
-        )
-    }
+    private fun RecentComic.toComicSource(): ComicSource = comicSourceFor(sourceType, path, displayName)
 
-    private fun LibraryComic.toComicSource(): ComicSource = when (sourceType) {
+    private fun LibraryComic.toComicSource(): ComicSource = comicSourceFor(sourceType, path, displayName)
+
+    private fun comicSourceFor(
+        sourceType: RecentComicSourceType,
+        path: String,
+        displayName: String,
+    ): ComicSource = when (sourceType) {
         RecentComicSourceType.LocalArchive -> ComicSource.LocalArchive(
             filePath = path,
             displayName = displayName,

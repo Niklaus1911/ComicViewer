@@ -19,6 +19,10 @@ fun isSupportedComicFileName(name: String): Boolean =
 fun isSupportedImageName(name: String): Boolean =
     name.extension() in supportedImageExtensions
 
+/** A file name without its extension, used as a comic's title. */
+internal fun String.withoutComicExtension(): String =
+    substringBeforeLast('.', missingDelimiterValue = this).ifBlank { this }
+
 fun compareComicPageNames(left: String, right: String): Int =
     NaturalComicNameComparator.compare(left, right)
 

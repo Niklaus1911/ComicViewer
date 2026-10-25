@@ -162,6 +162,3 @@ internal fun decodeLibraryComics(storedValue: String): List<LibraryComic> {
         .sortedByDescending { comic -> comic.addedAt }
         .take(MAX_LIBRARY_COMICS)
 }
-
-private fun String.withoutComicExtension(): String =
-    substringBeforeLast('.', missingDelimiterValue = this).ifBlank { this }

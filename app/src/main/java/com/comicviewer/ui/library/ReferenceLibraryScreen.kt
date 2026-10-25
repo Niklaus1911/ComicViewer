@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import com.comicviewer.LibraryDisplayMode
+import com.comicviewer.isFinished
 import com.comicviewer.isNewLibraryComic
 import com.comicviewer.loadLibraryDisplayMode
 import com.comicviewer.saveLibraryDisplayMode
@@ -816,7 +817,7 @@ private class ComicCardState(
     val progress: Float?,
 ) {
     val completed: Boolean
-        get() = progress != null && progress >= 1f
+        get() = recentComic?.isFinished() == true
 
     val inProgress: Boolean
         get() = progress != null && !completed
@@ -1192,7 +1193,7 @@ private fun ComicActionsSheet(
     onRemove: () -> Unit,
 ) {
     val progress = libraryProgressFraction(comic, listOfNotNull(recentComic))
-    val completed = progress != null && progress >= 1f
+    val completed = recentComic?.isFinished() == true
     val pageCount = resolvedComicPageCount(details, recentComic)
     ModalBottomSheet(
         onDismissRequest = onDismiss,

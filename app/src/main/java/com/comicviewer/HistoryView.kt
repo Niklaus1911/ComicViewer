@@ -17,14 +17,6 @@ enum class HistoryGroup {
     Earlier,
 }
 
-fun RecentComic.isFinished(): Boolean =
-    completedAt != null || (pageCount > 0 && coercePageIndex(lastPageIndex, pageCount) == pageCount - 1)
-
-fun RecentComic.readingProgress(): Float {
-    if (pageCount <= 0) return 0f
-    return ((coercePageIndex(lastPageIndex, pageCount) + 1).toFloat() / pageCount).coerceIn(0f, 1f)
-}
-
 /**
  * Buckets a history entry by calendar day in [timeZone]: today, yesterday, the five days before
  * that, or earlier. Future timestamps (a wrong clock) count as today.

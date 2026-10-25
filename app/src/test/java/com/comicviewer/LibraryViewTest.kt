@@ -282,6 +282,23 @@ class LibraryViewTest {
     }
 
     @Test
+    fun finishedComicsBeingReadAgain_countAsFinishedEverywhere() {
+        val comic = sampleLibraryComic(path = "/storage/emulated/0/Saga.cbz")
+        // Finished once, then reopened at page 3.
+        val rereading = sampleRecentComic(path = comic.path, lastPageIndex = 2, pageCount = 10, lastOpenedAt = 50L)
+            .copy(completedAt = 40L)
+        val recents = listOf(rereading)
+
+        fun filtered(filter: LibraryProgressFilter) =
+            filterLibraryComicsByProgress(listOf(comic), recents, emptyList(), filter)
+
+        assertTrue(rereading.isFinished())
+        assertEquals(listOf(comic), filtered(LibraryProgressFilter.Completed))
+        assertTrue(filtered(LibraryProgressFilter.InProgress).isEmpty())
+        assertTrue(continueReadingComics(listOf(comic), recents).isEmpty())
+    }
+
+    @Test
     fun continueReadingComics_keepsStartedUnfinishedComicsByLastOpened() {
         val unread = sampleLibraryComic(title = "Unread", path = "/c/unread.cbz")
         val older = sampleLibraryComic(title = "Older", path = "/c/older.cbz")

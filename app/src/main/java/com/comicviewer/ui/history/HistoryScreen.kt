@@ -67,7 +67,7 @@ import com.comicviewer.RecentComic
 import com.comicviewer.coercePageIndex
 import com.comicviewer.groupedHistory
 import com.comicviewer.isFinished
-import com.comicviewer.readingProgress
+import com.comicviewer.progressFraction
 import com.comicviewer.ui.browser.RecentComicThumbnail
 import com.comicviewer.ui.common.ReferenceScreenHeader
 import com.comicviewer.ui.common.ReferenceScreenHorizontalPadding
@@ -296,7 +296,7 @@ private fun HistoryRow(
     onRemove: () -> Unit,
 ) {
     val finished = comic.isFinished()
-    val progress = comic.readingProgress()
+    val progress = comic.progressFraction() ?: 0f
     var menuExpanded by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier

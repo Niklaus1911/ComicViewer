@@ -8,6 +8,7 @@ This folder contains upload-ready artwork for the Google Play Console store list
   `icon/icon-source-1254.png` is the full-size source artwork and `icon/legacy-play-store-icon-512.png` is the earlier icon without alpha; neither is uploaded.
 - `feature-graphic/feature-graphic-1024x500.png` — feature graphic, 1024×500, 24-bit PNG without alpha.
 - `phone-screenshots/` — eight portrait screenshots, 1080×2160, 24-bit PNG without alpha. Upload them in numbered order.
+- `tablet-screenshots/` — four landscape screenshots, 2560×1600, 24-bit PNG without alpha, used for both the 7-inch and the 10-inch tablet slots: library, comic details, reader and history.
 
 ## Recommended Screenshot Order
 
@@ -21,6 +22,10 @@ This folder contains upload-ready artwork for the Google Play Console store list
 8. `08-settings.png` — grouped app settings.
 
 Captured from version 1.0.21 on a 1080×2400 emulator with a clean demo status bar, then proportionally fitted into 1080×2160 canvases so the whole interface stays visible within Google Play's maximum 2:1 ratio. The UI screenshots are in English and show the free version; create localized variants later only if the corresponding store listings need localized imagery. The previous set, which shows the interface before the 1.0.17–1.0.21 redesign, is kept in `phone-screenshots-1.0.15/` for reference and is not meant for upload.
+
+Tablet screenshots were captured from version 1.0.31 on the `Tab_S8_like` emulator (2560×1600, landscape) with the same demo library and a clean demo status bar.
+
+`scripts/play_listing.py` uploads listing texts and both screenshot sets through the Play API; run it with `--dry-run` first.
 
 ## Supporting Artwork
 

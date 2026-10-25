@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -23,6 +24,7 @@ import java.io.File
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -101,6 +103,46 @@ class ReaderZoomTest {
         // shows once the page is zoomed well past 1.5x, so a pinch cut short leaves white there.
         val screen = root.captureToImage().asAndroidBitmap()
         assertEquals(Color.RED, screen.getPixel((screen.width * 0.06f).toInt(), screen.height / 2))
+    }
+
+    @Test
+    fun pagedReader_showsNoErrorWhileItsFirstPageLoads() {
+        val book = runBlocking { loadLocalArchiveComic(context, writeRedSquarePdf()) }
+        val errorText = context.getString(R.string.page_image_error, book.pages.first().displayName)
+        val pageLabel = context.getString(R.string.reader_page_description, 1, 1)
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            MaterialTheme {
+                PagedComicReader(
+                    book = book,
+                    pageIndex = 0,
+                    activeReaderPreferences = ReaderPreferences(),
+                    controlsVisible = false,
+                    onControlsVisibleChange = {},
+                    onPageSelected = {},
+                    onCloseComic = {},
+                    onOpenSettings = {},
+                    onOpenGrid = {},
+                    favorite = null,
+                    onToggleFavorite = {},
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
+        // Step frame by frame until the page is drawn; the error must not appear on any of them.
+        var pageShown = false
+        repeat(300) {
+            if (pageShown) return@repeat
+            composeRule.mainClock.advanceTimeByFrame()
+            Thread.sleep(10)
+            assertTrue(
+                "Error shown while the first page loaded",
+                composeRule.onAllNodesWithText(errorText).fetchSemanticsNodes().isEmpty(),
+            )
+            pageShown = composeRule.onAllNodesWithContentDescription(pageLabel).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue("The page never loaded", pageShown)
     }
 
     private fun writeRedSquarePdf(): File {

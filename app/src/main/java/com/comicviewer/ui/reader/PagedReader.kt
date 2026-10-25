@@ -60,6 +60,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import coil3.request.NullRequestDataException
 import coil3.size.Precision
 import coil3.size.Size as CoilSize
 import com.comicviewer.ComicBook
@@ -435,7 +436,11 @@ internal fun PagedComicReader(
             }
 
             is AsyncImagePainter.State.Error -> {
-                primaryPageLoadError = resources.getString(R.string.page_image_error, visualPage.displayName)
+                primaryPageLoadError = if (state.isNotRequestedYet()) {
+                    null
+                } else {
+                    resources.getString(R.string.page_image_error, visualPage.displayName)
+                }
             }
 
             else -> Unit
@@ -452,11 +457,12 @@ internal fun PagedComicReader(
         }
         secondaryPageLoadError = when {
             secondSpreadPage == null -> null
-            secondPainterState is AsyncImagePainter.State.Error -> resources.getString(
+            state is AsyncImagePainter.State.Error && state.isNotRequestedYet() -> null
+            state is AsyncImagePainter.State.Error -> resources.getString(
                 R.string.page_image_error,
                 secondSpreadPage.displayName,
             )
-            secondPainterState is AsyncImagePainter.State.Success -> null
+            state is AsyncImagePainter.State.Success -> null
             else -> secondaryPageLoadError
         }
     }
@@ -924,6 +930,13 @@ private suspend fun PointerInputScope.detectPageGestures(
         }
     }
 }
+
+/**
+ * Pages are not requested until the viewport has been measured, and Coil reports a missing request as
+ * an error. That is not a failed page, so it must not show the "could not display" message.
+ */
+private fun AsyncImagePainter.State.Error.isNotRequestedYet(): Boolean =
+    result.throwable is NullRequestDataException
 
 private fun List<ComicPage>.preloadRequests(
     currentIndex: Int,

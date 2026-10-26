@@ -481,6 +481,36 @@ class LibraryScanTest {
         assertEquals(listOf("content://provider/tree/root/document/new"), result.map { it.path })
         assertEquals(RecentComicSourceType.DocumentFolder, result.single().sourceType)
     }
+
+    @Test
+    fun pdfLooksLikeComic_needsEnoughPagesThatAreMostlyPictures() {
+        val kib = 1024L
+        // A 269 MB comic of 200 pages: about 1.3 MB a page.
+        assertTrue(pdfLooksLikeComic(fileBytes = 269L * kib * kib, pageCount = 200))
+        assertTrue(pdfLooksLikeComic(fileBytes = 8 * 150 * kib, pageCount = 8))
+        // Too few pages, however large: a scanned receipt or a poster.
+        assertFalse(pdfLooksLikeComic(fileBytes = 50L * kib * kib, pageCount = 7))
+        // Plenty of pages but light ones: a text document such as a manual.
+        assertFalse(pdfLooksLikeComic(fileBytes = 100 * 50 * kib, pageCount = 100))
+        assertFalse(pdfLooksLikeComic(fileBytes = 8 * 150 * kib - 1, pageCount = 8))
+    }
+
+    @Test
+    fun scanLibraryArchives_skipsSmallPdfsAndReportsKnownOnes() {
+        val root = temporaryFolder.newFolder("pdf-scan-root")
+        // Too small to hold eight comic pages, so neither is opened; only the library's own entry counts.
+        val knownPdf = File(root, "Known.pdf").apply { writeText("%PDF-1.7\n") }
+        File(root, "Invoice.pdf").writeText("%PDF-1.7\n")
+
+        val result = scanLibraryArchivesInDirectory(
+            root = root,
+            knownArchivePaths = setOf(knownPdf.absolutePath),
+        )
+
+        assertEquals(listOf(knownPdf.absolutePath), result.candidates.map { candidate ->
+            candidate.archiveFile.absolutePath
+        })
+    }
 }
 
 private fun archiveDocumentNode(

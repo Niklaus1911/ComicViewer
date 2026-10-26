@@ -119,6 +119,8 @@ internal suspend fun scanForNewLibraryComics(
             context = context,
             rootUri = access.uri,
             includeImageFolders = false,
+            includePdfs = true,
+            comicLikePdfsOnly = true,
             knownUris = existingUris,
         )
         val existingKeys = existingUris.mapTo(mutableSetOf(), ::documentIdentityKey)

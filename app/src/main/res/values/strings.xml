@@ -219,7 +219,7 @@
     <string name="mark_as_unread">Mark as unread</string>
     <string name="comic_details_action">Details</string>
     <string name="add_sheet_title">Add comics</string>
-    <string name="add_auto_discover_description">Find ZIP and CBZ files on this device</string>
+    <string name="add_auto_discover_description">Find CBZ, ZIP and PDF comics on this device</string>
     <string name="add_folder_comic_title">Add folder as comic</string>
     <string name="add_folder_comic_description">Use a folder of images as one comic</string>
     <string name="add_open_without_adding">Open without adding</string>

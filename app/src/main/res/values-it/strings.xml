@@ -230,7 +230,7 @@
     <string name="mark_as_unread">Segna come non letto</string>
     <string name="comic_details_action">Dettagli</string>
     <string name="add_sheet_title">Aggiungi fumetti</string>
-    <string name="add_auto_discover_description">Trova i file ZIP e CBZ su questo dispositivo</string>
+    <string name="add_auto_discover_description">Trova i fumetti CBZ, ZIP e PDF su questo dispositivo</string>
     <string name="add_folder_comic_title">Aggiungi cartella come fumetto</string>
     <string name="add_folder_comic_description">Usa una cartella di immagini come un unico fumetto</string>
     <string name="add_open_without_adding">Apri senza aggiungere</string>

@@ -16,6 +16,8 @@ private const val MAX_ARCHIVE_SCAN_DIRECTORIES = 20_000
 private const val MAX_ARCHIVE_SCAN_ENTRY_COUNT = 10_000
 private const val MAX_ARCHIVE_SCAN_SOURCE_BYTES = 64L * 1024L * 1024L
 private const val MAX_ARCHIVE_SCAN_CANDIDATES = MAX_LIBRARY_COMICS + 1
+private const val MIN_COMIC_PDF_PAGES = 8
+private const val MIN_COMIC_PDF_BYTES_PER_PAGE = 150L * 1024L
 
 sealed interface LibraryAutoScanState {
     data object Idle : LibraryAutoScanState
@@ -57,8 +59,9 @@ suspend fun scanLibraryArchives(
     }
 
 /**
- * Walks [root] breadth-first for comic archives. Archives whose absolute path is in
- * [knownArchivePaths] are already in the library, so they are reported without being opened again.
+ * Walks [root] breadth-first for comic archives, and for PDFs that look like comics (see
+ * [pdfLooksLikeComic]). Files whose absolute path is in [knownArchivePaths] are already in the
+ * library, so they are reported without being opened again.
  */
 internal fun scanLibraryArchivesInDirectory(
     root: File,
@@ -109,8 +112,8 @@ internal fun scanLibraryArchivesInDirectory(
             when {
                 child.isDirectory -> pendingDirectories.add(child)
                 child.isFile &&
-                    isSupportedArchiveName(child.name) &&
-                    (child.absolutePath in knownArchivePaths || archiveContainsSupportedImage(child)) -> {
+                    isSupportedComicFileName(child.name) &&
+                    (child.absolutePath in knownArchivePaths || child.isComicForDiscovery()) -> {
                     candidates += LibraryArchiveScanCandidate(archiveFile = child.absoluteFile)
                     if (candidates.size >= maxCandidates.coerceAtLeast(1)) {
                         candidateLimitReached = true
@@ -135,6 +138,7 @@ data class ArchiveDocumentNode(
     val isDirectory: Boolean,
     val isFile: Boolean,
     val canRead: Boolean,
+    val sizeBytes: Long? = null,
 )
 
 data class LibraryDocumentArchiveScanCandidate(
@@ -160,6 +164,7 @@ suspend fun scanLibraryDocumentArchives(
     rootUri: Uri,
     includeImageFolders: Boolean,
     includePdfs: Boolean = false,
+    comicLikePdfsOnly: Boolean = false,
     knownUris: Set<String> = emptySet(),
 ): LibraryDocumentArchiveScanResult = withContext(Dispatchers.IO) {
     val rootDocument = DocumentFile.fromTreeUri(context, rootUri)
@@ -171,7 +176,13 @@ suspend fun scanLibraryDocumentArchives(
         knownUris = knownUris,
         // One query per directory: DocumentFile would issue several provider queries per child.
         listChildren = { node -> listDocumentChildren(context, node.uri.toUri()).map(::archiveDocumentNodeFor) },
-        archiveContainsSupportedImage = { node -> documentComicFileHasPages(context, node.uri) },
+        archiveContainsSupportedImage = { node ->
+            if (comicLikePdfsOnly && isPdfComicName(node.name)) {
+                documentPdfLooksLikeComic(context, node)
+            } else {
+                documentComicFileHasPages(context, node.uri)
+            }
+        },
         imageIsSupported = { node ->
             detectDocumentImageInfo(context, node.uri.toUri()) != null
         },
@@ -181,10 +192,10 @@ suspend fun scanLibraryDocumentArchives(
 
 /**
  * Walks a document tree breadth-first for comic archives and, when [includeImageFolders] is set,
- * folders of images. PDFs count only with [includePdfs]: unlike ZIPs they cannot be told apart from
- * ordinary documents, so they are only picked up from a folder the user chose for comics. Archives
- * and folders whose URI is in [knownUris] are already in the library, so they are reported without
- * reading their contents again.
+ * folders of images. PDFs count only with [includePdfs]; a device-wide scan also has
+ * [archiveContainsSupportedImage] keep only the PDFs that look like comics, since most PDFs on a
+ * device are ordinary documents. Archives and folders whose URI is in [knownUris] are already in the
+ * library, so they are reported without reading their contents again.
  */
 internal suspend fun scanLibraryDocumentArchiveTree(
     root: ArchiveDocumentNode,
@@ -387,6 +398,38 @@ internal fun archiveContainsSupportedImage(
         }
     }.getOrDefault(false)
 
+/**
+ * Whether a PDF found by device-wide discovery looks like a comic rather than an ordinary document:
+ * comics have many pages, each mostly a picture, so they take far more bytes per page than text.
+ */
+internal fun pdfLooksLikeComic(fileBytes: Long, pageCount: Int): Boolean =
+    pageCount >= MIN_COMIC_PDF_PAGES && fileBytes >= MIN_COMIC_PDF_BYTES_PER_PAGE * pageCount
+
+/** Too small to hold enough comic pages, so not worth opening. */
+private fun pdfTooSmallForComic(fileBytes: Long): Boolean =
+    fileBytes < MIN_COMIC_PDF_BYTES_PER_PAGE * MIN_COMIC_PDF_PAGES
+
+/** Archives count when they hold a page; PDFs, mostly ordinary documents, only when they look like comics. */
+private fun File.isComicForDiscovery(): Boolean =
+    if (isPdfComicName(name)) localPdfLooksLikeComic(this) else archiveContainsSupportedImage(this)
+
+internal fun localPdfLooksLikeComic(file: File): Boolean = runCatching {
+    val fileBytes = file.length()
+    if (pdfTooSmallForComic(fileBytes)) return@runCatching false
+    openLocalComicFile(file).use { opened ->
+        opened is OpenedComicFile.Pdf && pdfLooksLikeComic(fileBytes, opened.pdf.pageCount)
+    }
+}.getOrDefault(false)
+
+/** Like [localPdfLooksLikeComic]; a PDF from a provider that cannot seek has no page count to judge, so it doesn't count. */
+private fun documentPdfLooksLikeComic(context: Context, node: ArchiveDocumentNode): Boolean = runCatching {
+    val fileBytes = node.sizeBytes ?: return@runCatching false
+    if (pdfTooSmallForComic(fileBytes)) return@runCatching false
+    openSeekableDocumentComicFile(context, node.uri.toUri())?.use { opened ->
+        opened is OpenedComicFile.Pdf && pdfLooksLikeComic(fileBytes, opened.pdf.pageCount)
+    } ?: false
+}.getOrDefault(false)
+
 /** Whether a document is a readable comic file of either format, judged by its content, not its name. */
 private fun documentComicFileHasPages(
     context: Context,
@@ -446,6 +489,7 @@ internal fun archiveDocumentNodeFor(entry: ComicDocumentEntry): ArchiveDocumentN
         isDirectory = entry.isDirectory,
         isFile = !entry.mimeType.isNullOrEmpty() && !entry.isDirectory,
         canRead = !entry.mimeType.isNullOrEmpty(),
+        sizeBytes = entry.sizeBytes,
     )
 
 private fun DocumentFile.toArchiveDocumentNode(): ArchiveDocumentNode =

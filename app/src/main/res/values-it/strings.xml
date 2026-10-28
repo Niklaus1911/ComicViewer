@@ -193,6 +193,10 @@
     <string name="comic_series">Serie</string>
     <string name="comic_series_issue">%1$s n. %2$s</string>
     <string name="comic_file">File</string>
+    <string name="comic_path">Percorso</string>
+    <string name="storage_internal">Memoria interna</string>
+    <string name="storage_sd_card">Scheda SD</string>
+    <string name="storage_downloads">Download</string>
     <string name="comic_added">Aggiunto</string>
     <string name="show_more">Mostra di più</string>
     <string name="reader_vertical_scroll">Scorrimento verticale</string>

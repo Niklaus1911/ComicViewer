@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -94,6 +95,7 @@ import com.comicviewer.LibraryComicMetadata
 import com.comicviewer.R
 import com.comicviewer.RecentComic
 import com.comicviewer.RecentComicSourceType
+import com.comicviewer.comicLocationText
 import com.comicviewer.billing.ProBillingState
 import com.comicviewer.coercePageIndex
 import com.comicviewer.comicLanguageDisplayName
@@ -173,6 +175,9 @@ fun ComicDetailsScreen(
     val archiveFormat = sourceType
         ?.takeIf { it == RecentComicSourceType.LocalArchive || it == RecentComicSourceType.DocumentArchive }
         ?.let { displayName.substringAfterLast('.', "").uppercase().takeIf(String::isNotBlank) }
+    val location = remember(sourceType, path) {
+        if (sourceType != null && path != null) context.comicLocationText(sourceType, path) else null
+    }
     var pagePreviews by remember(sourceType, path) { mutableStateOf<List<Uri>>(emptyList()) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showRemoveDialog by remember { mutableStateOf(false) }
@@ -355,6 +360,7 @@ fun ComicDetailsScreen(
                                 metadata?.language?.let { stringResource(R.string.comic_language) to comicLanguageDisplayName(it, locale) },
                                 pageCount?.let { stringResource(R.string.comic_pages_label) to it.toString() },
                                 displayName.takeIf(String::isNotBlank)?.let { stringResource(R.string.comic_file) to it },
+                                location?.let { stringResource(R.string.comic_path) to it },
                                 libraryComic?.addedAt?.takeIf { it > 0L }?.let { stringResource(R.string.comic_added) to absoluteDateText(it) },
                             )
                             rows.forEachIndexed { index, (label, value) ->
@@ -786,12 +792,15 @@ private fun DetailRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.End,
-            modifier = Modifier.weight(1.6f),
-        )
+        // Long press selects a value, so a path or file name can be copied.
+        SelectionContainer(modifier = Modifier.weight(1.6f)) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.End,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

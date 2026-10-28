@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   build:
-    name: Test, lint and build
+    name: Test and build
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -33,8 +33,16 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      - name: Run unit tests
+        # A push only checks that a clean checkout builds and the unit tests pass: lint and the
+        # release build already run on the developer's machine before each commit and release.
+        if: github.event_name != 'workflow_dispatch'
+        run: ./gradlew testDebugUnitTest
+
       - name: Run unit tests, lint and builds
-        # The release APK is unsigned here; it checks that R8 minification and lint vital pass.
+        # Started by hand from the Actions tab. The release APK is unsigned here; it checks that R8
+        # minification and lint vital pass.
+        if: github.event_name == 'workflow_dispatch'
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug assembleRelease compileDebugAndroidTestKotlin
 
       - name: Upload test and lint reports
@@ -48,6 +56,7 @@ jobs:
           retention-days: 14
 
       - name: Upload debug APK
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: comic-viewer-debug-apk

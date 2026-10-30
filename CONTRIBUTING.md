@@ -1,5 +1,7 @@
 # Contributing
 
+Everyone taking part follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Setup
 
 You need JDK 17 or later and the Android SDK; Android Studio provides both. Open the project

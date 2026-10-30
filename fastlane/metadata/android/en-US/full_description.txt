@@ -1,7 +1,7 @@
 Comic Viewer is a fast, private reader for the comics already on your device: CBZ and ZIP archives, PDF comics and folders of images. Pages are read straight from your files, nothing is extracted or uploaded, and no account is needed.
 
 YOUR LIBRARY
-• Add comics one by one, scan a folder you choose, or let the app find CBZ and ZIP files on your device
+• Add comics one by one, scan a folder you choose, or let the app find CBZ, ZIP and PDF comics on your device
 • Pick up where you stopped from Continue reading, with progress on every cover
 • Search by title, series, writer or genre, read from the ComicInfo.xml inside your archives
 • Grid, compact and list layouts, sorted by date added, title or last read

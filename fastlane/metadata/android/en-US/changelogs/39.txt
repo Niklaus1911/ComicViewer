@@ -1,1 +1,1 @@
-A comic's details page now shows where its file is, such as Internal storage/Comics. Long press a detail to copy it. Auto discover also finds PDF comics.
+Auto discover now finds PDF comics too: PDFs with at least 8 picture-heavy pages are added, while ordinary documents such as manuals stay out. A comic's details page shows where its file is, such as Internal storage/Comics, and a long press copies any detail.

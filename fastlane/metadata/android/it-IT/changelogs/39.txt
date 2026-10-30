@@ -1,1 +1,1 @@
-La pagina di dettaglio di un fumetto ora mostra dove si trova il file, ad esempio Memoria interna/Comics. Tieni premuto un dettaglio per copiarlo. La scoperta automatica trova anche i fumetti in PDF.
+La scoperta automatica ora trova anche i fumetti in PDF: vengono aggiunti i PDF con almeno 8 pagine ricche di immagini, mentre i documenti comuni come i manuali restano fuori. La pagina di un fumetto mostra dove si trova il file, ad esempio Memoria interna/Comics, e tenendo premuto si copia qualsiasi dettaglio.

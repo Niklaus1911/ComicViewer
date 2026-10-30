@@ -10,6 +10,8 @@ production version.
 
 ## [Unreleased]
 
+## [1.0.36] - 2026-10-30
+
 ### Added
 
 - Auto discover finds PDF comics: PDFs with at least 8 picture-heavy pages are added, while
@@ -99,7 +101,8 @@ production version.
 - First release: read CBZ and ZIP comics and folders of images, with a file browser, a library
   grid, recent comics and a page scrubber.
 
-[Unreleased]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.34...HEAD
+[Unreleased]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.36...HEAD
+[1.0.36]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.34...v1.0.36
 [1.0.34]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.31...v1.0.34
 [1.0.31]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.21...v1.0.31
 [1.0.21]: https://github.com/Niklaus1911/ComicViewer/compare/v1.0.4...v1.0.21

@@ -1,10 +1,28 @@
 name: Android CI
 
+# Pushes and pull requests run the checks only when they change the app or the build; docs, store
+# listing, scripts and assets don't need a build.
 on:
   push:
     branches:
       - main
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/android-ci.yml"
   pull_request:
+    paths:
+      - "app/**"
+      - "gradle/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/android-ci.yml"
   workflow_dispatch:
 
 concurrency:

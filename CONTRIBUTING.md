@@ -48,7 +48,8 @@ including the app on Google Play.
 
 ## CI
 
-Every push to `main` and every pull request runs the unit tests on GitHub Actions. Lint, the
+Every push to `main` and every pull request that changes `app/` or the Gradle build runs the unit
+tests on GitHub Actions; changes to docs, the store listing, scripts or assets don't. Lint, the
 release build and the device tests run when the workflows are started by hand from the Actions
 tab, so run them locally before pushing.
 

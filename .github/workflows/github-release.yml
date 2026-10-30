@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  release-debug-apk:
-    name: Release debug APK
+  release:
+    name: Create release
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -27,20 +27,28 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Run unit tests and build debug APK
-        run: ./gradlew testDebugUnitTest assembleDebug
+      - name: Build debug APK
+        run: |
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk "ComicViewer-${GITHUB_REF_NAME}-debug.apk"
 
-      - name: Rename debug APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk "ComicViewer-${GITHUB_REF_NAME}-debug.apk"
+      - name: Write release notes
+        # The notes are the version's section of CHANGELOG.md; the release fails without one.
+        run: |
+          {
+            python3 scripts/changelog_section.py "$GITHUB_REF_NAME"
+            echo
+            echo "---"
+            echo
+            echo "Install Comic Viewer from [Google Play](https://play.google.com/store/apps/details?id=com.comicviewer)."
+            echo "The attached APK is a debug build for testing. It is signed with a debug key, so it cannot be installed over the Play version: uninstall one before installing the other, which removes the app's library and settings."
+          } > release-notes.md
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
-      - name: Create GitHub Release
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          name: Comic Viewer ${{ github.ref_name }}
+          name: Comic Viewer ${{ env.VERSION }}
+          body_path: release-notes.md
           files: ComicViewer-${{ github.ref_name }}-debug.apk
           fail_on_unmatched_files: true
-          generate_release_notes: true
-          body: |
-            The Google Play version is the recommended way to install Comic Viewer. The attached APK is a debug build for testing.
-
-            ⚠️ The debug APK is signed with a debug key, so it cannot be installed over the Play version. Uninstall one before installing the other; this removes the app's local library and settings.

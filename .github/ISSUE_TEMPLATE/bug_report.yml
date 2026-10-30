@@ -1,0 +1,50 @@
+name: Bug report
+description: Something in Comic Viewer doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a comic from …
+        2. Swipe to …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      description: Shown in Settings → About.
+      placeholder: "1.0.36"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      placeholder: "Pixel 8, Android 16"
+    validations:
+      required: true
+  - type: dropdown
+    id: comic-format
+    attributes:
+      label: Comic format
+      multiple: true
+      options:
+        - CBZ / ZIP
+        - PDF
+        - Folder of images
+        - Not about a specific comic
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots, recordings or logs

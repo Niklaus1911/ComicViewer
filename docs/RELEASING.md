@@ -56,7 +56,8 @@ Both are at the top of [`app/build.gradle.kts`](../app/build.gradle.kts).
    ```
 
    The tag runs the GitHub Release workflow, which creates the release named "Comic Viewer
-   <version>" with the changelog section as notes and a debug APK attached.
+   <version>" with the changelog section as notes. It attaches no APK: debug builds have a switch
+   that unlocks Pro, so they are never published.
 4. If the store listing changed, publish it as described in [store-listing.md](store-listing.md).
 
 The Google Play service account key never goes into the repository; pass its path to the scripts.

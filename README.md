@@ -40,8 +40,8 @@ Comic Viewer runs on Android 7.0 and later, on phones and tablets, in English an
 ## Download
 
 Install it from [Google Play](https://play.google.com/store/apps/details?id=com.comicviewer).
-[GitHub releases](https://github.com/Niklaus1911/ComicViewer/releases) carry a debug APK of each
-version for testing; it can't be installed over the Play version.
+[GitHub releases](https://github.com/Niklaus1911/ComicViewer/releases) list what changed in each
+version.
 
 ## Building
 

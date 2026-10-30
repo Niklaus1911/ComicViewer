@@ -12,25 +12,11 @@ jobs:
   release:
     name: Create release
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Build debug APK
-        run: |
-          ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk "ComicViewer-${GITHUB_REF_NAME}-debug.apk"
 
       - name: Write release notes
         # The notes are the version's section of CHANGELOG.md; the release fails without one.
@@ -41,7 +27,6 @@ jobs:
             echo "---"
             echo
             echo "Install Comic Viewer from [Google Play](https://play.google.com/store/apps/details?id=com.comicviewer)."
-            echo "The attached APK is a debug build for testing. It is signed with a debug key, so it cannot be installed over the Play version: uninstall one before installing the other, which removes the app's library and settings."
           } > release-notes.md
           echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
@@ -50,5 +35,3 @@ jobs:
         with:
           name: Comic Viewer ${{ env.VERSION }}
           body_path: release-notes.md
-          files: ComicViewer-${{ github.ref_name }}-debug.apk
-          fail_on_unmatched_files: true

@@ -10,11 +10,19 @@ This is a single-module Android app in `app/` (namespace and Play application ID
 - `billing/`: the Pro in-app purchase flow (`ProBillingRepository`, `ProPurchaseAcknowledgeWorker`).
 - `ui/`: Compose UI by feature: `app` (root scaffold, the Library, History and Settings tabs, app state), `library` (library home with search and the Add sheet, comic details), `reader` (the `ReaderScreen` shell, `PagedReader` and `VerticalReader` sharing `ReaderChrome`, `ReaderPageGrid`, and the paging and zoom math in `ReaderPaging` and `ReaderPageScale`), `browser` (import file browsers), `history`, `settings`, `welcome`, plus shared `common` components and `theme`. `MainActivity.kt` is the entry point; `ComicViewerApplication` registers the archive and PDF page fetchers with Coil.
 
-Unit tests are in `app/src/test/`, one class per area (`ComicArchiveTest`, `LibraryScanTest`, `ReaderGestureTest`, ...) with shared fixtures in `TestFixtures.kt`; instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`. `scripts/play_publish.py` publishes releases to Google Play, and `scripts/play_listing.py` updates the store listing texts and screenshots. `new-gui-images/` contains early visual references; `play-store-dashboard-assets/` contains upload-ready store artwork, the current screenshots and the icon sources.
+Unit tests are in `app/src/test/`, one class per area (`ComicArchiveTest`, `LibraryScanTest`, `ReaderGestureTest`, ...) with shared fixtures in `TestFixtures.kt`; instrumented tests in `app/src/androidTest/`, and resources in `app/src/main/res/`.
+
+Outside the app:
+
+- `fastlane/metadata/android/`: the Google Play listing as it is live (title, short and full description per language), the store images under `en-US/images/`, and Play release notes per version code in `<language>/changelogs/<versionCode>.txt`. See `docs/store-listing.md`.
+- `scripts/`: `play_publish.py` publishes builds and reads the release notes from the fastlane changelogs, `play_listing.py` uploads the listing texts and screenshots, and `changelog_section.py` prints a version's `CHANGELOG.md` section for GitHub releases.
+- `assets/`: original demo artwork used in the screenshots, and the icon source.
+- `docs/`: `RELEASING.md` (the release process), `store-listing.md`, and `design-references/`, the mock-ups behind the interface redesign.
+- Root documents: `README.md`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE` (proprietary, all rights reserved), plus `.editorconfig` and `.gitattributes`.
 
 ## Toolchain
 
-Gradle 9.8 wrapper, AGP 9.4 with built-in Kotlin (only the `kotlin.compose` plugin is applied; do not add `org.jetbrains.kotlin.android`), compileSdk 37, targetSdk 36, minSdk 24. Declare dependency and plugin versions in `gradle/libs.versions.toml`, not inline. Version code and name are the `appVersionCode` / `appVersionName` values at the top of `app/build.gradle.kts`.
+Gradle 9.8 wrapper, AGP 9.5 with built-in Kotlin (only the `kotlin.compose` plugin is applied; do not add `org.jetbrains.kotlin.android`), compileSdk 37, targetSdk 36, minSdk 24. Declare dependency and plugin versions in `gradle/libs.versions.toml`, not inline. Version code and name are the `appVersionCode` / `appVersionName` values at the top of `app/build.gradle.kts`.
 
 ## Build, Test, and Development Commands
 
@@ -24,7 +32,7 @@ Gradle 9.8 wrapper, AGP 9.4 with built-in Kotlin (only the `kotlin.compose` plug
 - `./gradlew bundleRelease` generates the signed release AAB in `app/build/outputs/bundle/release/` and the R8 mapping in `app/build/outputs/mapping/release/`; signing requires a valid local `keystore.properties` (see `keystore.properties.example`).
 - `./gradlew clean` removes generated outputs when Gradle state is stale.
 
-Use Android Studio for emulator launch and manual UI checks. GitHub Actions (`android-ci.yml`) runs only the unit tests on pushes to `master` and on pull requests, to keep them quick; started by hand from the Actions tab it also runs lint, the debug build, an unsigned minified release build and the instrumented-test compile. Run lint and the release build locally before committing and releasing. Release signing only applies when `keystore.properties` exists. `device-tests.yml` runs the device tests on an API 35 emulator only when started by hand from the Actions tab. Pushing a `v*` tag runs `github-release.yml`, which attaches a debug APK to a GitHub release; it does not publish to Google Play. Tag each version that goes to production as `vX.Y.Z`.
+Use Android Studio for emulator launch and manual UI checks. GitHub Actions (`android-ci.yml`) runs only the unit tests on pushes to `main` and on pull requests, to keep them quick; started by hand from the Actions tab it also runs lint, the debug build, an unsigned minified release build and the instrumented-test compile. Run lint and the release build locally before committing and releasing. Release signing only applies when `keystore.properties` exists. `device-tests.yml` runs the device tests on an API 35 emulator only when started by hand from the Actions tab. Pushing a `v*` tag runs `github-release.yml`, which attaches a debug APK to a GitHub release; it does not publish to Google Play. Tag each version that goes to production as `vX.Y.Z`.
 
 ## Coding Style & Naming Conventions
 
@@ -32,7 +40,7 @@ Use Kotlin with 4-space indentation and idiomatic Compose patterns. Prefer immut
 
 ## UI & Store Asset Fidelity
 
-Before and during GUI work, inspect the relevant files in `new-gui-images/` and compare emulator captures against them. Preserve navigation, storage, reader, billing, and import behavior unless a feature change is explicitly requested. Do not edit the reference images. Keep Play Store screenshots, icon, and feature graphic within the dimensions documented in `play-store-dashboard-assets/README.md`; use only original or licensed demo artwork.
+Before and during GUI work, inspect the relevant mock-ups in `docs/design-references/` and compare emulator captures against them. Preserve navigation, storage, reader, billing, and import behavior unless a feature change is explicitly requested. Do not edit the reference images, and never publish them: they show third-party comic art. Keep Play Store screenshots, icon, and feature graphic within the dimensions documented in `docs/store-listing.md`; use only original or licensed demo artwork, such as `assets/demo-art/`.
 
 ## Testing Guidelines
 
@@ -40,17 +48,17 @@ Unit tests use JUnit 4. Add tests for pure helpers, persistence encoding/decodin
 
 ## Releasing to Google Play
 
-1. Bump `appVersionCode` and `appVersionName` in `app/build.gradle.kts`. The version code must be higher than every code already uploaded to any track (internal, alpha, beta, production); Play never accepts a reused code. `scripts/play_publish.py --key <key.json> --check` lists what is on each track without changing anything.
-2. Run `./gradlew testDebugUnitTest bundleRelease`.
-3. Validate first: `scripts/play_publish.py --key <key.json> --track production --notes en-US=<file> --notes it-IT=<file> --dry-run`. It uploads the AAB and R8 mapping, has Play validate the edit, then discards it.
-4. Rerun without `--dry-run` to publish. Use `--rollout 0.2` for a staged rollout or `--draft` for a draft release. To put an already uploaded build on another track (for example `internal`), pass `--version-code <code>` instead of uploading it again. Release notes are limited to 500 characters per language; `en-US` is the default listing language and the fallback for other listing languages.
-5. Commit the version bump.
+Follow `docs/RELEASING.md`. In short:
+
+1. Every user-facing change gets a line in the `Unreleased` section of `CHANGELOG.md`, written for users.
+2. For an internal test build, raise `appVersionCode` (higher than any code on any track; `scripts/play_publish.py --key <key.json> --check` lists them) and `appVersionName` (Semantic Versioning: minor for features, patch for fixes), write `fastlane/metadata/android/{en-US,it-IT}/changelogs/<versionCode>.txt` (at most 500 characters), run `./gradlew testDebugUnitTest lintDebug bundleRelease`, then `scripts/play_publish.py --key <key.json> --track internal --dry-run` and the same without `--dry-run`. The script reads the notes for the version code itself. Commit as `Release <version> to internal testing`.
+3. For production, promote the tested build with `--track production --version-code <code>` (dry run first; `--rollout 0.2` for a staged rollout), turn `Unreleased` into `[<version>] - <date>` with its comparison link, commit as `Release <version>`, and tag that commit `v<version>` (annotated: `git tag -a v<version> -m "Comic Viewer <version>"`). Pushing the tag creates the GitHub release from the changelog section.
 
 Publishing reaches real users: run the script without `--dry-run` only when the user has explicitly asked for that release, track, and rollout.
 
 ## Commit & Pull Request Guidelines
 
-Use short imperative commit subjects, matching history such as `Overhaul comic viewer interface` and `Fix GUI overhaul regressions`. Don't add `Co-Authored-By`, session links or other AI attribution lines to commit messages or pull request descriptions. Pull requests should include a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
+The default branch is `main`. Use short imperative commit subjects without a final period, matching history such as `Add PDF comic support` and `Fix lint warnings`, then a blank line and a body that explains what changed and why, wrapped at about 72 characters. Don't add `Co-Authored-By`, session links or other AI attribution lines to commit messages or pull request descriptions. Pull requests follow `.github/pull_request_template.md`: a concise summary, validation commands, screenshots or recordings for UI changes, and notes about storage, permissions, billing, or cache behavior. Do not push or create tags unless asked.
 
 ## Reporting to the User
 

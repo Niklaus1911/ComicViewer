@@ -55,7 +55,4 @@ version in English.
 
 Covers and pages in the screenshots are original demo artwork in [`assets/demo-art`](../assets/demo-art);
 the icon's full-size source is [`assets/icon/icon-source-1254.png`](../assets/icon/icon-source-1254.png).
-Use only original or licensed artwork in anything published.
-
-The mock-ups in [`docs/design-references`](design-references) guided the interface redesign. They
-show third-party comic art, so they must never be used in the store listing or published anywhere.
+Use only original or licensed artwork in anything published or committed.

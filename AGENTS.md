@@ -17,7 +17,7 @@ Outside the app:
 - `fastlane/metadata/android/`: the Google Play listing as it is live (title, short and full description per language), the store images under `en-US/images/`, and Play release notes per version code in `<language>/changelogs/<versionCode>.txt`. See `docs/store-listing.md`.
 - `scripts/`: `play_publish.py` publishes builds and reads the release notes from the fastlane changelogs, `play_listing.py` uploads the listing texts and screenshots, and `changelog_section.py` prints a version's `CHANGELOG.md` section for GitHub releases.
 - `assets/`: original demo artwork used in the screenshots, and the icon source.
-- `docs/`: `RELEASING.md` (the release process), `store-listing.md`, and `design-references/`, the mock-ups behind the interface redesign.
+- `docs/`: `RELEASING.md` (the release process) and `store-listing.md`.
 - Root documents: `README.md`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `SECURITY.md`, `LICENSE` (proprietary, all rights reserved), plus `.editorconfig` and `.gitattributes`.
 
 ## Toolchain
@@ -40,7 +40,7 @@ Use Kotlin with 4-space indentation and idiomatic Compose patterns. Prefer immut
 
 ## UI & Store Asset Fidelity
 
-Before and during GUI work, inspect the relevant mock-ups in `docs/design-references/` and compare emulator captures against them. Preserve navigation, storage, reader, billing, and import behavior unless a feature change is explicitly requested. Do not edit the reference images, and never publish them: they show third-party comic art. Keep Play Store screenshots, icon, and feature graphic within the dimensions documented in `docs/store-listing.md`; use only original or licensed demo artwork, such as `assets/demo-art/`.
+Check GUI changes in emulator captures against the current screens and the store screenshots. Preserve navigation, storage, reader, billing, and import behavior unless a feature change is explicitly requested. Keep Play Store screenshots, icon, and feature graphic within the dimensions documented in `docs/store-listing.md`; use only original or licensed demo artwork, such as `assets/demo-art/`, and never commit third-party comic art: the repository is public.
 
 ## Testing Guidelines
 

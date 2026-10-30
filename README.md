@@ -64,7 +64,7 @@ messages, and [docs/RELEASING.md](docs/RELEASING.md) for publishing to Google Pl
 | [`fastlane/metadata/android/`](fastlane/metadata/android) | Store listing texts, screenshots and per-version release notes |
 | [`scripts/`](scripts) | Google Play publishing, store listing upload and changelog tools |
 | [`assets/`](assets) | Original demo artwork and the icon source |
-| [`docs/`](docs) | Release process, store listing guide and design references |
+| [`docs/`](docs) | Release process and store listing guide |
 
 ## Changelog
 

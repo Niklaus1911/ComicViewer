@@ -1,0 +1,1 @@
+La pagina di dettaglio di un fumetto ora mostra dove si trova il file, ad esempio Memoria interna/Comics. Tieni premuto un dettaglio per copiarlo. La scoperta automatica trova anche i fumetti in PDF.

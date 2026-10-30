@@ -1,0 +1,1 @@
+Under-the-hood update with newer libraries and small fixes. When your device is nearly full, comics opened from cloud storage apps can now use space Android frees from cached files.

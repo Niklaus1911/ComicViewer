@@ -1,0 +1,1 @@
+La scoperta automatica ora trova anche i fumetti in PDF. I PDF con almeno 8 pagine ricche di immagini vengono aggiunti alla libreria, mentre i documenti comuni come manuali e fatture restano fuori.

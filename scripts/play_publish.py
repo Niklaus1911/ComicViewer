@@ -8,21 +8,22 @@ app in Play Console (Users and permissions). Keep the key outside the repo.
   scripts/play_publish.py --key ~/keys/play.json --check
 
   # Upload, validate and discard (changes nothing):
-  scripts/play_publish.py --key ~/keys/play.json --track production --dry-run \
-      --notes it-IT=notes/it.txt --notes en-US=notes/en.txt
+  scripts/play_publish.py --key ~/keys/play.json --track production --dry-run
 
   # Staged production rollout to 20% of users:
-  scripts/play_publish.py --key ~/keys/play.json --track production --rollout 0.2 \
-      --notes it-IT=notes/it.txt --notes en-US=notes/en.txt
+  scripts/play_publish.py --key ~/keys/play.json --track production --rollout 0.2
 
   # Put an already uploaded build on another track without re-uploading:
-  scripts/play_publish.py --key ~/keys/play.json --track internal --version-code 18 \
-      --notes it-IT=notes/it.txt --notes en-US=notes/en.txt
+  scripts/play_publish.py --key ~/keys/play.json --track internal --version-code 18
+
+Release notes come from fastlane/metadata/android/<language>/changelogs/<versionCode>.txt, one
+file per language, en-US required. --notes LANGUAGE=FILE replaces them for a single run.
 """
 
 import argparse
 import base64
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -38,6 +39,9 @@ UPLOAD_API = "https://androidpublisher.googleapis.com/upload/androidpublisher/v3
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUNDLE = ROOT / "app/build/outputs/bundle/release/app-release.aab"
 DEFAULT_MAPPING = ROOT / "app/build/outputs/mapping/release/mapping.txt"
+DEFAULT_METADATA = ROOT / "fastlane/metadata/android"
+BUILD_FILE = ROOT / "app/build.gradle.kts"
+DEFAULT_LANGUAGE = "en-US"
 REQUEST_TIMEOUT = 60
 UPLOAD_TIMEOUT = 600
 MAX_NOTES_LENGTH = 500
@@ -140,19 +144,40 @@ def check_access(client: PlayClient) -> None:
             print(f"  {describe_release(release)}")
 
 
+def read_notes(language: str, path: Path) -> dict:
+    text = path.read_text().strip()
+    if not text:
+        raise PlayError(f"Release notes for {language} are empty: {path}")
+    if len(text) > MAX_NOTES_LENGTH:
+        raise PlayError(f"Release notes for {language} exceed {MAX_NOTES_LENGTH} characters ({len(text)}): {path}")
+    return {"language": language, "text": text}
+
+
 def parse_notes(entries: list[str]) -> list[dict]:
     notes = []
     for entry in entries:
         language, separator, file_name = entry.partition("=")
         if not separator or not language or not file_name:
             raise PlayError(f"--notes expects LANGUAGE=FILE, got {entry!r}")
-        text = Path(file_name).expanduser().read_text().strip()
-        if not text:
-            raise PlayError(f"Release notes for {language} are empty")
-        if len(text) > MAX_NOTES_LENGTH:
-            raise PlayError(f"Release notes for {language} exceed {MAX_NOTES_LENGTH} characters ({len(text)})")
-        notes.append({"language": language, "text": text})
+        notes.append(read_notes(language, Path(file_name).expanduser()))
     return notes
+
+
+def metadata_notes(metadata: Path, version_code: int) -> list[dict]:
+    """The release notes in <language>/changelogs/<versionCode>.txt of the fastlane metadata folder."""
+    notes = [
+        read_notes(path.parent.parent.name, path)
+        for path in sorted(metadata.glob(f"*/changelogs/{version_code}.txt"))
+    ]
+    if not any(note["language"] == DEFAULT_LANGUAGE for note in notes):
+        raise PlayError(f"No release notes at {metadata / DEFAULT_LANGUAGE / 'changelogs'}/{version_code}.txt")
+    return notes
+
+
+def built_version_code() -> int | None:
+    """The appVersionCode the bundle is built with, read from app/build.gradle.kts."""
+    match = re.search(r"^val appVersionCode = (\d+)$", BUILD_FILE.read_text(), re.MULTILINE)
+    return int(match.group(1)) if match else None
 
 
 def build_release(args: argparse.Namespace, version_code: int, notes: list[dict]) -> dict:
@@ -176,7 +201,14 @@ def publish(client: PlayClient, args: argparse.Namespace) -> None:
         raise PlayError("--rollout must be greater than 0 and at most 1")
     if args.version_code is None and not args.bundle.is_file():
         raise PlayError(f"Bundle not found: {args.bundle}. Run ./gradlew bundleRelease first.")
-    notes = parse_notes(args.notes)
+    # Notes are checked before anything is uploaded, against the version code the bundle should have.
+    expected_version_code = args.version_code or built_version_code()
+    if args.notes:
+        notes = parse_notes(args.notes)
+    elif expected_version_code is not None:
+        notes = metadata_notes(args.metadata, expected_version_code)
+    else:
+        notes = None
 
     edit_id = client.insert_edit()
     committed = False
@@ -197,6 +229,9 @@ def publish(client: PlayClient, args: argparse.Namespace) -> None:
                 print(f"Uploaded R8 mapping {args.mapping}")
             elif args.mapping:
                 print(f"No mapping file at {args.mapping}; skipping deobfuscation upload")
+
+        if not args.notes and version_code != expected_version_code:
+            notes = metadata_notes(args.metadata, version_code)
 
         release = build_release(args, version_code, notes)
         client.call(
@@ -241,7 +276,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rollout", type=float, default=1.0, help="user fraction, e.g. 0.2 for 20%%")
     parser.add_argument("--draft", action="store_true", help="create a draft release instead of rolling out")
     parser.add_argument("--release-name", help="defaults to the version name chosen by Play")
-    parser.add_argument("--notes", action="append", default=[], metavar="LANGUAGE=FILE")
+    parser.add_argument(
+        "--notes",
+        action="append",
+        default=[],
+        metavar="LANGUAGE=FILE",
+        help="release notes for one run, instead of the fastlane changelogs",
+    )
+    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA, help="fastlane metadata folder")
     parser.add_argument("--dry-run", action="store_true", help="upload and validate, then discard the edit")
     args = parser.parse_args()
     if not args.check and not args.track:

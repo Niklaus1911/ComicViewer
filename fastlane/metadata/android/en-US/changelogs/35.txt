@@ -1,0 +1,1 @@
+Vertical scrolling: zoomed pages now load in sharper detail, pinch zoom stays where your fingers are, and you can scroll to every edge of a zoomed page. Double-tap no longer zooms, so a single tap shows or hides the controls instantly.

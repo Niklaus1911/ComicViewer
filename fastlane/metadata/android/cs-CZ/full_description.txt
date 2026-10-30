@@ -1,0 +1,17 @@
+ComicViewer je jednoduchá a rychlá čtečka lokálních komiksů pro vaše zařízení Android.
+
+  Otevřete archivy CBZ/ZIP nebo složky s obrázky a čtěte své komiksy v přehledném rozhraní navrženém tak, aby se soustředilo na samotné stránky. Přidejte
+  komiksy do své knihovny, pokračujte ve čtení tam, kde jste skončili, a importujte více komiksů najednou.
+
+  Hlavní funkce:
+  - Čtení komiksových archivů CBZ a ZIP.
+  - Podpora složek s obrázky.
+  - Lokální komiksová knihovna.
+  - Automatické ukládání průběhu čtení.
+  - Hromadný import pro přidání více komiksů do knihovny.
+  - Anglické a italské rozhraní.
+  - Funguje primárně s lokálními daty na vašem zařízení.
+
+  ComicViewer pracuje se soubory uloženými přímo na vašem zařízení. Nevyžaduje účet a vaše komiksy nenahrává na externí servery.
+
+  Poznámka: pro čtení lokálních archivů a složek může aplikace vyžadovat povolení k přístupu k souborům na vašem zařízení.

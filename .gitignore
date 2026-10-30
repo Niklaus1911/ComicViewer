@@ -26,3 +26,7 @@ playpublisher-*.json
 .codex/
 .claude/settings.local.json
 .claude/worktrees/
+
+# Python
+__pycache__/
+*.pyc

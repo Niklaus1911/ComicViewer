@@ -1,0 +1,32 @@
+Comic Viewer is a fast, private reader for the comics already on your device: CBZ and ZIP archives, PDF comics and folders of images. Pages are read straight from your files, nothing is extracted or uploaded, and no account is needed.
+
+YOUR LIBRARY
+• Add comics one by one, scan a folder you choose, or let the app find CBZ and ZIP files on your device
+• Pick up where you stopped from Continue reading, with progress on every cover
+• Search by title, series, writer or genre, read from the ComicInfo.xml inside your archives
+• Grid, compact and list layouts, sorted by date added, title or last read
+• A details page for every comic with page previews, page count, file size and metadata
+• Reading history grouped by day, with finished comics marked
+
+READING
+• Swipe or tap the edges to turn pages, or scroll vertically through webtoons and long strips
+• Pinch to zoom, with pages reloaded in sharper detail as you zoom in
+• A page thumbnail grid to jump anywhere in the comic
+• Full-screen reading with the screen kept on and an optional page number
+• Layouts for phones and tablets, in portrait and landscape
+
+PRIVATE BY DESIGN
+• Works offline with the files on your device or picked from your storage apps
+• No account, no ads, no uploads
+• Back up and restore your library, progress and settings
+
+COMIC VIEWER PRO
+A one-time purchase unlocks:
+• Two-page spreads and right-to-left manga reading
+• Fit width, fit height and original size
+• Reader backgrounds, brightness and margins
+• Favorites, tags and progress filters
+• Extra color themes
+Vertical scrolling stays free.
+
+The app is available in English and Italian, and TalkBack announces each page by its position, such as "Page 10 of 24".

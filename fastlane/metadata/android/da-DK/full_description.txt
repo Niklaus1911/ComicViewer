@@ -1,0 +1,17 @@
+ComicViewer er en enkel og hurtig læser til lokale tegneserier på din Android-enhed.
+
+  Åbn CBZ/ZIP-arkiver eller mapper med billeder, og læs dine tegneserier med en overskuelig grænseflade, der er designet til at holde fokus på siderne. Tilføj
+  tegneserier til dit bibliotek, genoptag læsningen, hvor du slap, og importer flere tegneserier på én gang.
+
+  Hovedfunktioner:
+  - Læs CBZ- og ZIP-tegneseriearkiver.
+  - Understøttelse af billedmapper.
+  - Lokalt tegneseriebibliotek.
+  - Automatisk gemning af læsefremskridt.
+  - Import af flere tegneserier på én gang til dit bibliotek.
+  - Engelsk og italiensk brugerflade.
+  - Fungerer lokalt på din enhed.
+
+  ComicViewer fungerer med filer gemt på din enhed. Det kræver ingen konto og uploader ikke dine tegneserier til eksterne servere.
+
+  Bemærk: For at læse lokale arkiver og mapper kan appen bede om tilladelse til at få adgang til filer på din enhed.

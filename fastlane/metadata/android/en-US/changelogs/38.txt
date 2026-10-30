@@ -1,0 +1,1 @@
+Auto discover now finds PDF comics too. PDFs with at least 8 picture-heavy pages are added to your library, while ordinary documents such as manuals and invoices are left out.

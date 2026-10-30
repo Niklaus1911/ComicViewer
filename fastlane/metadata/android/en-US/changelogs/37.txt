@@ -1,0 +1,1 @@
+Better vertical scrolling: zoomed pages load in sharper detail, pinch zoom stays where your fingers are, you can scroll to every edge of a zoomed page, and the page number follows along. Double-tap no longer zooms, so a single tap shows or hides the controls instantly. Also newer libraries and small fixes.

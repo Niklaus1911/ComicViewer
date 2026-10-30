@@ -1,0 +1,1 @@
+Scorrimento verticale migliorato: le pagine ingrandite si caricano più nitide, lo zoom con due dita resta dove sono le dita, puoi scorrere fino a ogni bordo di una pagina ingrandita e il numero di pagina segue lo zoom. Il doppio tocco non ingrandisce più, così un tocco singolo mostra o nasconde subito i controlli. Inoltre librerie più recenti e piccole correzioni.

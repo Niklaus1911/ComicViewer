@@ -1,0 +1,17 @@
+ComicViewer on yksinkertainen ja nopea lukija Android-laitteesi paikallisille sarjakuville.
+
+  Avaa CBZ/ZIP-arkistoja tai kuvia sisältäviä kansioita ja lue sarjakuvasi selkeällä käyttöliittymällä, joka on suunniteltu keskittymään itse sarjakuvasivuihin. Lisää
+  sarjakuvia kirjastoosi, jatka lukemista siitä mihin jäit ja tuo useita sarjakuvia kerralla.
+
+  Pääominaisuudet:
+  - Lue CBZ- ja ZIP-sarjakuva-arkistoja.
+  - Tuki kuvakansioille.
+  - Paikallinen sarjakuvakirjasto.
+  - Automaattinen lukemisen edistymisen tallennus.
+  - Monivalintatuonti useiden sarjakuvien lisäämiseksi kirjastoosi.
+  - Englannin- ja italiankielinen käyttöliittymä.
+  - Toimii ensisijaisesti paikallisesti laitteellasi.
+
+  ComicViewer toimii laitteellesi tallennettujen tiedostojen kanssa. Se ei vaadi tiliä eikä lataa sarjakuviasi ulkoisille palvelimille.
+
+  Huomautus: paikallisten arkistojen ja kansioiden lukemiseksi sovellus saattaa pyytää tiedostojen käyttöoikeutta laitteellasi.

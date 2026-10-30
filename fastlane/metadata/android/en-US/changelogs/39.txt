@@ -1,0 +1,1 @@
+A comic's details page now shows where its file is, such as Internal storage/Comics. Long press a detail to copy it. Auto discover also finds PDF comics.

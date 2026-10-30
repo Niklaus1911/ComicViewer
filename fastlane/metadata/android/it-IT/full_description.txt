@@ -1,0 +1,32 @@
+Comic Viewer è un lettore veloce e riservato per i fumetti che hai già sul dispositivo: archivi CBZ e ZIP, fumetti in PDF e cartelle di immagini. Le pagine vengono lette direttamente dai tuoi file, senza estrarre né caricare nulla, e non serve alcun account.
+
+LA TUA LIBRERIA
+• Aggiungi fumetti uno alla volta, scansiona una cartella a tua scelta o lascia che l'app trovi i file CBZ e ZIP sul dispositivo
+• Riprendi da dove eri rimasto con Continua a leggere, con l'avanzamento su ogni copertina
+• Cerca per titolo, serie, autore o genere, letti dal ComicInfo.xml dentro i tuoi archivi
+• Visualizzazione a griglia, compatta o a elenco, ordinata per data di aggiunta, titolo o ultima lettura
+• Una pagina di dettagli per ogni fumetto con anteprime, numero di pagine, dimensione e metadati
+• Cronologia di lettura raggruppata per giorno, con i fumetti finiti segnati
+
+LETTURA
+• Scorri o tocca i bordi per girare pagina, oppure leggi in verticale webtoon e strisce lunghe
+• Pizzica per ingrandire: le pagine si ricaricano con più dettaglio mentre ingrandisci
+• Una griglia di miniature per saltare a qualsiasi pagina
+• Lettura a schermo intero con schermo sempre acceso e numero di pagina facoltativo
+• Layout per smartphone e tablet, in verticale e in orizzontale
+
+RISERVATO PER NATURA
+• Funziona offline con i file sul dispositivo o scelti dalle tue app di archiviazione
+• Nessun account, nessuna pubblicità, nessun caricamento
+• Backup e ripristino di libreria, avanzamento e impostazioni
+
+COMIC VIEWER PRO
+Un acquisto unico sblocca:
+• Doppia pagina e lettura da destra a sinistra per i manga
+• Adatta alla larghezza, all'altezza e dimensione originale
+• Sfondi, luminosità e margini del lettore
+• Preferiti, tag e filtri per avanzamento
+• Temi colore aggiuntivi
+Lo scorrimento verticale resta gratuito.
+
+L'app è disponibile in italiano e in inglese, e TalkBack annuncia ogni pagina con la sua posizione, ad esempio "Pagina 10 di 24".

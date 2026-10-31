@@ -18,7 +18,7 @@ Outside the app:
 - `scripts/`: `play_publish.py` publishes builds and reads the release notes from the fastlane changelogs, `play_listing.py` uploads the listing texts and screenshots, and `changelog_section.py` prints a version's `CHANGELOG.md` section for GitHub releases.
 - `assets/`: original demo artwork used in the screenshots, and the icon source.
 - `docs/`: `RELEASING.md` (the release process) and `store-listing.md`.
-- Root documents: `README.md`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `LICENSE` (proprietary, all rights reserved), plus `.editorconfig` and `.gitattributes`.
+- Root documents: `README.md`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `LICENSE` (proprietary; others may build and change the code only to evaluate it and to contribute), plus `.editorconfig` and `.gitattributes`.
 
 ## Toolchain
 

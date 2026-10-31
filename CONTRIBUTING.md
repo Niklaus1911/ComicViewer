@@ -42,9 +42,10 @@ and why, wrapped at about 72 characters. Don't add `Co-Authored-By` or other att
 Describe what changed and how you tested it, add screenshots or recordings for interface changes,
 and point out anything that touches storage access, permissions, billing or caching.
 
-Comic Viewer is not open source (see [LICENSE](LICENSE)). By opening a pull request you agree that
-the copyright holder may use, change and distribute your contribution as part of Comic Viewer,
-including the app on Google Play.
+Comic Viewer is not open source: [LICENSE](LICENSE) lets you build and change the code only to try
+it and to prepare contributions. By opening a pull request you agree that the copyright holder may
+use, change and distribute your contribution as part of Comic Viewer, including the app on Google
+Play.
 
 ## CI
 

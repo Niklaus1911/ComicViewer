@@ -1,4 +1,21 @@
 Copyright (c) 2026 Niklaus1911. All rights reserved.
 
-This source code is proprietary. No permission is granted to copy, modify, distribute or use it,
-in whole or in part, without the copyright holder's prior written permission.
+This source code is proprietary. Except as stated below, no permission is granted to copy, modify,
+distribute or use it, in whole or in part, without the copyright holder's prior written permission.
+
+You may view this source code, fork it on GitHub, and clone, build, run and modify it on your own
+devices, only to evaluate it and to prepare contributions to this repository
+(https://github.com/Niklaus1911/ComicViewer). This permission does not allow you to:
+
+- distribute or publish the source code or any build of it, modified or not, other than through
+  forks on GitHub used to send contributions to this repository;
+- publish any build of it in an app store or anywhere else;
+- use Pro features without buying them, except to test changes you are preparing to contribute;
+- use the code, or any part of it, in another product or for any commercial purpose.
+
+By opening a pull request you agree that the copyright holder may use, change and distribute your
+contribution as part of Comic Viewer, as described in CONTRIBUTING.md.
+
+THE SOURCE CODE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. IN NO EVENT
+SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE
+SOURCE CODE OR ITS USE.

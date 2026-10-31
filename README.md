@@ -72,4 +72,5 @@ What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-Copyright © 2026 Niklaus1911. All rights reserved; see [LICENSE](LICENSE).
+Copyright © 2026 Niklaus1911. All rights reserved. You may build and change the code to try it
+and to contribute, but not publish or redistribute it; see [LICENSE](LICENSE).

@@ -63,7 +63,7 @@ messages, and [docs/RELEASING.md](docs/RELEASING.md) for publishing to Google Pl
 | [`app/src/test/`](app/src/test), [`app/src/androidTest/`](app/src/androidTest) | Unit tests and device tests |
 | [`fastlane/metadata/android/`](fastlane/metadata/android) | Store listing texts, screenshots and per-version release notes |
 | [`scripts/`](scripts) | Google Play publishing, store listing upload and changelog tools |
-| [`assets/`](assets) | Original demo artwork and the icon source |
+| [`assets/`](assets) | Original demo artwork, the icon source and the GitHub social preview |
 | [`docs/`](docs) | Release process and store listing guide |
 
 ## Changelog

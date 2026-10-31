@@ -56,3 +56,7 @@ version in English.
 Covers and pages in the screenshots are original demo artwork in [`assets/demo-art`](../assets/demo-art);
 the icon's full-size source is [`assets/icon/icon-source-1254.png`](../assets/icon/icon-source-1254.png).
 Use only original or licensed artwork in anything published or committed.
+
+The GitHub social preview, [`assets/social-preview.png`](../assets/social-preview.png), is the
+feature graphic cropped to 1280×640. GitHub has no API for it, so after changing it, upload it by
+hand under the repository's Settings → General → Social preview.

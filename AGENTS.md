@@ -18,7 +18,7 @@ Outside the app:
 - `scripts/`: `play_publish.py` publishes builds and reads the release notes from the fastlane changelogs, `play_listing.py` uploads the listing texts and screenshots, and `changelog_section.py` prints a version's `CHANGELOG.md` section for GitHub releases.
 - `assets/`: original demo artwork used in the screenshots, the icon source, and `social-preview.png`, the GitHub social preview (uploaded by hand in the repository settings).
 - `docs/`: `RELEASING.md` (the release process) and `store-listing.md`.
-- Root documents: `README.md`, `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `LICENSE` (proprietary; others may build and change the code only to evaluate it and to contribute), plus `.editorconfig` and `.gitattributes`.
+- Root documents: `README.md`, `CLAUDE.md` (loads this file for Claude Code), `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `LICENSE` (proprietary; others may build and change the code only to evaluate it and to contribute), plus `.editorconfig` and `.gitattributes`.
 
 ## Toolchain
 
@@ -62,15 +62,14 @@ The default branch is `main`. Use short imperative commit subjects without a fin
 
 ## Reporting to the User
 
-Keep replies short and easy to scan:
+Assume the user didn't watch the run, and explain things as you would to a smart non-specialist: plain language, no jargon.
 
-- Open with one sentence giving the outcome: what was done and whether it worked.
-- Follow with at most five bullets, one fact each, using bold labels such as **Tests:**, **Play:**, **GitHub:**.
-- Put anything the user must do on its own line labeled **Needs you:**.
-- End with at most one suggested next step or question.
-- Use plain words before identifiers. Include a path, commit hash or run ID only when the user needs it to act, and put it in backticks.
-- Use a small table to compare several items, such as tracks, versions or files.
-- Don't restate the request or narrate each step. Give details only when asked or when something failed.
+- Before starting: one sentence saying what you're about to do and why.
+- When finished, end with a short report in four parts:
+  1. **What I did**: 2–4 bullets, in terms of behavior, not code.
+  2. **Files changed**: each file with one line on why.
+  3. **How I checked it**: what you ran or tested, and the result.
+  4. **What to watch / what I need from you**: risks, untested parts, decisions left open.
 
 ## Security & Configuration Tips
 

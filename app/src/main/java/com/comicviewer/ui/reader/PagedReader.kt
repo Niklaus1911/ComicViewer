@@ -563,9 +563,15 @@ internal fun PagedComicReader(
     // live instead of restarting, which would cut the pinch off.
     val currentLayoutPageSize by rememberUpdatedState(IntSize(layoutPageWidth, layoutPageHeight))
 
+    // Keyed on everything that resets the placement flags above, so a reset is acted on at once rather
+    // than by the next pinch, which would send the page to its start mid-gesture.
     LaunchedEffect(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+        activeReaderPreferences.pageFitMode,
+        activeReaderPreferences.readingDirection,
+        autoCrop,
         viewportSize,
         layoutPageWidth,
         layoutPageHeight,

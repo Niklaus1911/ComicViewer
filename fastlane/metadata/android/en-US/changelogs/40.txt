@@ -1,0 +1,1 @@
+New Pro setting: Auto-crop borders. It trims plain white, cream or black margins from scanned pages, including dark scanner edges, so the art fills more of the screen. Pages whose art reaches the edge are left as they are. Find it in the reader settings.

@@ -1,0 +1,1 @@
+Nuova impostazione Pro: Ritaglio automatico bordi. Rimuove i margini bianchi, color crema o neri dalle pagine scansionate, compresi i bordi scuri dello scanner, così i disegni riempiono di più lo schermo. Le pagine con disegni fino al bordo restano invariate. La trovi nelle impostazioni del lettore.

@@ -43,6 +43,7 @@
     <string name="reader_margins">Margins</string>
     <string name="reader_auto_crop">Auto-crop borders</string>
     <string name="reader_auto_crop_description">Trims plain white or black margins so the art fills more of the screen</string>
+    <string name="reader_auto_crop_single_page_only">Works in single-page mode; two-page and vertical reading show pages whole</string>
     <string name="reader_keep_screen_on">Keep screen on</string>
     <string name="reader_show_page_number">Show page number</string>
     <string name="file_access_title">Allow file access</string>

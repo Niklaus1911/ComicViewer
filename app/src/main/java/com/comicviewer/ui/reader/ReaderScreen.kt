@@ -231,8 +231,9 @@ internal fun ComicPage.imageRequest(
     val cacheKey = comicPageImageCacheKey(source = source, page = this)
     return ImageRequest.Builder(context)
         .data(imageUri)
-        .memoryCacheKey(readerPageMemoryCacheKey(cacheKey, autoCrop))
+        .memoryCacheKey(cacheKey)
         .diskCacheKey(cacheKey)
+        // The crop also adds itself to the memory cache key, so cropped and whole pages stay apart.
         .cropPageBorders(autoCrop)
         .build()
 }

@@ -7,6 +7,8 @@ import coil3.request.transformations
 import coil3.size.Dimension
 import coil3.size.Size
 import coil3.transform.Transformation
+import com.comicviewer.ReaderPageMode
+import com.comicviewer.ReaderPreferences
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -91,9 +93,12 @@ internal object PageBorderCropTransformation : Transformation() {
 internal fun ImageRequest.Builder.cropPageBorders(enabled: Boolean): ImageRequest.Builder =
     if (enabled) transformations(PageBorderCropTransformation) else this
 
-/** A cropped page is a different image, so it is kept in the memory cache under its own key. */
-internal fun readerPageMemoryCacheKey(baseKey: String, autoCrop: Boolean): String =
-    if (autoCrop) "$baseKey|${PageBorderCropTransformation.cacheKey}" else baseKey
+/**
+ * Whether pages are cropped. Only single pages are: facing pages cropped apart would be fitted to
+ * different sizes and no longer meet at the seam, and in the vertical strip, where every page fills
+ * the width, a cropped page would look larger than its neighbours and lose the gaps webtoons use.
+ */
+internal fun ReaderPreferences.autoCropApplies(): Boolean = autoCrop && pageMode == ReaderPageMode.SinglePage
 
 /**
  * Sets the size of a reader page request. A cropped page is requested with headroom for its borders
@@ -245,8 +250,16 @@ private fun borderDepth(
     if (lineLength <= 0 || maxDepth <= 0) return 0
     val allowedMisses = (lineLength * BORDER_NOISE_FRACTION).toInt()
     val line = IntArray(lineLength)
+    var lineInBuffer = -1
+    // Each line is read once, though it is looked at both to start a band and to match one.
+    fun readLine(index: Int) {
+        if (index != lineInBuffer) {
+            reader.read(side, index, start, end, line)
+            lineInBuffer = index
+        }
+    }
     fun lineMatches(index: Int, reference: Int): Boolean {
-        reader.read(side, index, start, end, line)
+        readLine(index)
         var misses = 0
         for (pixel in line) {
             if (!pixel.isNear(reference) && ++misses > allowedMisses) return false
@@ -256,7 +269,7 @@ private fun borderDepth(
     var depth = 0
     var previousBandDark: Boolean? = null
     while (depth < maxDepth) {
-        reader.read(side, depth, start, end, line)
+        readLine(depth)
         val reference = averageColor(line)
         val dark = reference.borderTone() ?: break
         when (previousBandDark) {

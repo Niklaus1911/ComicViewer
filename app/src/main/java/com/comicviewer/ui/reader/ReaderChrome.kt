@@ -508,13 +508,18 @@ fun ReaderSettingsDialog(
                 }
             }
             Column {
+                val singlePage = activeReaderPreferences.pageMode == ReaderPageMode.SinglePage
                 ReaderSwitchRow(
                     label = stringResource(R.string.reader_auto_crop),
-                    description = stringResource(R.string.reader_auto_crop_description),
+                    description = stringResource(
+                        if (singlePage) R.string.reader_auto_crop_description else R.string.reader_auto_crop_single_page_only,
+                    ),
                     checked = activeReaderPreferences.autoCrop,
                     onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(autoCrop = it)) },
                     locked = !isProUnlocked,
                     onLocked = onRequestPro,
+                    // Two-page and vertical reading show pages whole, so the switch rests there.
+                    enabled = singlePage,
                 )
                 ReaderSwitchRow(
                     label = stringResource(R.string.reader_keep_screen_on),
@@ -635,12 +640,14 @@ private fun ReaderSwitchRow(
     description: String? = null,
     locked: Boolean = false,
     onLocked: () -> Unit = {},
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .toggleable(
                 value = checked,
+                enabled = enabled || locked,
                 role = Role.Switch,
                 onValueChange = { if (locked) onLocked() else onCheckedChange(it) },
             )
@@ -649,7 +656,15 @@ private fun ReaderSwitchRow(
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(label, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (enabled || locked) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    },
+                )
                 if (locked) ProLockMark()
             }
             description?.let {
@@ -660,7 +675,7 @@ private fun ReaderSwitchRow(
                 )
             }
         }
-        Switch(checked = checked, onCheckedChange = null, enabled = !locked)
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled && !locked)
     }
 }
 

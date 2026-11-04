@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.request.transformations
 import coil3.request.ImageRequest
 import coil3.request.NullRequestDataException
 import coil3.size.Precision
@@ -135,9 +136,7 @@ internal fun PagedComicReader(
     val secondSpreadPage = spreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val originalSize = activeReaderPreferences.pageFitMode == ReaderPageFitMode.Original
-    // Facing pages cropped apart would be fitted to different sizes and no longer meet at the seam,
-    // so two-page spreads are shown whole.
-    val autoCrop = activeReaderPreferences.autoCrop && activeReaderPreferences.pageMode != ReaderPageMode.TwoPage
+    val autoCrop = activeReaderPreferences.autoCropApplies()
     // Detail for pages about to be shown: what the fit mode needs before any pinch.
     var baseDetailStep by remember(book, activeReaderPreferences.pageFitMode) { mutableIntStateOf(1) }
     // Detail for the visible page: it rises while the page is zoomed and never falls, so zooming
@@ -194,8 +193,12 @@ internal fun PagedComicReader(
         secondSpreadPage?.imageUri,
         activeReaderPreferences.pageMode,
     ) { mutableStateOf(Offset.Zero) }
+    // Until a cropped page is decoded, its layout uses a stand-in shape: its stored size, or the whole
+    // page still on screen after auto-crop is turned on. This turns true once the cropped image is shown.
+    var croppedShapeShown by remember(visualPage.imageUri, autoCrop) { mutableStateOf(false) }
     // A page larger than the viewport is moved to where reading starts as soon as its size is known,
-    // and again when the viewport or the fit settings change, for example when the screen rotates.
+    // and again when the viewport or the fit settings change, for example when the screen rotates, or
+    // when the cropped shape replaces a stand-in, which would otherwise leave the page partway down.
     var pageOffsetPlaced by remember(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
@@ -204,6 +207,7 @@ internal fun PagedComicReader(
         activeReaderPreferences.readingDirection,
         viewportSize,
         autoCrop,
+        croppedShapeShown,
     ) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
@@ -437,6 +441,8 @@ internal fun PagedComicReader(
     LaunchedEffect(painterState, visualPage.imageUri, resources) {
         when (val state = painterState) {
             is AsyncImagePainter.State.Success -> {
+                // The painter can still hold the whole page for a moment after auto-crop is turned on.
+                if (autoCrop && state.result.request.transformations.isNotEmpty()) croppedShapeShown = true
                 lastSuccessfulPainter = RememberedPagePainter(
                     imageUri = visualPage.imageUri.toString(),
                     painter = state.painter,

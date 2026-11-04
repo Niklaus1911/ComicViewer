@@ -44,6 +44,7 @@
     <string name="reader_margins">Margini</string>
     <string name="reader_auto_crop">Ritaglio automatico bordi</string>
     <string name="reader_auto_crop_description">Rimuove i margini bianchi o neri uniformi, così i disegni riempiono di più lo schermo</string>
+    <string name="reader_auto_crop_single_page_only">Funziona con la pagina singola; due pagine e scorrimento verticale mostrano le pagine intere</string>
     <string name="reader_keep_screen_on">Mantieni schermo acceso</string>
     <string name="reader_show_page_number">Mostra numero pagina</string>
     <string name="file_access_title">Consenti accesso ai file</string>

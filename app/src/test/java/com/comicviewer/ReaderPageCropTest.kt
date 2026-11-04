@@ -6,11 +6,12 @@ import com.comicviewer.ui.reader.PageContentBounds
 import com.comicviewer.ui.reader.detectPageContentBounds
 import com.comicviewer.ui.reader.readerCropRequestSize
 import com.comicviewer.ui.reader.readerPageLayoutDimension
-import com.comicviewer.ui.reader.readerPageMemoryCacheKey
+import com.comicviewer.ui.reader.autoCropApplies
 import com.comicviewer.ui.reader.toContentBounds
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ReaderPageCropTest {
@@ -153,9 +154,11 @@ class ReaderPageCropTest {
     }
 
     @Test
-    fun readerPageMemoryCacheKey_keepsCroppedPagesApart() {
-        assertEquals("page", readerPageMemoryCacheKey("page", autoCrop = false))
-        assertNotEquals("page", readerPageMemoryCacheKey("page", autoCrop = true))
+    fun autoCropApplies_onlyToSinglePages() {
+        assertTrue(ReaderPreferences(autoCrop = true).autoCropApplies())
+        assertFalse(ReaderPreferences(autoCrop = true, pageMode = ReaderPageMode.TwoPage).autoCropApplies())
+        assertFalse(ReaderPreferences(autoCrop = true, pageMode = ReaderPageMode.Vertical).autoCropApplies())
+        assertFalse(ReaderPreferences(autoCrop = false).autoCropApplies())
     }
 
     private class TestPage(val width: Int, val height: Int, val pixels: IntArray) {

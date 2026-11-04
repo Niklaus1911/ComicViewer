@@ -13,9 +13,9 @@ production version.
 ### Added
 
 - Auto-crop borders (Pro): a reader setting that trims plain white, cream or black margins from
-  scanned pages, including dark scanner edges, so the art fills more of the screen. Thin panel
-  frames, blank pages and small drawings are kept whole, and two-page spreads are shown uncropped
-  so facing pages still meet.
+  scanned pages, including dark scanner edges, so the art fills more of the screen. It works in
+  single-page mode; two-page spreads and vertical scrolling show pages whole, so facing pages still
+  meet and webtoon spacing stays. Thin panel frames, blank pages and small drawings are kept whole.
 
 ## [1.0.36] - 2026-10-30
 

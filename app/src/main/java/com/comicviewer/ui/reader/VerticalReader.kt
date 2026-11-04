@@ -27,6 +27,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,8 +49,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
-import coil3.request.ImageRequest
 import coil3.size.Precision
+import coil3.size.Size as CoilSize
 import coil3.size.Scale
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicPage
@@ -211,6 +212,9 @@ internal fun VerticalComicReader(
                 },
         ) {
             val pageWidthPx = with(LocalDensity.current) { (maxWidth - (preferences.marginDp * 2).dp).roundToPx() }
+            // Shapes measured from decoded pages outlive the list items, so a page scrolled away and
+            // back keeps its height instead of starting from its stored size and jumping again.
+            val measuredAspectRatios = remember(book, preferences.autoCrop) { mutableStateMapOf<Int, Float>() }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -238,6 +242,8 @@ internal fun VerticalComicReader(
                         // Only pages on screen load in more detail, which bounds the memory a zoom takes.
                         detailStep = if (page.index in visiblePages) zoomDetailStep else 1,
                         autoCrop = preferences.autoCrop,
+                        measuredAspectRatio = measuredAspectRatios[page.index],
+                        onAspectRatioMeasured = { ratio -> measuredAspectRatios[page.index] = ratio },
                     )
                 }
             }
@@ -345,20 +351,19 @@ private fun VerticalPageImage(
     pageWidthPx: Int,
     detailStep: Int,
     autoCrop: Boolean,
+    measuredAspectRatio: Float?,
+    onAspectRatioMeasured: (Float) -> Unit,
 ) {
     val context = LocalContext.current
-    var aspectRatio by remember(page.imageUri) {
-        mutableStateOf(
-            if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height else null,
-        )
-    }
+    // Until the page is decoded, its stored size is the best guess; a cropped page is a little shorter.
+    val aspectRatio = measuredAspectRatio
+        ?: if (page.width > 0 && page.height > 0) page.width.toFloat() / page.height else null
     val requestWidth = pageWidthPx.coerceAtLeast(1) * detailStep
     val request = remember(page.imageUri, requestWidth, autoCrop) {
-        ImageRequest.Builder(context)
-            .data(page.imageUri)
-            .memoryCacheKey("${page.imageRequest(context, source, autoCrop).memoryCacheKey}|vertical|$requestWidth")
-            .cropPageBorders(autoCrop)
-            .size(requestWidth, requestWidth * MAX_PAGE_HEIGHT_TO_WIDTH)
+        val pageRequest = page.imageRequest(context, source, autoCrop)
+        pageRequest.newBuilder()
+            .memoryCacheKey("${pageRequest.memoryCacheKey}|vertical|$requestWidth")
+            .readerPageSize(CoilSize(requestWidth, requestWidth * MAX_PAGE_HEIGHT_TO_WIDTH), autoCrop)
             .scale(Scale.FIT)
             .precision(Precision.INEXACT)
             .build()
@@ -372,7 +377,7 @@ private fun VerticalPageImage(
         shownPainter = success.painter
         val image = success.result.image
         if (image.width > 0 && image.height > 0) {
-            aspectRatio = image.width.toFloat() / image.height
+            onAspectRatioMeasured(image.width.toFloat() / image.height)
         }
     }
     val pageLabel = page.accessibilityLabel(pageCount)

@@ -140,6 +140,22 @@ internal fun readerResolvedPageDimension(
         .coerceAtLeast(1)
 }
 
+/**
+ * A page dimension for layout. A cropped page's stored size is that of the whole page, so once its
+ * image is decoded the cropped image's own size is used; until then the stored size is a close guess
+ * that lets the page be requested in the right detail straight away.
+ */
+internal fun readerPageLayoutDimension(
+    storedDimension: Int,
+    painterIntrinsicDimension: Float,
+    autoCrop: Boolean,
+): Int {
+    if (autoCrop && painterIntrinsicDimension.isFinite() && painterIntrinsicDimension > 0f) {
+        return readerResolvedPageDimension(storedDimension = 0, painterIntrinsicDimension = painterIntrinsicDimension)
+    }
+    return readerResolvedPageDimension(storedDimension, painterIntrinsicDimension)
+}
+
 internal fun Offset.clampedFor(
     pageWidth: Int,
     pageHeight: Int,

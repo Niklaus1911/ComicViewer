@@ -135,7 +135,9 @@ internal fun PagedComicReader(
     val secondSpreadPage = spreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val originalSize = activeReaderPreferences.pageFitMode == ReaderPageFitMode.Original
-    val autoCrop = activeReaderPreferences.autoCrop
+    // Facing pages cropped apart would be fitted to different sizes and no longer meet at the seam,
+    // so two-page spreads are shown whole.
+    val autoCrop = activeReaderPreferences.autoCrop && activeReaderPreferences.pageMode != ReaderPageMode.TwoPage
     // Detail for pages about to be shown: what the fit mode needs before any pinch.
     var baseDetailStep by remember(book, activeReaderPreferences.pageFitMode) { mutableIntStateOf(1) }
     // Detail for the visible page: it rises while the page is zoomed and never falls, so zooming
@@ -201,6 +203,7 @@ internal fun PagedComicReader(
         activeReaderPreferences.pageFitMode,
         activeReaderPreferences.readingDirection,
         viewportSize,
+        autoCrop,
     ) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
@@ -486,14 +489,13 @@ internal fun PagedComicReader(
             ?.painter
     val primaryIntrinsicSize = displayedPainter?.intrinsicSize ?: Size.Unspecified
     val secondaryIntrinsicSize = displayedSecondPainter?.intrinsicSize ?: Size.Unspecified
-    // A page's stored size is that of the whole page; a cropped page takes its shape from the image.
-    val primaryPageWidth = readerResolvedPageDimension(visualPage.width.unlessCropped(autoCrop), primaryIntrinsicSize.width)
-    val primaryPageHeight = readerResolvedPageDimension(visualPage.height.unlessCropped(autoCrop), primaryIntrinsicSize.height)
+    val primaryPageWidth = readerPageLayoutDimension(visualPage.width, primaryIntrinsicSize.width, autoCrop)
+    val primaryPageHeight = readerPageLayoutDimension(visualPage.height, primaryIntrinsicSize.height, autoCrop)
     val secondaryPageWidth = secondSpreadPage?.let { page ->
-        readerResolvedPageDimension(page.width.unlessCropped(autoCrop), secondaryIntrinsicSize.width)
+        readerPageLayoutDimension(page.width, secondaryIntrinsicSize.width, autoCrop)
     } ?: 0
     val secondaryPageHeight = secondSpreadPage?.let { page ->
-        readerResolvedPageDimension(page.height.unlessCropped(autoCrop), secondaryIntrinsicSize.height)
+        readerPageLayoutDimension(page.height, secondaryIntrinsicSize.height, autoCrop)
     } ?: 0
     val layoutPageWidth = if (secondSpreadPage != null) {
         (primaryPageWidth.toLong() + secondaryPageWidth.toLong())
@@ -945,9 +947,6 @@ private suspend fun PointerInputScope.detectPageGestures(
 private fun AsyncImagePainter.State.Error.isNotRequestedYet(): Boolean =
     result.throwable is NullRequestDataException
 
-/** A stored page dimension, or 0 (unknown) when cropping makes the page a different size. */
-private fun Int.unlessCropped(autoCrop: Boolean): Int = if (autoCrop) 0 else this
-
 private fun List<ComicPage>.preloadRequests(
     currentIndex: Int,
     context: Context,
@@ -965,8 +964,9 @@ private fun List<ComicPage>.preloadRequests(
  * A page request sized for the reader: [detailStep] times the viewport, or the page's own full size in
  * the Original fit mode, so that mode shows every page at its real pixel size. Inexact precision lets
  * Coil keep a decoded size between the request and the page's own instead of scaling a page up.
- * With [autoCrop], the page's plain borders are trimmed after decoding. Nothing is requested until
- * the viewport has been measured.
+ * With [autoCrop], the page's plain borders are trimmed after decoding, from a copy requested a bit
+ * larger so the trimmed page still fills the screen. Nothing is requested until the viewport has
+ * been measured.
  */
 private fun ComicPage.readerPageRequest(
     context: Context,
@@ -983,7 +983,7 @@ private fun ComicPage.readerPageRequest(
         CoilSize(viewportSize.width * detailStep, viewportSize.height * detailStep)
     }
     return imageRequest(context, source, autoCrop).newBuilder()
-        .size(size)
+        .readerPageSize(size, autoCrop)
         .precision(Precision.INEXACT)
         .build()
 }

@@ -2,19 +2,15 @@ package com.comicviewer.ui.reader
 
 import android.graphics.Bitmap
 import android.os.Build
-import androidx.core.graphics.scale
 import coil3.request.ImageRequest
 import coil3.request.transformations
+import coil3.size.Dimension
 import coil3.size.Size
 import coil3.transform.Transformation
 import kotlin.math.abs
 import kotlin.math.ceil
-import kotlin.math.floor
-import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Longest side of the copy that borders are looked for in; a fixed size finds the same crop at any detail step. */
-private const val CROP_SAMPLE_SIZE = 400
 private const val MIN_CROP_INPUT_SIZE = 16
 
 /** How far, per color channel, a pixel may be from the border color and still count as border. */
@@ -23,10 +19,22 @@ private const val BORDER_COLOR_TOLERANCE = 40
 /** Share of a border line that may differ from the border color, for specks and scan dust. */
 private const val BORDER_NOISE_FRACTION = 0.02f
 
-/** Border colors are near white (paper, yellowed paper) or near black (scanner edges, black frames). */
+/** Light borders are near white or paper colored; yellowed paper is slightly warm. */
 private const val MIN_LIGHT_BORDER_LUMA = 170
+private const val MAX_LIGHT_BORDER_CHANNEL_SPREAD = 48
+
+/**
+ * Dark borders (scanner edges, black margins) are neutral black. Art that is dark at the edge, such
+ * as a night sky, is usually tinted, so it is not taken for a border.
+ */
 private const val MAX_DARK_BORDER_LUMA = 70
-private const val MAX_BORDER_CHANNEL_SPREAD = 48
+private const val MAX_DARK_BORDER_CHANNEL_SPREAD = 24
+
+/**
+ * A light paper margin is looked for past a dark band only when that band is thin, as a scanner edge
+ * is. Past a thick dark area, a light line is more likely a gutter inside the art.
+ */
+private const val MAX_SCANNER_EDGE_FRACTION = 0.05f
 
 /**
  * Each axis keeps at least this share of the page. More than that is not a border: a blank page,
@@ -42,18 +50,36 @@ private const val MAX_BORDER_PASSES = 3
 /** Crops smaller than this share of the page on both axes are skipped, saving a bitmap copy. */
 private const val MIN_USEFUL_CROP_FRACTION = 0.01f
 
+/**
+ * Cropped pages are requested this much larger than the screen needs, so a page that loses up to a
+ * fifth of each side to its borders still has enough pixels to fill the screen sharply.
+ */
+private const val CROP_REQUEST_HEADROOM = 1.25f
+
+/**
+ * The memory cache key extra Coil itself adds to transformed requests (`MemoryCacheService.EXTRA_SIZE`).
+ * With it, a cached copy is reused for exactly the size it was requested at. Without it, Coil compares
+ * the cached image with the requested size, and a cropped page, always smaller, never counts as cached.
+ */
+private const val COIL_SIZE_KEY_EXTRA = "coil#size"
+
 /** The part of a page inside its borders; [right] and [bottom] are exclusive. */
 internal data class PageContentBounds(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width: Int get() = right - left
     val height: Int get() = bottom - top
 }
 
+/** How many lines of border each side of a page has. */
+internal data class PageBorderInsets(val top: Int, val bottom: Int, val left: Int, val right: Int) {
+    val isEmpty: Boolean get() = top == 0 && bottom == 0 && left == 0 && right == 0
+}
+
 /**
- * Trims plain white or black borders from reader pages. Pages whose edges hold art are left as
- * they are, and so is any side that is not a plain border.
+ * Trims plain white or black borders from reader pages. Any side that is not a plain border, such
+ * as art that reaches the edge, is left as it is.
  */
 internal object PageBorderCropTransformation : Transformation() {
-    override val cacheKey: String = "page-border-crop-v1"
+    override val cacheKey: String = "page-border-crop-v2"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap {
         val bounds = input.pageContentBounds() ?: return input
@@ -69,22 +95,42 @@ internal fun ImageRequest.Builder.cropPageBorders(enabled: Boolean): ImageReques
 internal fun readerPageMemoryCacheKey(baseKey: String, autoCrop: Boolean): String =
     if (autoCrop) "$baseKey|${PageBorderCropTransformation.cacheKey}" else baseKey
 
+/**
+ * Sets the size of a reader page request. A cropped page is requested with headroom for its borders
+ * and cached for that exact size.
+ */
+internal fun ImageRequest.Builder.readerPageSize(size: Size, autoCrop: Boolean): ImageRequest.Builder {
+    if (!autoCrop) return size(size)
+    val requestSize = readerCropRequestSize(size)
+    return size(requestSize).memoryCacheKeyExtra(COIL_SIZE_KEY_EXTRA, requestSize.toString())
+}
+
+/** [size] grown by [CROP_REQUEST_HEADROOM]; the original size stays original. */
+internal fun readerCropRequestSize(size: Size): Size {
+    val width = size.width as? Dimension.Pixels ?: return size
+    val height = size.height as? Dimension.Pixels ?: return size
+    return Size(
+        width = (width.px * CROP_REQUEST_HEADROOM).roundToInt(),
+        height = (height.px * CROP_REQUEST_HEADROOM).roundToInt(),
+    )
+}
+
+/** Reads part of one line of a page, from [start] to [end] along it, into [out]. */
+private fun interface PageLineReader {
+    fun read(side: PageSide, line: Int, start: Int, end: Int, out: IntArray)
+}
+
+private enum class PageSide { Top, Bottom, Left, Right }
+
+/**
+ * Looks for borders on the decoded page itself. Only border lines are read, from each edge until the
+ * art starts, so a page costs about its margin area; a shrunken copy would be quicker to search but
+ * blurs away thin frame lines, which the search would then run past.
+ */
 private fun Bitmap.pageContentBounds(): PageContentBounds? {
     if (width < MIN_CROP_INPUT_SIZE || height < MIN_CROP_INPUT_SIZE) return null
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && config == Bitmap.Config.HARDWARE) return null
-    val sampleScale = (CROP_SAMPLE_SIZE.toFloat() / max(width, height)).coerceAtMost(1f)
-    val sampleWidth = (width * sampleScale).roundToInt().coerceAtLeast(1)
-    val sampleHeight = (height * sampleScale).roundToInt().coerceAtLeast(1)
-    // Filtered downscaling averages away scan grain, so border lines read as one plain color.
-    val sample = if (sampleScale < 1f) scale(sampleWidth, sampleHeight) else this
-    val pixels = IntArray(sampleWidth * sampleHeight)
-    try {
-        sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight)
-    } finally {
-        if (sample !== this) sample.recycle()
-    }
-    return detectPageContentBounds(pixels, sampleWidth, sampleHeight)
-        ?.scaledToPage(sampleWidth, sampleHeight, width, height)
+    return detectPageBorderInsets(width, height, lineReader())?.toContentBounds(width, height)
 }
 
 /**
@@ -93,6 +139,23 @@ private fun Bitmap.pageContentBounds(): PageContentBounds? {
  */
 internal fun detectPageContentBounds(pixels: IntArray, width: Int, height: Int): PageContentBounds? {
     if (width <= 0 || height <= 0 || pixels.size < width * height) return null
+    val insets = detectPageBorderInsets(width, height, pixels.lineReader(width, height)) ?: return null
+    return PageContentBounds(insets.left, insets.top, width - insets.right, height - insets.bottom)
+}
+
+/**
+ * The page's border insets. Returns null when there is no border, or when what looks like border
+ * leaves too little of the page to be one.
+ */
+private fun detectPageBorderInsets(width: Int, height: Int, reader: PageLineReader): PageBorderInsets? {
+    // A side deeper than this leaves too little content on its axis, so the search stops there.
+    val topLimit = (height * (1f - MIN_CONTENT_FRACTION)).toInt() + 1
+    val bottomLimit = topLimit
+    val leftLimit = (width * (1f - MIN_CONTENT_FRACTION)).toInt() + 1
+    val rightLimit = leftLimit
+    fun depth(side: PageSide, start: Int, end: Int, limit: Int): Int =
+        borderDepth(reader, side, lineCount = if (side.isHorizontal) height else width, start, end, limit)
+
     var top = 0
     var bottom = 0
     var left = 0
@@ -100,21 +163,34 @@ internal fun detectPageContentBounds(pixels: IntArray, width: Int, height: Int):
     // A border on one side runs across the others, as a scanner edge down the left crosses the top
     // margin. Each pass looks at the lines only between the borders found so far, until none grows.
     for (pass in 0 until MAX_BORDER_PASSES) {
-        // Borders meeting means a blank page, which the size check below leaves uncropped.
-        if (top + bottom >= height || left + right >= width) break
-        val rowStart = left
-        val rowEnd = width - right
-        val columnStart = top
-        val columnEnd = height - bottom
-        val newTop = borderDepth(pixels, width, height, PageSide.Top, rowStart, rowEnd)
-        val newBottom = borderDepth(pixels, width, height, PageSide.Bottom, rowStart, rowEnd)
-        val newLeft = borderDepth(pixels, width, height, PageSide.Left, columnStart, columnEnd)
-        val newRight = borderDepth(pixels, width, height, PageSide.Right, columnStart, columnEnd)
+        val newTop = depth(PageSide.Top, left, width - right, topLimit)
+        val newBottom = depth(PageSide.Bottom, left, width - right, bottomLimit)
+        val newLeft = depth(PageSide.Left, top, height - bottom, leftLimit)
+        val newRight = depth(PageSide.Right, top, height - bottom, rightLimit)
         if (newTop == top && newBottom == bottom && newLeft == left && newRight == right) break
         top = newTop
         bottom = newBottom
         left = newLeft
         right = newRight
+    }
+    val verticalKept = height - top - bottom >= height * MIN_CONTENT_FRACTION
+    val horizontalKept = width - left - right >= width * MIN_CONTENT_FRACTION
+    // An axis whose crop is dropped shows its whole width again, so the other axis is measured again
+    // across all of it: what sat beside the dropped borders, like a caption, must not be cut.
+    when {
+        verticalKept && !horizontalKept -> {
+            left = 0
+            right = 0
+            top = depth(PageSide.Top, 0, width, topLimit)
+            bottom = depth(PageSide.Bottom, 0, width, bottomLimit)
+        }
+        !verticalKept && horizontalKept -> {
+            top = 0
+            bottom = 0
+            left = depth(PageSide.Left, 0, height, leftLimit)
+            right = depth(PageSide.Right, 0, height, rightLimit)
+        }
+        !verticalKept && !horizontalKept -> return null
     }
     if (height - top - bottom < height * MIN_CONTENT_FRACTION) {
         top = 0
@@ -124,110 +200,122 @@ internal fun detectPageContentBounds(pixels: IntArray, width: Int, height: Int):
         left = 0
         right = 0
     }
-    if (top == 0 && bottom == 0 && left == 0 && right == 0) return null
-    return PageContentBounds(left = left, top = top, right = width - right, bottom = height - bottom)
+    return PageBorderInsets(top, bottom, left, right).takeUnless { it.isEmpty }
 }
 
 /**
- * Maps [this], found on a [sampleWidth] × [sampleHeight] copy, onto the full page. Edges are rounded
- * outward and given a small margin, so the crop errs on keeping art. Returns null when the crop
- * would be too small to matter.
+ * The crop for a [pageWidth] × [pageHeight] page with these insets, keeping a small margin so the
+ * crop errs on keeping art. Returns null when the crop would be too small to matter.
  */
-internal fun PageContentBounds.scaledToPage(
-    sampleWidth: Int,
-    sampleHeight: Int,
-    pageWidth: Int,
-    pageHeight: Int,
-): PageContentBounds? {
-    if (sampleWidth <= 0 || sampleHeight <= 0 || pageWidth <= 0 || pageHeight <= 0) return null
-    val scaleX = pageWidth.toDouble() / sampleWidth
-    val scaleY = pageHeight.toDouble() / sampleHeight
+internal fun PageBorderInsets.toContentBounds(pageWidth: Int, pageHeight: Int): PageContentBounds? {
+    if (pageWidth <= 0 || pageHeight <= 0) return null
     val marginX = ceil(pageWidth * CONTENT_MARGIN_FRACTION.toDouble()).toInt()
     val marginY = ceil(pageHeight * CONTENT_MARGIN_FRACTION.toDouble()).toInt()
-    val scaled = PageContentBounds(
-        left = if (left > 0) (floor(left * scaleX).toInt() - marginX).coerceAtLeast(0) else 0,
-        top = if (top > 0) (floor(top * scaleY).toInt() - marginY).coerceAtLeast(0) else 0,
-        right = if (right < sampleWidth) (ceil(right * scaleX).toInt() + marginX).coerceAtMost(pageWidth) else pageWidth,
-        bottom = if (bottom < sampleHeight) (ceil(bottom * scaleY).toInt() + marginY).coerceAtMost(pageHeight) else pageHeight,
+    val bounds = PageContentBounds(
+        left = if (left > 0) (left - marginX).coerceAtLeast(0) else 0,
+        top = if (top > 0) (top - marginY).coerceAtLeast(0) else 0,
+        right = if (right > 0) (pageWidth - right + marginX).coerceAtMost(pageWidth) else pageWidth,
+        bottom = if (bottom > 0) (pageHeight - bottom + marginY).coerceAtMost(pageHeight) else pageHeight,
     )
-    if (scaled.width <= 0 || scaled.height <= 0) return null
-    val trimmedX = pageWidth - scaled.width
-    val trimmedY = pageHeight - scaled.height
+    if (bounds.width <= 0 || bounds.height <= 0) return null
+    val trimmedX = pageWidth - bounds.width
+    val trimmedY = pageHeight - bounds.height
     if (trimmedX < pageWidth * MIN_USEFUL_CROP_FRACTION && trimmedY < pageHeight * MIN_USEFUL_CROP_FRACTION) return null
-    return scaled
+    return bounds
 }
 
-private enum class PageSide { Top, Bottom, Left, Right }
+private val PageSide.isHorizontal: Boolean get() = this == PageSide.Top || this == PageSide.Bottom
 
 /**
- * How many lines in from [side] are plain border. A dark band (a scanner edge) may be followed by a
- * light one (the paper margin); a light band is never followed by a dark one, since past a paper
- * margin a dark line is the art's own frame.
+ * How many lines in from a side are plain border, up to [limit], looking only between [start] and
+ * [end] along each line. A thin dark band (a scanner edge) may be followed by a light one (the paper
+ * margin); a light band is never followed by a dark one, since past a paper margin a dark line is
+ * the art's own frame.
  */
 private fun borderDepth(
-    pixels: IntArray,
-    width: Int,
-    height: Int,
+    reader: PageLineReader,
     side: PageSide,
-    lineStart: Int,
-    lineEnd: Int,
+    lineCount: Int,
+    start: Int,
+    end: Int,
+    limit: Int,
 ): Int {
-    val horizontal = side == PageSide.Top || side == PageSide.Bottom
-    val lineCount = if (horizontal) height else width
-    val lineLength = lineEnd - lineStart
+    val lineLength = end - start
+    val maxDepth = minOf(limit, lineCount)
+    if (lineLength <= 0 || maxDepth <= 0) return 0
     val allowedMisses = (lineLength * BORDER_NOISE_FRACTION).toInt()
-    // Positions count from lineStart, so only the part of each line between the other borders is read.
-    fun pixel(line: Int, position: Int): Int = when (side) {
-        PageSide.Top -> pixels[line * width + lineStart + position]
-        PageSide.Bottom -> pixels[(height - 1 - line) * width + lineStart + position]
-        PageSide.Left -> pixels[(lineStart + position) * width + line]
-        PageSide.Right -> pixels[(lineStart + position) * width + (width - 1 - line)]
-    }
-    fun lineMatches(line: Int, reference: Int): Boolean {
+    val line = IntArray(lineLength)
+    fun lineMatches(index: Int, reference: Int): Boolean {
+        reader.read(side, index, start, end, line)
         var misses = 0
-        for (position in 0 until lineLength) {
-            if (!pixel(line, position).isNear(reference) && ++misses > allowedMisses) return false
+        for (pixel in line) {
+            if (!pixel.isNear(reference) && ++misses > allowedMisses) return false
         }
         return true
     }
     var depth = 0
     var previousBandDark: Boolean? = null
-    while (depth < lineCount) {
-        val reference = averageColor(lineLength) { position -> pixel(depth, position) }
+    while (depth < maxDepth) {
+        reader.read(side, depth, start, end, line)
+        val reference = averageColor(line)
         val dark = reference.borderTone() ?: break
-        if (previousBandDark != null && (previousBandDark == false || dark)) break
+        when (previousBandDark) {
+            null -> Unit
+            false -> break
+            true -> if (dark || depth > lineCount * MAX_SCANNER_EDGE_FRACTION) break
+        }
         val bandStart = depth
-        while (depth < lineCount && lineMatches(depth, reference)) depth++
+        while (depth < maxDepth && lineMatches(depth, reference)) depth++
         if (depth == bandStart) break
         previousBandDark = dark
     }
     return depth
 }
 
-private inline fun averageColor(count: Int, color: (Int) -> Int): Int {
+private fun IntArray.lineReader(width: Int, height: Int) = PageLineReader { side, line, start, end, out ->
+    for (position in start until end) {
+        out[position - start] = when (side) {
+            PageSide.Top -> this[line * width + position]
+            PageSide.Bottom -> this[(height - 1 - line) * width + position]
+            PageSide.Left -> this[position * width + line]
+            PageSide.Right -> this[position * width + (width - 1 - line)]
+        }
+    }
+}
+
+private fun Bitmap.lineReader() = PageLineReader { side, line, start, end, out ->
+    val length = end - start
+    when (side) {
+        PageSide.Top -> getPixels(out, 0, length, start, line, length, 1)
+        PageSide.Bottom -> getPixels(out, 0, length, start, height - 1 - line, length, 1)
+        PageSide.Left -> getPixels(out, 0, 1, line, start, 1, length)
+        PageSide.Right -> getPixels(out, 0, 1, width - 1 - line, start, 1, length)
+    }
+}
+
+private fun averageColor(pixels: IntArray): Int {
     var red = 0L
     var green = 0L
     var blue = 0L
-    for (index in 0 until count) {
-        val value = color(index)
+    for (value in pixels) {
         red += value.red
         green += value.green
         blue += value.blue
     }
+    val count = pixels.size
     return (0xFF shl 24) or
         ((red / count).toInt() shl 16) or
         ((green / count).toInt() shl 8) or
         (blue / count).toInt()
 }
 
-/** Whether a color can be a border: true when near black, false when near white, null otherwise. */
+/** Whether a color can be a border: true when neutral black, false when near white, null otherwise. */
 private fun Int.borderTone(): Boolean? {
     val spread = maxOf(red, green, blue) - minOf(red, green, blue)
-    if (spread > MAX_BORDER_CHANNEL_SPREAD) return null
     val luma = (red * 299 + green * 587 + blue * 114) / 1000
     return when {
-        luma <= MAX_DARK_BORDER_LUMA -> true
-        luma >= MIN_LIGHT_BORDER_LUMA -> false
+        luma <= MAX_DARK_BORDER_LUMA && spread <= MAX_DARK_BORDER_CHANNEL_SPREAD -> true
+        luma >= MIN_LIGHT_BORDER_LUMA && spread <= MAX_LIGHT_BORDER_CHANNEL_SPREAD -> false
         else -> null
     }
 }

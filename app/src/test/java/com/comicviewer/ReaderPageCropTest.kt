@@ -1,9 +1,13 @@
 package com.comicviewer
 
+import coil3.size.Size
+import com.comicviewer.ui.reader.PageBorderInsets
 import com.comicviewer.ui.reader.PageContentBounds
 import com.comicviewer.ui.reader.detectPageContentBounds
+import com.comicviewer.ui.reader.readerCropRequestSize
+import com.comicviewer.ui.reader.readerPageLayoutDimension
 import com.comicviewer.ui.reader.readerPageMemoryCacheKey
-import com.comicviewer.ui.reader.scaledToPage
+import com.comicviewer.ui.reader.toContentBounds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
@@ -92,22 +96,60 @@ class ReaderPageCropTest {
     }
 
     @Test
-    fun scaledToPage_roundsOutwardAndKeepsASmallMargin() {
-        val sampleBounds = PageContentBounds(10, 15, 90, 135)
+    fun detectPageContentBounds_keepsCaptionsBesideADroppedCrop() {
+        val page = testPage(width = 100, height = 150, background = WHITE)
+        page.fillArt(left = 30, top = 10, right = 70, bottom = 120)
+        // A page number in the bottom-left margin, too short to stop the side borders on its own.
+        page.fill(left = 5, top = 130, right = 15, bottom = 133, color = BLACK)
 
+        assertEquals(PageContentBounds(0, 10, 100, 133), page.detect())
+    }
+
+    @Test
+    fun detectPageContentBounds_leavesTintedDarkArtAlone() {
+        val nightSky = testPage(width = 100, height = 150, background = 0xFF101830.toInt())
+        nightSky.fillArt(left = 0, top = 40, right = 100, bottom = 150)
+
+        assertNull(nightSky.detect())
+    }
+
+    @Test
+    fun detectPageContentBounds_stopsAtLightLinesPastAThickDarkBand() {
+        val page = testPage(width = 100, height = 150, background = BLACK)
+        page.fill(left = 0, top = 20, right = 100, bottom = 24, color = WHITE)
+        page.fillArt(left = 0, top = 24, right = 100, bottom = 150)
+
+        assertEquals(PageContentBounds(0, 20, 100, 150), page.detect())
+    }
+
+    @Test
+    fun toContentBounds_keepsASmallMargin() {
         assertEquals(
             PageContentBounds(95, 142, 905, 1358),
-            sampleBounds.scaledToPage(sampleWidth = 100, sampleHeight = 150, pageWidth = 1000, pageHeight = 1500),
+            PageBorderInsets(top = 150, bottom = 150, left = 100, right = 100).toContentBounds(1000, 1500),
         )
         assertEquals(
             PageContentBounds(0, 142, 1000, 1500),
-            PageContentBounds(0, 15, 100, 150).scaledToPage(100, 150, 1000, 1500),
+            PageBorderInsets(top = 150, bottom = 0, left = 0, right = 0).toContentBounds(1000, 1500),
         )
     }
 
     @Test
-    fun scaledToPage_skipsCropsTooSmallToMatter() {
-        assertNull(PageContentBounds(0, 1, 100, 150).scaledToPage(100, 150, 1000, 1500))
+    fun toContentBounds_skipsCropsTooSmallToMatter() {
+        assertNull(PageBorderInsets(top = 10, bottom = 0, left = 0, right = 0).toContentBounds(1000, 1500))
+    }
+
+    @Test
+    fun readerCropRequestSize_addsHeadroomButKeepsOriginalSize() {
+        assertEquals(Size(1350, 2925), readerCropRequestSize(Size(1080, 2340)))
+        assertEquals(Size.ORIGINAL, readerCropRequestSize(Size.ORIGINAL))
+    }
+
+    @Test
+    fun readerPageLayoutDimension_prefersTheCroppedImageOnceDecoded() {
+        assertEquals(2000, readerPageLayoutDimension(storedDimension = 2000, painterIntrinsicDimension = 900f, autoCrop = false))
+        assertEquals(900, readerPageLayoutDimension(storedDimension = 2000, painterIntrinsicDimension = 900f, autoCrop = true))
+        assertEquals(2000, readerPageLayoutDimension(storedDimension = 2000, painterIntrinsicDimension = Float.NaN, autoCrop = true))
     }
 
     @Test

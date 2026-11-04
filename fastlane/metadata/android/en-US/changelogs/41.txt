@@ -1,0 +1,1 @@
+Auto-crop borders is faster and sharper: cropped pages stay in memory for quick page turns and load in enough detail to fill the screen. Thin panel frames and captions beside the art are kept. Auto-crop now works in single-page mode; two-page spreads and vertical scrolling show pages whole. Pages keep their place when you pinch to zoom.

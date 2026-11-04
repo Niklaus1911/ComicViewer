@@ -22,8 +22,8 @@ val appCompileSdk = 37
 val appCompileSdkMinor = 0
 val appMinSdk = 24
 val appTargetSdk = 36
-val appVersionCode = 40
-val appVersionName = "1.1.0"
+val appVersionCode = 41
+val appVersionName = "1.1.1"
 val appCompileSdkDisplay = "$appCompileSdk.$appCompileSdkMinor"
 
 abstract class GenerateBuildStampTask : DefaultTask() {

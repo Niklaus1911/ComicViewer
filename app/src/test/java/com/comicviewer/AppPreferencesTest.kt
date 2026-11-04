@@ -46,6 +46,7 @@ class AppPreferencesTest {
             readingDirection = ReaderReadingDirection.RightToLeft,
             pageFitMode = ReaderPageFitMode.FitWidth,
             background = ReaderBackground.Sepia,
+            autoCrop = true,
         )
 
         assertEquals(ReaderPreferences(), resolvedReaderPreferences(proPreferences, isProUnlocked = false))

@@ -135,6 +135,7 @@ internal fun PagedComicReader(
     val secondSpreadPage = spreadIndices.getOrNull(1)?.let(book.pages::getOrNull)
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     val originalSize = activeReaderPreferences.pageFitMode == ReaderPageFitMode.Original
+    val autoCrop = activeReaderPreferences.autoCrop
     // Detail for pages about to be shown: what the fit mode needs before any pinch.
     var baseDetailStep by remember(book, activeReaderPreferences.pageFitMode) { mutableIntStateOf(1) }
     // Detail for the visible page: it rises while the page is zoomed and never falls, so zooming
@@ -151,8 +152,9 @@ internal fun PagedComicReader(
         viewportSize,
         pageDetailStep,
         originalSize,
+        autoCrop,
     ) {
-        visualPage.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize)
+        visualPage.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize, autoCrop)
     }
     val painter = rememberAsyncImagePainter(
         model = currentRequest,
@@ -168,8 +170,9 @@ internal fun PagedComicReader(
             viewportSize,
             pageDetailStep,
             originalSize,
+            autoCrop,
         ) {
-            secondSpreadPage?.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize)
+            secondSpreadPage?.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize, autoCrop)
         },
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
@@ -242,8 +245,9 @@ internal fun PagedComicReader(
         viewportSize,
         baseDetailStep,
         originalSize,
+        autoCrop,
     ) {
-        adjacentPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize)
+        adjacentPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize, autoCrop)
     }
     val adjacentPainter = rememberAsyncImagePainter(
         model = adjacentRequest,
@@ -258,8 +262,9 @@ internal fun PagedComicReader(
             viewportSize,
             baseDetailStep,
             originalSize,
+            autoCrop,
         ) {
-            adjacentSecondPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize)
+            adjacentSecondPage?.readerPageRequest(context, book.source, viewportSize, baseDetailStep, originalSize, autoCrop)
         },
         imageLoader = imageLoader,
         contentScale = ContentScale.Fit,
@@ -403,7 +408,7 @@ internal fun PagedComicReader(
         }
     }
 
-    LaunchedEffect(book.pages, visualPage.index, imageLoader, viewportSize, baseDetailStep, originalSize) {
+    LaunchedEffect(book.pages, visualPage.index, imageLoader, viewportSize, baseDetailStep, originalSize, autoCrop) {
         // Building a request stats the source file for its cache key, so that happens off the main thread.
         val requests = withContext(Dispatchers.IO) {
             book.pages.preloadRequests(
@@ -413,6 +418,7 @@ internal fun PagedComicReader(
                 viewportSize = viewportSize,
                 detailStep = baseDetailStep,
                 originalSize = originalSize,
+                autoCrop = autoCrop,
             )
         }
         // Preloads for pages left behind, or for a closed reader, are cancelled: they would otherwise
@@ -480,13 +486,14 @@ internal fun PagedComicReader(
             ?.painter
     val primaryIntrinsicSize = displayedPainter?.intrinsicSize ?: Size.Unspecified
     val secondaryIntrinsicSize = displayedSecondPainter?.intrinsicSize ?: Size.Unspecified
-    val primaryPageWidth = readerResolvedPageDimension(visualPage.width, primaryIntrinsicSize.width)
-    val primaryPageHeight = readerResolvedPageDimension(visualPage.height, primaryIntrinsicSize.height)
+    // A page's stored size is that of the whole page; a cropped page takes its shape from the image.
+    val primaryPageWidth = readerResolvedPageDimension(visualPage.width.unlessCropped(autoCrop), primaryIntrinsicSize.width)
+    val primaryPageHeight = readerResolvedPageDimension(visualPage.height.unlessCropped(autoCrop), primaryIntrinsicSize.height)
     val secondaryPageWidth = secondSpreadPage?.let { page ->
-        readerResolvedPageDimension(page.width, secondaryIntrinsicSize.width)
+        readerResolvedPageDimension(page.width.unlessCropped(autoCrop), secondaryIntrinsicSize.width)
     } ?: 0
     val secondaryPageHeight = secondSpreadPage?.let { page ->
-        readerResolvedPageDimension(page.height, secondaryIntrinsicSize.height)
+        readerResolvedPageDimension(page.height.unlessCropped(autoCrop), secondaryIntrinsicSize.height)
     } ?: 0
     val layoutPageWidth = if (secondSpreadPage != null) {
         (primaryPageWidth.toLong() + secondaryPageWidth.toLong())
@@ -938,6 +945,9 @@ private suspend fun PointerInputScope.detectPageGestures(
 private fun AsyncImagePainter.State.Error.isNotRequestedYet(): Boolean =
     result.throwable is NullRequestDataException
 
+/** A stored page dimension, or 0 (unknown) when cropping makes the page a different size. */
+private fun Int.unlessCropped(autoCrop: Boolean): Int = if (autoCrop) 0 else this
+
 private fun List<ComicPage>.preloadRequests(
     currentIndex: Int,
     context: Context,
@@ -945,16 +955,18 @@ private fun List<ComicPage>.preloadRequests(
     viewportSize: IntSize,
     detailStep: Int,
     originalSize: Boolean,
+    autoCrop: Boolean,
 ): List<ImageRequest> =
     listOf(currentIndex + 1, currentIndex + 2, currentIndex - 1, currentIndex - 2)
         .filter { index -> index in indices }
-        .mapNotNull { index -> get(index).readerPageRequest(context, source, viewportSize, detailStep, originalSize) }
+        .mapNotNull { index -> get(index).readerPageRequest(context, source, viewportSize, detailStep, originalSize, autoCrop) }
 
 /**
  * A page request sized for the reader: [detailStep] times the viewport, or the page's own full size in
  * the Original fit mode, so that mode shows every page at its real pixel size. Inexact precision lets
  * Coil keep a decoded size between the request and the page's own instead of scaling a page up.
- * Nothing is requested until the viewport has been measured.
+ * With [autoCrop], the page's plain borders are trimmed after decoding. Nothing is requested until
+ * the viewport has been measured.
  */
 private fun ComicPage.readerPageRequest(
     context: Context,
@@ -962,6 +974,7 @@ private fun ComicPage.readerPageRequest(
     viewportSize: IntSize,
     detailStep: Int,
     originalSize: Boolean,
+    autoCrop: Boolean,
 ): ImageRequest? {
     if (viewportSize == IntSize.Zero) return null
     val size = if (originalSize) {
@@ -969,7 +982,7 @@ private fun ComicPage.readerPageRequest(
     } else {
         CoilSize(viewportSize.width * detailStep, viewportSize.height * detailStep)
     }
-    return imageRequest(context, source).newBuilder()
+    return imageRequest(context, source, autoCrop).newBuilder()
         .size(size)
         .precision(Precision.INEXACT)
         .build()

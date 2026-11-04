@@ -223,12 +223,17 @@ fun ComicReaderScreen(
     }
 }
 
-internal fun ComicPage.imageRequest(context: Context, source: ComicSource): ImageRequest {
+internal fun ComicPage.imageRequest(
+    context: Context,
+    source: ComicSource,
+    autoCrop: Boolean = false,
+): ImageRequest {
     val cacheKey = comicPageImageCacheKey(source = source, page = this)
     return ImageRequest.Builder(context)
         .data(imageUri)
-        .memoryCacheKey(cacheKey)
+        .memoryCacheKey(readerPageMemoryCacheKey(cacheKey, autoCrop))
         .diskCacheKey(cacheKey)
+        .cropPageBorders(autoCrop)
         .build()
 }
 

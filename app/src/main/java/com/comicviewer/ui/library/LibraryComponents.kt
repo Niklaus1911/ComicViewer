@@ -26,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.LibraryBooks
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Palette
@@ -193,6 +194,11 @@ fun ProUpgradeDialog(
                         icon = Icons.Filled.AspectRatio,
                         title = stringResource(R.string.pro_benefit_fit_width_title),
                         message = stringResource(R.string.pro_benefit_fit_width_message),
+                    )
+                    ProBenefitRow(
+                        icon = Icons.Filled.Crop,
+                        title = stringResource(R.string.pro_benefit_auto_crop_title),
+                        message = stringResource(R.string.pro_benefit_auto_crop_message),
                     )
                     ProBenefitRow(
                         icon = Icons.Filled.Palette,

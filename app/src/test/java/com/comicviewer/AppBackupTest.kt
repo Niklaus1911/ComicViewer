@@ -29,6 +29,7 @@ class AppBackupTest {
             background = ReaderBackground.Sepia,
             brightness = 0.73f,
             marginDp = 18,
+            autoCrop = true,
             keepScreenOn = false,
             showPageNumber = false,
         )

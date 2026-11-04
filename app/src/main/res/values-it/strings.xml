@@ -42,6 +42,8 @@
     <string name="reader_two_page">Due pagine</string>
     <string name="reader_brightness">Luminosità</string>
     <string name="reader_margins">Margini</string>
+    <string name="reader_auto_crop">Ritaglio automatico bordi</string>
+    <string name="reader_auto_crop_description">Rimuove i margini bianchi o neri uniformi, così i disegni riempiono di più lo schermo</string>
     <string name="reader_keep_screen_on">Mantieni schermo acceso</string>
     <string name="reader_show_page_number">Mostra numero pagina</string>
     <string name="file_access_title">Consenti accesso ai file</string>
@@ -256,6 +258,8 @@
     <string name="pro_benefit_rtl_message">Usa tocchi e swipe stile manga senza cambiare l\'ordine delle pagine.</string>
     <string name="pro_benefit_fit_width_title">Pagine a tutta larghezza</string>
     <string name="pro_benefit_fit_width_message">Riempi la larghezza dello schermo e scorri verticalmente le pagine alte.</string>
+    <string name="pro_benefit_auto_crop_title">Ritaglio automatico bordi</string>
+    <string name="pro_benefit_auto_crop_message">Rimuovi i margini uniformi dalle pagine scansionate per ingrandire i disegni.</string>
     <string name="pro_benefit_background_title">Sfondi reader</string>
     <string name="pro_benefit_background_message">Scegli nero, grigio scuro, seppia o bianco dietro ogni pagina.</string>
     <string name="pro_benefit_theme_title">Temi Pro</string>

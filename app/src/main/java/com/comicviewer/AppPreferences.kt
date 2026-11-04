@@ -58,6 +58,7 @@ data class ReaderPreferences(
     val background: ReaderBackground = ReaderBackground.Black,
     val brightness: Float? = null,
     val marginDp: Int = 0,
+    val autoCrop: Boolean = false,
     val keepScreenOn: Boolean = true,
     val showPageNumber: Boolean = true,
 )
@@ -85,6 +86,7 @@ private const val READER_BACKGROUND_KEY = "reader_background"
 private const val READER_BRIGHTNESS_ENABLED_KEY = "reader_brightness_enabled"
 private const val READER_BRIGHTNESS_KEY = "reader_brightness"
 private const val READER_MARGIN_DP_KEY = "reader_margin_dp"
+private const val READER_AUTO_CROP_KEY = "reader_auto_crop"
 private const val READER_KEEP_SCREEN_ON_KEY = "reader_keep_screen_on"
 private const val READER_SHOW_PAGE_NUMBER_KEY = "reader_show_page_number"
 private const val IMPORT_FOLDER_URI_KEY = "import_folder_uri"
@@ -212,6 +214,7 @@ fun loadReaderPreferences(context: Context): ReaderPreferences {
             null
         },
         marginDp = preferences.getInt(READER_MARGIN_DP_KEY, 0).coerceIn(0, 32),
+        autoCrop = preferences.getBoolean(READER_AUTO_CROP_KEY, false),
         keepScreenOn = preferences.getBoolean(READER_KEEP_SCREEN_ON_KEY, true),
         showPageNumber = preferences.getBoolean(READER_SHOW_PAGE_NUMBER_KEY, true),
     )
@@ -229,6 +232,7 @@ fun saveReaderPreferences(context: Context, readerPreferences: ReaderPreferences
         putBoolean(READER_BRIGHTNESS_ENABLED_KEY, brightness != null)
         putFloat(READER_BRIGHTNESS_KEY, brightness ?: 0.5f)
         putInt(READER_MARGIN_DP_KEY, readerPreferences.marginDp.coerceIn(0, 32))
+        putBoolean(READER_AUTO_CROP_KEY, readerPreferences.autoCrop)
         putBoolean(READER_KEEP_SCREEN_ON_KEY, readerPreferences.keepScreenOn)
         putBoolean(READER_SHOW_PAGE_NUMBER_KEY, readerPreferences.showPageNumber)
     }
@@ -253,6 +257,7 @@ fun resolvedReaderPreferences(
             background = ReaderBackground.Black,
             brightness = null,
             marginDp = 0,
+            autoCrop = false,
         )
     }
 

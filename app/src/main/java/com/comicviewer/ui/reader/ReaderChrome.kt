@@ -509,6 +509,14 @@ fun ReaderSettingsDialog(
             }
             Column {
                 ReaderSwitchRow(
+                    label = stringResource(R.string.reader_auto_crop),
+                    description = stringResource(R.string.reader_auto_crop_description),
+                    checked = activeReaderPreferences.autoCrop,
+                    onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(autoCrop = it)) },
+                    locked = !isProUnlocked,
+                    onLocked = onRequestPro,
+                )
+                ReaderSwitchRow(
                     label = stringResource(R.string.reader_keep_screen_on),
                     checked = activeReaderPreferences.keepScreenOn,
                     onCheckedChange = { onReaderPreferencesChanged(readerPreferences.copy(keepScreenOn = it)) },
@@ -624,16 +632,35 @@ private fun ReaderSwitchRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    description: String? = null,
+    locked: Boolean = false,
+    onLocked: () -> Unit = {},
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = { if (locked) onLocked() else onCheckedChange(it) },
+            )
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = null)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(label, style = MaterialTheme.typography.bodyLarge)
+                if (locked) ProLockMark()
+            }
+            description?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = null, enabled = !locked)
     }
 }
 

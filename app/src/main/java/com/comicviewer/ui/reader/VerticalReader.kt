@@ -237,6 +237,7 @@ internal fun VerticalComicReader(
                         pageWidthPx = pageWidthPx,
                         // Only pages on screen load in more detail, which bounds the memory a zoom takes.
                         detailStep = if (page.index in visiblePages) zoomDetailStep else 1,
+                        autoCrop = preferences.autoCrop,
                     )
                 }
             }
@@ -343,6 +344,7 @@ private fun VerticalPageImage(
     source: ComicSource,
     pageWidthPx: Int,
     detailStep: Int,
+    autoCrop: Boolean,
 ) {
     val context = LocalContext.current
     var aspectRatio by remember(page.imageUri) {
@@ -351,10 +353,11 @@ private fun VerticalPageImage(
         )
     }
     val requestWidth = pageWidthPx.coerceAtLeast(1) * detailStep
-    val request = remember(page.imageUri, requestWidth) {
+    val request = remember(page.imageUri, requestWidth, autoCrop) {
         ImageRequest.Builder(context)
             .data(page.imageUri)
-            .memoryCacheKey("${page.imageRequest(context, source).memoryCacheKey}|vertical|$requestWidth")
+            .memoryCacheKey("${page.imageRequest(context, source, autoCrop).memoryCacheKey}|vertical|$requestWidth")
+            .cropPageBorders(autoCrop)
             .size(requestWidth, requestWidth * MAX_PAGE_HEIGHT_TO_WIDTH)
             .scale(Scale.FIT)
             .precision(Precision.INEXACT)

@@ -10,6 +10,12 @@ production version.
 
 ## [Unreleased]
 
+### Added
+
+- Auto-crop borders (Pro): a reader setting that trims plain white, cream or black margins from
+  scanned pages, including dark scanner edges, so the art fills more of the screen. Pages whose
+  art reaches the edge, blank pages and small drawings are left as they are.
+
 ## [1.0.36] - 2026-10-30
 
 ### Added

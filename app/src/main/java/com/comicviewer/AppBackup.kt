@@ -211,6 +211,7 @@ private fun ReaderPreferences.toJson(): JSONObject = JSONObject()
     .put("background", background.preferenceValue)
     .put("brightness", brightness ?: JSONObject.NULL)
     .put("marginDp", marginDp)
+    .put("autoCrop", autoCrop)
     .put("keepScreenOn", keepScreenOn)
     .put("showPageNumber", showPageNumber)
 
@@ -251,6 +252,7 @@ private fun JSONObject.toReaderPreferences(): ReaderPreferences {
         ),
         brightness = brightness,
         marginDp = optInt("marginDp", 0).coerceIn(0, 32),
+        autoCrop = optBoolean("autoCrop", false),
         keepScreenOn = optBoolean("keepScreenOn", true),
         showPageNumber = optBoolean("showPageNumber", true),
     )

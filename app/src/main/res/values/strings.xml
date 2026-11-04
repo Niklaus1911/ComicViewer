@@ -41,6 +41,8 @@
     <string name="reader_two_page">Two page</string>
     <string name="reader_brightness">Brightness</string>
     <string name="reader_margins">Margins</string>
+    <string name="reader_auto_crop">Auto-crop borders</string>
+    <string name="reader_auto_crop_description">Trims plain white or black margins so the art fills more of the screen</string>
     <string name="reader_keep_screen_on">Keep screen on</string>
     <string name="reader_show_page_number">Show page number</string>
     <string name="file_access_title">Allow file access</string>
@@ -245,6 +247,8 @@
     <string name="pro_benefit_rtl_message">Use manga-style taps and swipes without changing page order.</string>
     <string name="pro_benefit_fit_width_title">Fit-width pages</string>
     <string name="pro_benefit_fit_width_message">Fill the screen width and pan vertically on tall pages.</string>
+    <string name="pro_benefit_auto_crop_title">Auto-crop borders</string>
+    <string name="pro_benefit_auto_crop_message">Trim plain margins from scanned pages so the art fills the screen.</string>
     <string name="pro_benefit_background_title">Reader backgrounds</string>
     <string name="pro_benefit_background_message">Choose black, dark gray, sepia, or white behind each page.</string>
     <string name="pro_benefit_theme_title">Pro themes</string>

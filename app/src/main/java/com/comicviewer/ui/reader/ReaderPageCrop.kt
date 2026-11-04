@@ -134,8 +134,10 @@ private enum class PageSide { Top, Bottom, Left, Right }
  */
 private fun Bitmap.pageContentBounds(): PageContentBounds? {
     if (width < MIN_CROP_INPUT_SIZE || height < MIN_CROP_INPUT_SIZE) return null
+    // Coil decodes requests that carry a transformation as ordinary software bitmaps, so this only
+    // guards against a future change: hardware bitmaps can't be read pixel by pixel.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && config == Bitmap.Config.HARDWARE) return null
-    return detectPageBorderInsets(width, height, lineReader())?.toContentBounds(width, height)
+    return detectPageBorderInsets(width, height, BitmapLineReader(this))?.toContentBounds(width, height)
 }
 
 /**
@@ -177,6 +179,13 @@ private fun detectPageBorderInsets(width: Int, height: Int, reader: PageLineRead
         bottom = newBottom
         left = newLeft
         right = newRight
+        // A blank or nearly blank page is border almost everywhere; once both axes are too deep to
+        // crop, the remaining passes would only read most of the page again.
+        if (height - top - bottom < height * MIN_CONTENT_FRACTION &&
+            width - left - right < width * MIN_CONTENT_FRACTION
+        ) {
+            return null
+        }
     }
     val verticalKept = height - top - bottom >= height * MIN_CONTENT_FRACTION
     val horizontalKept = width - left - right >= width * MIN_CONTENT_FRACTION
@@ -260,9 +269,15 @@ private fun borderDepth(
     }
     fun lineMatches(index: Int, reference: Int): Boolean {
         readLine(index)
+        val red = reference.red
+        val green = reference.green
+        val blue = reference.blue
         var misses = 0
         for (pixel in line) {
-            if (!pixel.isNear(reference) && ++misses > allowedMisses) return false
+            val near = abs(pixel.red - red) <= BORDER_COLOR_TOLERANCE &&
+                abs(pixel.green - green) <= BORDER_COLOR_TOLERANCE &&
+                abs(pixel.blue - blue) <= BORDER_COLOR_TOLERANCE
+            if (!near && ++misses > allowedMisses) return false
         }
         return true
     }
@@ -296,13 +311,49 @@ private fun IntArray.lineReader(width: Int, height: Int) = PageLineReader { side
     }
 }
 
-private fun Bitmap.lineReader() = PageLineReader { side, line, start, end, out ->
-    val length = end - start
-    when (side) {
-        PageSide.Top -> getPixels(out, 0, length, start, line, length, 1)
-        PageSide.Bottom -> getPixels(out, 0, length, start, height - 1 - line, length, 1)
-        PageSide.Left -> getPixels(out, 0, 1, line, start, 1, length)
-        PageSide.Right -> getPixels(out, 0, 1, width - 1 - line, start, 1, length)
+/** Columns read from a bitmap at once: reading one column copies it pixel row by pixel row. */
+private const val BITMAP_COLUMN_BLOCK = 64
+
+/**
+ * Reads lines from a bitmap. Rows are copied directly; columns are copied [BITMAP_COLUMN_BLOCK] at a
+ * time, since the search walks inward from a side one column after another.
+ */
+private class BitmapLineReader(private val bitmap: Bitmap) : PageLineReader {
+    private var block = IntArray(0)
+    private var blockSide: PageSide? = null
+    private var blockFirstLine = 0
+    private var blockColumns = 0
+    private var blockStart = 0
+    private var blockEnd = 0
+
+    override fun read(side: PageSide, line: Int, start: Int, end: Int, out: IntArray) {
+        val length = end - start
+        when (side) {
+            PageSide.Top -> bitmap.getPixels(out, 0, length, start, line, length, 1)
+            PageSide.Bottom -> bitmap.getPixels(out, 0, length, start, bitmap.height - 1 - line, length, 1)
+            PageSide.Left, PageSide.Right -> {
+                val cached = side == blockSide && start == blockStart && end == blockEnd &&
+                    line >= blockFirstLine && line < blockFirstLine + blockColumns
+                if (!cached) loadColumns(side, line, start, end)
+                val column = line - blockFirstLine
+                // Left blocks run outward to inward from x = line; right blocks end at the right edge's line.
+                val offset = if (side == PageSide.Left) column else blockColumns - 1 - column
+                for (index in 0 until length) out[index] = block[index * blockColumns + offset]
+            }
+        }
+    }
+
+    private fun loadColumns(side: PageSide, firstLine: Int, start: Int, end: Int) {
+        val length = end - start
+        val columns = minOf(BITMAP_COLUMN_BLOCK, bitmap.width - firstLine)
+        if (block.size < columns * length) block = IntArray(columns * length)
+        val x = if (side == PageSide.Left) firstLine else bitmap.width - firstLine - columns
+        bitmap.getPixels(block, 0, columns, x, start, columns, length)
+        blockSide = side
+        blockFirstLine = firstLine
+        blockColumns = columns
+        blockStart = start
+        blockEnd = end
     }
 }
 
@@ -332,11 +383,6 @@ private fun Int.borderTone(): Boolean? {
         else -> null
     }
 }
-
-private fun Int.isNear(other: Int): Boolean =
-    abs(red - other.red) <= BORDER_COLOR_TOLERANCE &&
-        abs(green - other.green) <= BORDER_COLOR_TOLERANCE &&
-        abs(blue - other.blue) <= BORDER_COLOR_TOLERANCE
 
 private val Int.red: Int get() = (this shr 16) and 0xFF
 private val Int.green: Int get() = (this shr 8) and 0xFF

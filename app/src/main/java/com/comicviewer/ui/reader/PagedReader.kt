@@ -197,8 +197,7 @@ internal fun PagedComicReader(
     // page still on screen after auto-crop is turned on. This turns true once the cropped image is shown.
     var croppedShapeShown by remember(visualPage.imageUri, autoCrop) { mutableStateOf(false) }
     // A page larger than the viewport is moved to where reading starts as soon as its size is known,
-    // and again when the viewport or the fit settings change, for example when the screen rotates, or
-    // when the cropped shape replaces a stand-in, which would otherwise leave the page partway down.
+    // and again when the viewport or the fit settings change, for example when the screen rotates.
     var pageOffsetPlaced by remember(
         visualPage.imageUri,
         secondSpreadPage?.imageUri,
@@ -207,7 +206,18 @@ internal fun PagedComicReader(
         activeReaderPreferences.readingDirection,
         viewportSize,
         autoCrop,
-        croppedShapeShown,
+    ) { mutableStateOf(false) }
+    // Whether that placement used the cropped shape. A page placed with a stand-in is placed once more
+    // when its cropped shape is shown, which would otherwise leave it partway down; after that, pinches
+    // and sharper copies only keep it inside the screen.
+    var pageOffsetPlacedWithCroppedShape by remember(
+        visualPage.imageUri,
+        secondSpreadPage?.imageUri,
+        activeReaderPreferences.pageMode,
+        activeReaderPreferences.pageFitMode,
+        activeReaderPreferences.readingDirection,
+        viewportSize,
+        autoCrop,
     ) { mutableStateOf(false) }
     var swipeOffsetX by remember { mutableFloatStateOf(0f) }
     var swipeDragStartOffsetX by remember { mutableFloatStateOf(0f) }
@@ -560,9 +570,12 @@ internal fun PagedComicReader(
         layoutPageWidth,
         layoutPageHeight,
         effectivePageScale,
+        croppedShapeShown,
     ) {
-        pageOffset = if (!pageOffsetPlaced && pageSizeKnown) {
+        val placeAtStart = !pageOffsetPlaced || (croppedShapeShown && !pageOffsetPlacedWithCroppedShape)
+        pageOffset = if (placeAtStart && pageSizeKnown) {
             pageOffsetPlaced = true
+            pageOffsetPlacedWithCroppedShape = croppedShapeShown
             readerPageStartOffset(
                 pageWidth = layoutPageWidth,
                 pageHeight = layoutPageHeight,

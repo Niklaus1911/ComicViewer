@@ -56,19 +56,25 @@ class PageBorderCropDeviceTest {
             .memoryCache { MemoryCache.Builder().maxSizeBytes(64L * 1024 * 1024).build() }
             .diskCache(null)
             .build()
-        fun request() = ImageRequest.Builder(context)
+        fun request(autoCrop: Boolean) = ImageRequest.Builder(context)
             .data(pageFile)
             .memoryCacheKey("crop-test-page")
-            .cropPageBorders(true)
-            .readerPageSize(Size(400, 600), autoCrop = true)
+            .cropPageBorders(autoCrop)
+            .readerPageSize(Size(400, 600), autoCrop)
             .precision(Precision.INEXACT)
             .build()
 
-        val first = imageLoader.execute(request()) as SuccessResult
-        val second = imageLoader.execute(request()) as SuccessResult
+        val first = imageLoader.execute(request(autoCrop = true)) as SuccessResult
+        val second = imageLoader.execute(request(autoCrop = true)) as SuccessResult
+        val wholeRequest = request(autoCrop = false).newBuilder().size(readerCropRequestSize(Size(400, 600))).build()
+        val whole = imageLoader.execute(wholeRequest) as SuccessResult
 
-        // Decoded to fit 500 × 750 (the request plus headroom), then about a tenth trimmed from each side.
-        assertTrue("the page should be cropped, was ${first.image.width} wide", first.image.width < 450)
+        // Measured against the same page decoded whole at the same size, so the check doesn't depend
+        // on how Coil scales the decode: the art is the middle 80% of the width.
+        assertTrue(
+            "the page should be cropped: ${first.image.width} px of ${whole.image.width} px",
+            first.image.width < whole.image.width * 0.85,
+        )
         assertEquals(DataSource.MEMORY_CACHE, second.dataSource)
         imageLoader.shutdown()
     }

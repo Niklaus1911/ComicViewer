@@ -4,9 +4,16 @@ import com.comicviewer.ReaderPageMode
 import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.coercePageIndex
 import kotlin.math.abs
+import kotlin.math.roundToLong
 
 internal const val READER_SWIPE_DISTANCE_FRACTION = 0.14f
 private const val EDGE_SWIPE_RESISTANCE = 0.28f
+
+// Holding a page edge flips pages in place, starting at 4 pages a second and speeding up to about 12
+// over the first second and a half, like riffling a flipbook.
+private const val HOLD_FLIP_FIRST_INTERVAL_MS = 250L
+private const val HOLD_FLIP_FASTEST_INTERVAL_MS = 83L
+private const val HOLD_FLIP_RAMP_MS = 1_500L
 
 internal enum class ReaderSwipeDirection {
     Previous,
@@ -213,3 +220,10 @@ internal fun readerSwipeStartOffset(
     direction: ReaderSwipeDirection,
 ): Float =
     if (readerSwipeDirectionForOffset(currentOffsetX) == direction) currentOffsetX else 0f
+
+/** How long hold-to-flip shows a page before the next one, [heldMillis] after the flipping began. */
+internal fun readerHoldFlipIntervalMillis(heldMillis: Long): Long {
+    val progress = (heldMillis.toFloat() / HOLD_FLIP_RAMP_MS).coerceIn(0f, 1f)
+    return HOLD_FLIP_FIRST_INTERVAL_MS -
+        ((HOLD_FLIP_FIRST_INTERVAL_MS - HOLD_FLIP_FASTEST_INTERVAL_MS) * progress).roundToLong()
+}

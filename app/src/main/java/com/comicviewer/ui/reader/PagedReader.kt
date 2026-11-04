@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -43,6 +44,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
@@ -52,6 +54,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
@@ -78,11 +81,18 @@ import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val SWIPE_VELOCITY_THRESHOLD_DP_PER_SECOND = 700f
 private const val SWIPE_RELEASE_ANIMATION_DURATION_MS = 380
+// Hold-to-flip waits this long at most for a page to appear before moving on, so a page that can't
+// be shown doesn't stop the flipping.
+private const val HOLD_FLIP_PAGE_WAIT_MS = 1_000L
 
 private fun adjacentPageTranslationX(
     offsetX: Float,
@@ -287,9 +297,12 @@ internal fun PagedComicReader(
         contentScale = ContentScale.Fit,
     )
 
+    var holdFlipJob by remember(book) { mutableStateOf<Job?>(null) }
+
     DisposableEffect(book) {
         onDispose {
             swipeSettleJob?.cancel()
+            holdFlipJob?.cancel()
         }
     }
 
@@ -563,6 +576,50 @@ internal fun PagedComicReader(
     // live instead of restarting, which would cut the pinch off.
     val currentLayoutPageSize by rememberUpdatedState(IntSize(layoutPageWidth, layoutPageHeight))
 
+    // The page whose image is on screen, or -1 while it loads. Hold-to-flip waits for it, so a page that
+    // is slow to load is still shown rather than flashing past as a blank frame.
+    val shownPageIndex = rememberUpdatedState(
+        if (displayedPainter != null && (secondSpreadPage == null || displayedSecondPainter != null)) {
+            visualPage.index
+        } else {
+            -1
+        },
+    )
+    val haptics = LocalHapticFeedback.current
+    // The flipping outlives this composition, so each step turns the page through the latest navigate.
+    val currentFlip by rememberUpdatedState<(ReaderSwipeDirection) -> Int?>({ direction ->
+        targetPageFor(direction)?.also { navigate(direction) }
+    })
+
+    fun startHoldFlip(direction: ReaderSwipeDirection) {
+        holdFlipJob?.cancel()
+        if (targetPageFor(direction) == null) return
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        holdFlipJob = scope.launch {
+            var heldMillis = 0L
+            while (true) {
+                val target = currentFlip(direction) ?: break
+                val interval = readerHoldFlipIntervalMillis(heldMillis)
+                coroutineScope {
+                    // Each page stays up for the interval, and longer while it is still loading.
+                    launch { delay(interval) }
+                    withTimeoutOrNull(HOLD_FLIP_PAGE_WAIT_MS) {
+                        snapshotFlow { shownPageIndex.value }.first { shown -> shown == target }
+                    }
+                }
+                heldMillis += interval
+            }
+        }
+    }
+
+    fun stopHoldFlip() {
+        holdFlipJob?.cancel()
+        holdFlipJob = null
+    }
+
+    val currentStartHoldFlip by rememberUpdatedState(::startHoldFlip)
+    val currentStopHoldFlip by rememberUpdatedState(::stopHoldFlip)
+
     // Keyed on everything that resets the placement flags above, so a reset is acted on at once rather
     // than by the next pinch, which would send the page to its start mid-gesture.
     LaunchedEffect(
@@ -606,6 +663,21 @@ internal fun PagedComicReader(
                 .padding(activeReaderPreferences.marginDp.dp)
                 .clipToBounds()
                 .onSizeChanged { viewportSize = it }
+                // Kept apart from the gestures below, which restart on every page: a hold has to
+                // survive the pages it turns to notice the finger lifting.
+                .pointerInput(viewportSize, activeReaderPreferences.readingDirection) {
+                    detectEdgeHold(
+                        edgeDirection = { position ->
+                            readerNavigationDirectionForTap(
+                                tapX = position.x,
+                                viewportWidth = size.width.toFloat(),
+                                readingDirection = activeReaderPreferences.readingDirection,
+                            )
+                        },
+                        onHoldStart = { direction -> currentStartHoldFlip(direction) },
+                        onHoldEnd = { currentStopHoldFlip() },
+                    )
+                }
                 .pointerInput(
                     visualPage.imageUri,
                     secondSpreadPage?.imageUri,
@@ -961,6 +1033,46 @@ private suspend fun PointerInputScope.detectPageGestures(
             onSwipeEnd(accumulatedPan.x, velocityTracker.calculateVelocity().x)
         } else if (!pointerCountExceededTap && !movedPastTapSlop && !pastTransformSlop) {
             onTap(startPosition)
+        }
+    }
+}
+
+/**
+ * Pressing and holding a page edge, the same edges a tap turns pages with, calls [onHoldStart] once the
+ * finger has stayed still for the long-press timeout, and [onHoldEnd] when it lifts or a second finger
+ * comes down. Moving first leaves the gesture to swipes and pans. Nothing is consumed: the tap and
+ * swipe handling never sees a hold as a tap, because the pages it turns restart that handling.
+ */
+private suspend fun PointerInputScope.detectEdgeHold(
+    edgeDirection: (Offset) -> ReaderSwipeDirection?,
+    onHoldStart: (ReaderSwipeDirection) -> Unit,
+    onHoldEnd: () -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val direction = edgeDirection(down.position) ?: return@awaitEachGesture
+        val touchSlop = viewConfiguration.touchSlop
+        val endedBeforeHold = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            do {
+                val event = awaitPointerEvent()
+                val pointer = event.changes.firstOrNull { it.id == down.id }
+                val stillHolding = pointer != null &&
+                    pointer.pressed &&
+                    event.changes.count { it.pressed } == 1 &&
+                    (pointer.position - down.position).getDistance() <= touchSlop
+            } while (stillHolding)
+        }
+        if (endedBeforeHold != null) return@awaitEachGesture
+
+        onHoldStart(direction)
+        try {
+            do {
+                val event = awaitPointerEvent()
+                val pointer = event.changes.firstOrNull { it.id == down.id }
+                val stillHolding = pointer != null && pointer.pressed && event.changes.count { it.pressed } == 1
+            } while (stillHolding)
+        } finally {
+            onHoldEnd()
         }
     }
 }

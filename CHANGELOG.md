@@ -16,6 +16,13 @@ production version.
   scanned pages, including dark scanner edges, so the art fills more of the screen. It works in
   single-page mode; two-page spreads and vertical scrolling show pages whole, so facing pages still
   meet and webtoon spacing stays. Thin panel frames, blank pages and small drawings are kept whole.
+- Hold to flip: pressing and holding the left or right edge of a page keeps turning pages in place,
+  starting at 4 a second and speeding up to about 12, like riffling a flipbook. Lift the finger to
+  stop.
+
+### Changed
+
+- Dragging the page slider turns to each page as it passes, instead of only when the finger lifts.
 
 ## [1.0.36] - 2026-10-30
 

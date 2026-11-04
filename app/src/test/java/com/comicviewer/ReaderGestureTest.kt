@@ -1,11 +1,13 @@
 package com.comicviewer
 
 import com.comicviewer.ui.reader.ReaderSwipeDirection
+import com.comicviewer.ui.reader.readerHoldFlipIntervalMillis
 import com.comicviewer.ui.reader.readerHorizontalSwipeEnabled
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerLogicalDirectionForPhysicalDirection
 import com.comicviewer.ui.reader.readerNavigationDirectionForTap
 import com.comicviewer.ui.reader.readerPhysicalSwipeCommitDirection
+import com.comicviewer.ui.reader.readerScrubberPageToOpen
 import com.comicviewer.ui.reader.readerSwipeCommitDirection
 import com.comicviewer.ui.reader.readerSwipeDirectionForOffset
 import com.comicviewer.ui.reader.readerSwipeStartOffset
@@ -436,5 +438,27 @@ class ReaderGestureTest {
         assertEquals(-50f, verticalStripItemTop(-100f, 1000f, 300f, 50f, 1f), 0.01f)
         // A page with no height yet only follows the fingers.
         assertEquals(-60f, verticalStripItemTop(-100f, 0f, 300f, 40f, 2f), 0.01f)
+    }
+
+    @Test
+    fun readerHoldFlipIntervalMillis_speedsUpFromFourToAboutTwelvePagesASecond() {
+        assertEquals(250L, readerHoldFlipIntervalMillis(0L))
+        assertEquals(166L, readerHoldFlipIntervalMillis(750L))
+        assertEquals(83L, readerHoldFlipIntervalMillis(1_500L))
+        // It stays at the top speed however long the edge is held, and a clock glitch can't slow it.
+        assertEquals(83L, readerHoldFlipIntervalMillis(60_000L))
+        assertEquals(250L, readerHoldFlipIntervalMillis(-10L))
+    }
+
+    @Test
+    fun readerScrubberPageToOpen_opensEachPageOnceAsTheSliderPassesIt() {
+        // The slider moves through 0.4, 0.6, 1.2, 1.4 and 2.6 while dragged.
+        assertEquals(0, readerScrubberPageToOpen(0.4f, pageCount = 10, lastOpenedPage = -1))
+        assertEquals(1, readerScrubberPageToOpen(0.6f, pageCount = 10, lastOpenedPage = 0))
+        assertNull(readerScrubberPageToOpen(1.2f, pageCount = 10, lastOpenedPage = 1))
+        assertNull(readerScrubberPageToOpen(1.4f, pageCount = 10, lastOpenedPage = 1))
+        assertEquals(3, readerScrubberPageToOpen(2.6f, pageCount = 10, lastOpenedPage = 1))
+        // A value past the end opens the last page.
+        assertEquals(9, readerScrubberPageToOpen(12f, pageCount = 10, lastOpenedPage = 3))
     }
 }

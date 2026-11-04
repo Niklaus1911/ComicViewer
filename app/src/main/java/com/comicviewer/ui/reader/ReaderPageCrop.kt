@@ -311,12 +311,17 @@ private fun IntArray.lineReader(width: Int, height: Int) = PageLineReader { side
     }
 }
 
-/** Columns read from a bitmap at once: reading one column copies it pixel row by pixel row. */
-private const val BITMAP_COLUMN_BLOCK = 64
+/**
+ * Columns read from a bitmap at once, since reading one column copies it pixel row by pixel row.
+ * Blocks start small and grow with the border found so far, so a page whose art reaches its edge
+ * copies only a few columns.
+ */
+private const val MIN_BITMAP_COLUMN_BLOCK = 8
+private const val MAX_BITMAP_COLUMN_BLOCK = 64
 
 /**
- * Reads lines from a bitmap. Rows are copied directly; columns are copied [BITMAP_COLUMN_BLOCK] at a
- * time, since the search walks inward from a side one column after another.
+ * Reads lines from a bitmap. Rows are copied directly; columns are copied a block at a time, since
+ * the search walks inward from a side one column after another.
  */
 private class BitmapLineReader(private val bitmap: Bitmap) : PageLineReader {
     private var block = IntArray(0)
@@ -345,7 +350,10 @@ private class BitmapLineReader(private val bitmap: Bitmap) : PageLineReader {
 
     private fun loadColumns(side: PageSide, firstLine: Int, start: Int, end: Int) {
         val length = end - start
-        val columns = minOf(BITMAP_COLUMN_BLOCK, bitmap.width - firstLine)
+        val columns = minOf(
+            firstLine.coerceIn(MIN_BITMAP_COLUMN_BLOCK, MAX_BITMAP_COLUMN_BLOCK),
+            bitmap.width - firstLine,
+        )
         if (block.size < columns * length) block = IntArray(columns * length)
         val x = if (side == PageSide.Left) firstLine else bitmap.width - firstLine - columns
         bitmap.getPixels(block, 0, columns, x, start, columns, length)

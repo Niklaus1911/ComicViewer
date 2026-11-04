@@ -173,21 +173,21 @@ class ReaderZoomTest {
                 )
             }
         }
-        val pageLabel = context.getString(R.string.reader_page_description, 1, 1)
-        composeRule.waitUntil(PAGE_LOAD_TIMEOUT_MS) {
-            composeRule.onAllNodesWithContentDescription(pageLabel).fetchSemanticsNodes().isNotEmpty()
+        val root = composeRule.onRoot()
+        // Near the left edge the whole page shows its white margin; cropped, the art fills the width.
+        fun screenColor(xFraction: Float, yFraction: Float): Int {
+            val screen = root.captureToImage().asAndroidBitmap()
+            return screen.getPixel((screen.width * xFraction).toInt(), (screen.height * yFraction).toInt())
         }
-        Thread.sleep(SHARPER_PAGE_LOAD_WAIT_MS)
-        composeRule.waitForIdle()
+        composeRule.waitUntil(PAGE_LOAD_TIMEOUT_MS) {
+            screenColor(0.5f, 0.04f) == Color.BLUE && screenColor(0.05f, 0.04f) == Color.WHITE
+        }
 
         // Turned on mid-page, the whole page stays on screen while the cropped one loads. Cropped, the
         // page is narrower, so at full width it is taller, and it must start at its top again.
         preferences = preferences.copy(autoCrop = true)
-        Thread.sleep(SHARPER_PAGE_LOAD_WAIT_MS)
-        composeRule.waitForIdle()
-        val root = composeRule.onRoot()
-        val atStart = root.captureToImage().asAndroidBitmap()
-        assertEquals(Color.BLUE, atStart.getPixel(atStart.width / 2, (atStart.height * 0.04f).toInt()))
+        composeRule.waitUntil(PAGE_LOAD_TIMEOUT_MS) { screenColor(0.05f, 0.04f) == Color.BLUE }
+        assertEquals(Color.BLUE, screenColor(0.5f, 0.04f))
 
         // Scrolled down into the green middle, a pinch zooms where the page is rather than sending it
         // back to its top.
@@ -199,6 +199,7 @@ class ReaderZoomTest {
             up(0)
         }
         composeRule.waitForIdle()
+        assertEquals("the scroll should reach the green middle", Color.GREEN, screenColor(0.5f, 0.04f))
         root.performTouchInput {
             down(0, center - Offset(60f, 0f))
             down(1, center + Offset(60f, 0f))
@@ -211,8 +212,7 @@ class ReaderZoomTest {
             up(1)
         }
         composeRule.waitForIdle()
-        val zoomed = root.captureToImage().asAndroidBitmap()
-        assertEquals(Color.GREEN, zoomed.getPixel(zoomed.width / 2, (zoomed.height * 0.04f).toInt()))
+        assertEquals("the pinch should keep the page in place", Color.GREEN, screenColor(0.5f, 0.04f))
     }
 
     /** A tall page with white side margins: a thin blue band on top, green below, red at the bottom. */

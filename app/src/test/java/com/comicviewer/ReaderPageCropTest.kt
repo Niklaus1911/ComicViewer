@@ -45,6 +45,16 @@ class ReaderPageCropTest {
     }
 
     @Test
+    fun detectPageContentBounds_leavesScatteredSpecksUncropped() {
+        // Specks too sparse to stop any line read the whole page as border on both axes, which the
+        // search gives up on after its first pass rather than looking again between deeper borders.
+        val page = testPage(width = 100, height = 150, background = WHITE)
+        for (i in 0 until 110) page.fill(left = 20 + (i * 7) % 60, top = 20 + i, right = 21 + (i * 7) % 60, bottom = 21 + i, color = BLACK)
+
+        assertNull(page.detect())
+    }
+
+    @Test
     fun detectPageContentBounds_leavesColoredEdgesAlone() {
         val page = testPage(width = 100, height = 150, background = 0xFF3366CC.toInt())
         page.fillArt(left = 10, top = 15, right = 90, bottom = 135)

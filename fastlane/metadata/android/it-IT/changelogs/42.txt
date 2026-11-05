@@ -1,0 +1,1 @@
+Tieni premuto per sfogliare: tieni premuto il bordo sinistro o destro di una pagina e le pagine continuano a girare sul posto, da 4 al secondo fino a circa 12, come un flipbook. Solleva il dito per fermarti. Trascinando il cursore delle pagine ora si apre ogni pagina che attraversi, così anche un trascinamento lento sfoglia le pagine.

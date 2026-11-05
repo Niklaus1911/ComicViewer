@@ -1,0 +1,1 @@
+Hold to flip: press and hold the left or right edge of a page to keep turning pages in place, starting at 4 a second and speeding up to about 12, like a flipbook. Lift your finger to stop. Dragging the page slider now turns to each page as it passes, so a slow drag flips through the pages too.

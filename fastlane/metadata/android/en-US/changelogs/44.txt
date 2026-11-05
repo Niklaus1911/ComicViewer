@@ -1,0 +1,1 @@
+Hold to flip now has a speed you can tune: while holding a page edge, slide your finger up to flip faster, up to 20 pages a second, or down to slow down to 1 a second. A label shows the speed. Flipping through large images no longer flashes black, and two-page spreads and pages that fail to load behave correctly after flipping or dragging the slider.

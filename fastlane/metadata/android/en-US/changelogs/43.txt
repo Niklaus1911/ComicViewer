@@ -1,0 +1,1 @@
+The page slider keeps up with large images: while you drag it, the page on screen stays until the next one is ready, so pages keep appearing instead of the screen going black. Pages may look a little soft while you drag and sharpen as soon as you let go.

@@ -1,0 +1,1 @@
+Il cursore delle pagine tiene il passo anche con immagini grandi: mentre lo trascini, la pagina sullo schermo resta finché la successiva è pronta, così le pagine continuano ad apparire invece di uno schermo nero. Durante il trascinamento le pagine possono sembrare un po' sfocate e tornano nitide appena lasci il dito.

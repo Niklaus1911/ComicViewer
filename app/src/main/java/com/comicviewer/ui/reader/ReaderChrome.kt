@@ -63,6 +63,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -157,6 +158,7 @@ internal fun BoxScope.ReaderChrome(
     onPageSelected: (Int) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenGrid: () -> Unit,
+    onScrubbingChange: (Boolean) -> Unit = {},
 ) {
     val progressPercent = readerProgressPercent(progressPageIndex, pageCount)
     AnimatedVisibility(
@@ -190,6 +192,7 @@ internal fun BoxScope.ReaderChrome(
             onNext = onNext,
             onOpenSettings = onOpenSettings,
             onOpenGrid = onOpenGrid,
+            onScrubbingChange = onScrubbingChange,
         )
     }
     AnimatedVisibility(
@@ -302,6 +305,7 @@ fun ReaderPageScrubber(
     onOpenSettings: () -> Unit,
     onOpenGrid: () -> Unit,
     modifier: Modifier = Modifier,
+    onScrubbingChange: (Boolean) -> Unit = {},
 ) {
     val clampedPageIndex = coercePageIndex(currentPageIndex, pageCount)
     // While dragged, the slider follows the finger and turns to each page it passes, so a slow drag
@@ -309,6 +313,11 @@ fun ReaderPageScrubber(
     var dragValue by remember(pageCount) { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var lastDraggedPage by remember(pageCount) { mutableIntStateOf(-1) }
+    val currentOnScrubbingChange by rememberUpdatedState(onScrubbingChange)
+    // Hiding the slider mid-drag still ends the drag for the reader.
+    DisposableEffect(Unit) {
+        onDispose { if (dragging) currentOnScrubbingChange(false) }
+    }
     val sliderMax = max(pageCount - 1, 0).toFloat()
     val chipText = when {
         dragging -> "${coercePageIndex(dragValue.roundToInt(), pageCount) + 1} / $pageCount"
@@ -334,6 +343,7 @@ fun ReaderPageScrubber(
                 Slider(
                     value = (if (dragging) dragValue else clampedPageIndex.toFloat()).coerceIn(0f, sliderMax),
                     onValueChange = { value ->
+                        if (!dragging) onScrubbingChange(true)
                         dragging = true
                         dragValue = value
                         readerScrubberPageToOpen(value, pageCount, lastDraggedPage)?.let { page ->
@@ -344,6 +354,7 @@ fun ReaderPageScrubber(
                     onValueChangeFinished = {
                         dragging = false
                         lastDraggedPage = -1
+                        onScrubbingChange(false)
                     },
                     valueRange = 0f..sliderMax,
                     // Tick marks only help when there are few pages; long comics get a smooth track.

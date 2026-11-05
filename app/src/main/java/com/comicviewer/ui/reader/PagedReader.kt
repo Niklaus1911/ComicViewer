@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -153,8 +154,12 @@ internal fun PagedComicReader(
     var scrubbing by remember(book) { mutableStateOf(false) }
     // Keeps the previous page on screen after a drag ends, until the page it ended on is drawn.
     var holdPreviousPage by remember(book) { mutableStateOf(false) }
+    // The page on screen when the drag began keeps its full-size copy; only pages reached by dragging
+    // load as half-size drafts. The Original fit mode shows real pixel sizes, so it never uses drafts.
+    var scrubStartPageIndex by remember(book) { mutableIntStateOf(-1) }
     val originalSize = activeReaderPreferences.pageFitMode == ReaderPageFitMode.Original
     val autoCrop = activeReaderPreferences.autoCropApplies()
+    val draftPages = scrubbing && !originalSize && visualPage.index != scrubStartPageIndex
     // Detail for pages about to be shown: what the fit mode needs before any pinch.
     var baseDetailStep by remember(book, activeReaderPreferences.pageFitMode) { mutableIntStateOf(1) }
     // Detail for the visible page: it rises while the page is zoomed and never falls, so zooming
@@ -172,9 +177,9 @@ internal fun PagedComicReader(
         pageDetailStep,
         originalSize,
         autoCrop,
-        scrubbing,
+        draftPages,
     ) {
-        visualPage.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize, autoCrop, scrubbing)
+        visualPage.readerPageRequest(context, book.source, viewportSize, pageDetailStep, originalSize, autoCrop, draftPages)
     }
     val painter = rememberAsyncImagePainter(
         model = currentRequest,
@@ -191,7 +196,7 @@ internal fun PagedComicReader(
             pageDetailStep,
             originalSize,
             autoCrop,
-            scrubbing,
+            draftPages,
         ) {
             secondSpreadPage?.readerPageRequest(
                 context,
@@ -200,7 +205,7 @@ internal fun PagedComicReader(
                 pageDetailStep,
                 originalSize,
                 autoCrop,
-                scrubbing,
+                draftPages,
             )
         },
         imageLoader = imageLoader,
@@ -316,6 +321,9 @@ internal fun PagedComicReader(
     )
 
     var holdFlipJob by remember(book) { mutableStateOf<Job?>(null) }
+    // True while a held page edge is flipping pages; like a slider drag, it keeps the last page drawn
+    // on screen while the next one loads.
+    var holdFlipping by remember(book) { mutableStateOf(false) }
 
     DisposableEffect(book) {
         onDispose {
@@ -468,9 +476,12 @@ internal fun PagedComicReader(
         }
     }
 
+    // Coil's state still holds the previous page's result for a frame after the page changes, so a
+    // result only counts for the page it was requested for.
     LaunchedEffect(painterState, visualPage.imageUri, resources) {
         when (val state = painterState) {
             is AsyncImagePainter.State.Success -> {
+                if (state.result.request.data != visualPage.imageUri) return@LaunchedEffect
                 // The painter can still hold the whole page for a moment after auto-crop is turned on.
                 if (autoCrop && state.result.request.transformations.isNotEmpty()) croppedShapeShown = true
                 lastSuccessfulPainter = RememberedPagePainter(
@@ -481,10 +492,10 @@ internal fun PagedComicReader(
             }
 
             is AsyncImagePainter.State.Error -> {
-                primaryPageLoadError = if (state.isNotRequestedYet()) {
-                    null
-                } else {
-                    resources.getString(R.string.page_image_error, visualPage.displayName)
+                primaryPageLoadError = when {
+                    state.isNotRequestedYet() -> null
+                    state.result.request.data != visualPage.imageUri -> return@LaunchedEffect
+                    else -> resources.getString(R.string.page_image_error, visualPage.displayName)
                 }
             }
 
@@ -494,6 +505,16 @@ internal fun PagedComicReader(
 
     LaunchedEffect(secondPainterState, secondSpreadPage?.imageUri, resources) {
         val state = secondPainterState
+        if (state is AsyncImagePainter.State.Success && state.result.request.data != secondSpreadPage?.imageUri) {
+            return@LaunchedEffect
+        }
+        if (
+            state is AsyncImagePainter.State.Error &&
+            !state.isNotRequestedYet() &&
+            state.result.request.data != secondSpreadPage?.imageUri
+        ) {
+            return@LaunchedEffect
+        }
         if (secondSpreadPage != null && state is AsyncImagePainter.State.Success) {
             lastSuccessfulSecondPainter = RememberedPagePainter(
                 imageUri = secondSpreadPage.imageUri.toString(),
@@ -515,18 +536,25 @@ internal fun PagedComicReader(
     // The decoded image is drawn rather than Coil's painter: when a sharper copy is requested, that
     // painter goes blank a frame before its state says so, which made the page flash. While the
     // sharper copy loads, the one already shown stands in for it.
-    val ownPagePainter = (painterState as? AsyncImagePainter.State.Success)?.painter
+    val ownPagePainter = (painterState as? AsyncImagePainter.State.Success)
+        ?.takeIf { state -> state.result.request.data == visualPage.imageUri }
+        ?.painter
         ?: lastSuccessfulPainter
             ?.takeIf { remembered -> remembered.imageUri == visualPage.imageUri.toString() }
             ?.painter
-    val ownSecondPainter = (secondPainterState as? AsyncImagePainter.State.Success)?.painter
+    val ownSecondPainter = (secondPainterState as? AsyncImagePainter.State.Success)
+        ?.takeIf { state -> state.result.request.data == secondSpreadPage?.imageUri }
+        ?.painter
         ?: lastSuccessfulSecondPainter
             ?.takeIf { remembered -> remembered.imageUri == secondSpreadPage?.imageUri?.toString() }
             ?.painter
-    val showPreviousPage = scrubbing || holdPreviousPage
+    val showPreviousPage = scrubbing || holdFlipping || holdPreviousPage
     val displayedPainter = ownPagePainter ?: lastSuccessfulPainter?.painter?.takeIf { showPreviousPage }
     val displayedSecondPainter = ownSecondPainter
         ?: lastSuccessfulSecondPainter?.painter?.takeIf { showPreviousPage && secondSpreadPage != null }
+    // The previous page standing in for one still loading: its size must not decide where the new
+    // page starts.
+    val showingStandIn = displayedPainter != null && ownPagePainter == null
     val primaryIntrinsicSize = displayedPainter?.intrinsicSize ?: Size.Unspecified
     val secondaryIntrinsicSize = displayedSecondPainter?.intrinsicSize ?: Size.Unspecified
     val primaryPageWidth = readerPageLayoutDimension(visualPage.width, primaryIntrinsicSize.width, autoCrop)
@@ -589,16 +617,9 @@ internal fun PagedComicReader(
 
     // The page whose own image is drawn, or has failed to load, and -1 while it loads. Hold-to-flip and
     // the page slider wait for it, so a page that is slow to load is still shown rather than skipped.
-    val settledPageIndex = rememberUpdatedState(
-        if (
-            (ownPagePainter != null || primaryPageLoadError != null) &&
-            (secondSpreadPage == null || ownSecondPainter != null || secondaryPageLoadError != null)
-        ) {
-            visualPage.index
-        } else {
-            -1
-        },
-    )
+    val visualPageSettled = (ownPagePainter != null || primaryPageLoadError != null) &&
+        (secondSpreadPage == null || ownSecondPainter != null || secondaryPageLoadError != null)
+    val settledPageIndex = rememberUpdatedState(if (visualPageSettled) visualPage.index else -1)
 
     LaunchedEffect(book, requestedVisualIndex, activeReaderPreferences.pageMode, scrubbing) {
         if (requestedVisualIndex != visualPageIndex) {
@@ -626,10 +647,12 @@ internal fun PagedComicReader(
         }
     }
 
-    // Once the drag is over, the previous page gives way when the page the slider stopped on is drawn.
-    val stoppedPageDrawn = !scrubbing && ownPagePainter != null && visualPageIndex == requestedVisualIndex
-    LaunchedEffect(stoppedPageDrawn) {
-        if (stoppedPageDrawn) holdPreviousPage = false
+    // Once a drag or a hold is over, the previous page gives way when the page it stopped on is drawn,
+    // both pages of a spread, or has failed to load.
+    val stoppedPageSettled = !scrubbing && !holdFlipping && visualPageIndex == requestedVisualIndex &&
+        visualPageSettled
+    LaunchedEffect(stoppedPageSettled) {
+        if (stoppedPageSettled) holdPreviousPage = false
     }
     val haptics = LocalHapticFeedback.current
     // The flipping outlives this composition, so each step turns the page through the latest navigate.
@@ -641,11 +664,13 @@ internal fun PagedComicReader(
         holdFlipJob?.cancel()
         if (targetPageFor(direction) == null) return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        holdFlipping = true
         holdFlipJob = scope.launch {
-            var heldMillis = 0L
+            // The frame clock, which tests can drive, measures how long the edge has been held.
+            val heldSince = withFrameMillis { frameMillis -> frameMillis }
             while (true) {
                 val target = currentFlip(direction) ?: break
-                val interval = readerHoldFlipIntervalMillis(heldMillis)
+                val interval = readerHoldFlipIntervalMillis(withFrameMillis { frameMillis -> frameMillis } - heldSince)
                 coroutineScope {
                     // Each page stays up for the interval, and longer while it is still loading.
                     launch { delay(interval) }
@@ -653,7 +678,6 @@ internal fun PagedComicReader(
                         snapshotFlow { settledPageIndex.value }.first { settled -> settled == target }
                     }
                 }
-                heldMillis += interval
             }
         }
     }
@@ -661,6 +685,11 @@ internal fun PagedComicReader(
     fun stopHoldFlip() {
         holdFlipJob?.cancel()
         holdFlipJob = null
+        if (holdFlipping) {
+            holdFlipping = false
+            // The page flipping stopped on may still be loading; the previous one stays until it is drawn.
+            holdPreviousPage = true
+        }
     }
 
     val currentStartHoldFlip by rememberUpdatedState(::startHoldFlip)
@@ -680,9 +709,10 @@ internal fun PagedComicReader(
         layoutPageHeight,
         effectivePageScale,
         croppedShapeShown,
+        showingStandIn,
     ) {
         val placeAtStart = !pageOffsetPlaced || (croppedShapeShown && !pageOffsetPlacedWithCroppedShape)
-        pageOffset = if (placeAtStart && pageSizeKnown) {
+        pageOffset = if (placeAtStart && pageSizeKnown && !showingStandIn) {
             pageOffsetPlaced = true
             pageOffsetPlacedWithCroppedShape = croppedShapeShown
             readerPageStartOffset(
@@ -888,8 +918,11 @@ internal fun PagedComicReader(
             onOpenSettings = onOpenSettings,
             onOpenGrid = onOpenGrid,
             onScrubbingChange = { active ->
+                if (active) {
+                    scrubStartPageIndex = visualPageIndex
+                    holdPreviousPage = true
+                }
                 scrubbing = active
-                if (active) holdPreviousPage = true
             },
         )
     }
@@ -1156,9 +1189,9 @@ private fun List<ComicPage>.preloadRequests(
  * Coil keep a decoded size between the request and the page's own instead of scaling a page up.
  * With [autoCrop], the page's plain borders are trimmed after decoding, from a copy requested a bit
  * larger so the trimmed page still fills the screen. A [draft], for a page passed while the slider is
- * dragged, is half the viewport and decodes faster; it can use a sharper copy already in memory but
- * is not kept there, so it never stands in for the full page later. Nothing is requested until the
- * viewport has been measured.
+ * dragged, is half the viewport and decodes faster. Without auto-crop it can use a sharper copy
+ * already in memory; it is never kept there, so it never stands in for the full page later. Nothing
+ * is requested until the viewport has been measured.
  */
 private fun ComicPage.readerPageRequest(
     context: Context,

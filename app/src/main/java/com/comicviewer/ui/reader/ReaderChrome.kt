@@ -159,6 +159,7 @@ internal fun BoxScope.ReaderChrome(
     onOpenSettings: () -> Unit,
     onOpenGrid: () -> Unit,
     onScrubbingChange: (Boolean) -> Unit = {},
+    turnPagesWhileDragging: Boolean = true,
 ) {
     val progressPercent = readerProgressPercent(progressPageIndex, pageCount)
     AnimatedVisibility(
@@ -193,6 +194,7 @@ internal fun BoxScope.ReaderChrome(
             onOpenSettings = onOpenSettings,
             onOpenGrid = onOpenGrid,
             onScrubbingChange = onScrubbingChange,
+            turnPagesWhileDragging = turnPagesWhileDragging,
         )
     }
     AnimatedVisibility(
@@ -306,10 +308,12 @@ fun ReaderPageScrubber(
     onOpenGrid: () -> Unit,
     modifier: Modifier = Modifier,
     onScrubbingChange: (Boolean) -> Unit = {},
+    turnPagesWhileDragging: Boolean = true,
 ) {
     val clampedPageIndex = coercePageIndex(currentPageIndex, pageCount)
-    // While dragged, the slider follows the finger and turns to each page it passes, so a slow drag
-    // flips through the pages in place. The rest of the time it shows the current page.
+    // While dragged, the slider follows the finger and, with [turnPagesWhileDragging], turns to each page
+    // it passes, so a slow drag flips through the pages in place. Otherwise the page opens when the
+    // finger lifts. The rest of the time the slider shows the current page.
     var dragValue by remember(pageCount) { mutableFloatStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var lastDraggedPage by remember(pageCount) { mutableIntStateOf(-1) }
@@ -346,12 +350,15 @@ fun ReaderPageScrubber(
                         if (!dragging) onScrubbingChange(true)
                         dragging = true
                         dragValue = value
-                        readerScrubberPageToOpen(value, pageCount, lastDraggedPage)?.let { page ->
-                            lastDraggedPage = page
-                            onPageSelected(page)
+                        if (turnPagesWhileDragging) {
+                            readerScrubberPageToOpen(value, pageCount, lastDraggedPage)?.let { page ->
+                                lastDraggedPage = page
+                                onPageSelected(page)
+                            }
                         }
                     },
                     onValueChangeFinished = {
+                        if (!turnPagesWhileDragging) onPageSelected(coercePageIndex(dragValue.roundToInt(), pageCount))
                         dragging = false
                         lastDraggedPage = -1
                         onScrubbingChange(false)

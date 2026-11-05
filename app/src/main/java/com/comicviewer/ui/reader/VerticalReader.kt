@@ -263,6 +263,9 @@ internal fun VerticalComicReader(
             onPageSelected = onPageSelected,
             onOpenSettings = onOpenSettings,
             onOpenGrid = onOpenGrid,
+            // Jumping the strip to every page a drag passes would lay out and load pages that are left
+            // behind at once, so the strip jumps when the finger lifts.
+            turnPagesWhileDragging = false,
         )
     }
 }

@@ -22,9 +22,9 @@ production version.
 
 ### Changed
 
-- Dragging the page slider turns to each page as it passes, instead of only when the finger lifts.
-  With very large images it shows every page it can load in time and skips the rest, instead of
-  going black until the finger stops.
+- In page-by-page reading, dragging the page slider turns to each page as it passes, instead of only
+  when the finger lifts. With very large images it shows every page it can load in time and skips
+  the rest, instead of going black until the finger stops.
 
 ### Fixed
 

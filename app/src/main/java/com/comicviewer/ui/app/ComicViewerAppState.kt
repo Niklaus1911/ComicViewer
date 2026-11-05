@@ -78,6 +78,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -87,6 +88,8 @@ sealed interface ComicDetailsTarget {
     data class Library(val comic: LibraryComic) : ComicDetailsTarget
     data class Recent(val comic: RecentComic) : ComicDetailsTarget
 }
+
+private const val PROGRESS_SAVE_DELAY_MS = 500L
 
 class ComicViewerAppState(
     private val appContext: Context,
@@ -126,6 +129,10 @@ class ComicViewerAppState(
     var libraryAutoScanState by mutableStateOf<LibraryAutoScanState>(LibraryAutoScanState.Idle)
         private set
     private var loadJob by mutableStateOf<Job?>(null)
+    // Reading progress is saved once page turns pause: hold to flip and the page slider turn many pages
+    // a second, and each save rewrites the whole recent list.
+    private var pendingProgress: Pair<ReaderUiState.Ready, Int>? = null
+    private var progressSaveJob: Job? = null
     private var cacheCleanupJob: Job? = null
 
     /**
@@ -678,25 +685,45 @@ class ComicViewerAppState(
     fun previousPage() {
         val ready = uiState as? ReaderUiState.Ready ?: return
         val nextPageIndex = coercePageIndex(ready.pageIndex - 1, ready.book.pages.size)
-        updateRecentPage(ready, nextPageIndex)
+        saveProgressSoon(ready, nextPageIndex)
         uiState = ready.copy(pageIndex = nextPageIndex)
     }
 
     fun nextPage() {
         val ready = uiState as? ReaderUiState.Ready ?: return
         val nextPageIndex = coercePageIndex(ready.pageIndex + 1, ready.book.pages.size)
-        updateRecentPage(ready, nextPageIndex)
+        saveProgressSoon(ready, nextPageIndex)
         uiState = ready.copy(pageIndex = nextPageIndex)
     }
 
     fun selectPage(pageIndex: Int) {
         val ready = uiState as? ReaderUiState.Ready ?: return
         val nextPageIndex = coercePageIndex(pageIndex, ready.book.pages.size)
-        updateRecentPage(ready, nextPageIndex)
+        saveProgressSoon(ready, nextPageIndex)
         uiState = ready.copy(pageIndex = nextPageIndex)
     }
 
+    private fun saveProgressSoon(ready: ReaderUiState.Ready, pageIndex: Int) {
+        pendingProgress = ready to pageIndex
+        progressSaveJob?.cancel()
+        progressSaveJob = scope.launch {
+            delay(PROGRESS_SAVE_DELAY_MS)
+            progressSaveJob = null
+            savePendingProgress()
+        }
+    }
+
+    /** Saves a page turn still waiting to be saved, for example when the reader closes or the app pauses. */
+    fun savePendingProgress() {
+        progressSaveJob?.cancel()
+        progressSaveJob = null
+        val (ready, pageIndex) = pendingProgress ?: return
+        pendingProgress = null
+        updateRecentPage(ready, pageIndex)
+    }
+
     fun closeComic() {
+        savePendingProgress()
         val source = uiState.comicSourceOrNull()
         val closingJob = loadJob
         closingJob?.cancel()

@@ -317,6 +317,7 @@ fun ComicViewerApp(
                 storageAccessRevision += 1
                 billingRepository.restorePurchases()
             }
+            if (event == Lifecycle.Event.ON_PAUSE) appState?.savePendingProgress()
         }
         activity?.lifecycle?.addObserver(observer)
 

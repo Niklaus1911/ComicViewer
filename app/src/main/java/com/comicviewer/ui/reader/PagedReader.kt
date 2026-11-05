@@ -1,9 +1,12 @@
 package com.comicviewer.ui.reader
 
 import android.content.Context
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -19,6 +22,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -57,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -83,8 +92,6 @@ import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -324,6 +331,10 @@ internal fun PagedComicReader(
     // True while a held page edge is flipping pages; like a slider drag, it keeps the last page drawn
     // on screen while the next one loads.
     var holdFlipping by remember(book) { mutableStateOf(false) }
+    // How far the finger has slid up from where the hold began, in speed steps (negative when down),
+    // and the speed that gives, shown while flipping.
+    var holdSpeedSteps by remember(book) { mutableFloatStateOf(0f) }
+    var holdPagesPerSecond by remember(book) { mutableIntStateOf(0) }
 
     DisposableEffect(book) {
         onDispose {
@@ -664,19 +675,22 @@ internal fun PagedComicReader(
         holdFlipJob?.cancel()
         if (targetPageFor(direction) == null) return
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        holdSpeedSteps = 0f
         holdFlipping = true
         holdFlipJob = scope.launch {
-            // The frame clock, which tests can drive, measures how long the edge has been held.
+            // The frame clock, which tests can drive, measures how long the edge has been held. It is
+            // read every frame, so sliding the finger changes the speed even for the page on screen.
             val heldSince = withFrameMillis { frameMillis -> frameMillis }
             while (true) {
                 val target = currentFlip(direction) ?: break
-                val interval = readerHoldFlipIntervalMillis(withFrameMillis { frameMillis -> frameMillis } - heldSince)
-                coroutineScope {
+                val flippedAt = withFrameMillis { frameMillis -> frameMillis }
+                while (true) {
+                    val now = withFrameMillis { frameMillis -> frameMillis }
+                    val interval = readerHoldFlipIntervalMillis(now - heldSince, holdSpeedSteps)
+                    holdPagesPerSecond = readerHoldFlipPagesPerSecond(interval)
                     // Each page stays up for the interval, and longer while it is still loading.
-                    launch { delay(interval) }
-                    withTimeoutOrNull(HOLD_FLIP_PAGE_WAIT_MS) {
-                        snapshotFlow { settledPageIndex.value }.first { settled -> settled == target }
-                    }
+                    val pageReady = settledPageIndex.value == target || now - flippedAt >= HOLD_FLIP_PAGE_WAIT_MS
+                    if (pageReady && now - flippedAt >= interval) break
                 }
             }
         }
@@ -751,6 +765,7 @@ internal fun PagedComicReader(
                             )
                         },
                         onHoldStart = { direction -> currentStartHoldFlip(direction) },
+                        onHoldMove = { offsetY -> holdSpeedSteps = -offsetY / READER_HOLD_FLIP_SPEED_STEP_DP.dp.toPx() },
                         onHoldEnd = { currentStopHoldFlip() },
                     )
                 }
@@ -881,6 +896,18 @@ internal fun PagedComicReader(
             }
         }
 
+        AnimatedVisibility(
+            visible = holdFlipping,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .systemBarsPadding()
+                .padding(top = if (controlsVisible) 72.dp else 16.dp),
+        ) {
+            HoldFlipSpeedLabel(pagesPerSecond = holdPagesPerSecond)
+        }
+
         val pageLoadError = primaryPageLoadError ?: secondaryPageLoadError
         pageLoadError?.let { message ->
             PageImageError(
@@ -925,6 +952,28 @@ internal fun PagedComicReader(
                 scrubbing = active
             },
         )
+    }
+}
+
+/** The hold-to-flip speed, with an up-and-down arrow as a hint that sliding the finger changes it. */
+@Composable
+private fun HoldFlipSpeedLabel(pagesPerSecond: Int) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = Color.Black.copy(alpha = 0.6f),
+        contentColor = Color.White,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(
+                text = pluralStringResource(R.plurals.reader_hold_flip_speed, pagesPerSecond, pagesPerSecond),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
     }
 }
 
@@ -1125,13 +1174,14 @@ private suspend fun PointerInputScope.detectPageGestures(
 
 /**
  * Pressing and holding a page edge, the same edges a tap turns pages with, calls [onHoldStart] once the
- * finger has stayed still for the long-press timeout, and [onHoldEnd] when it lifts or a second finger
- * comes down. Moving first leaves the gesture to swipes and pans. Nothing is consumed: the tap and
+ * finger has stayed still for the long-press timeout, [onHoldMove] with how far it has since moved
+ * down (negative when up), and [onHoldEnd] when it lifts or a second finger comes down. Moving first leaves the gesture to swipes and pans. Nothing is consumed: the tap and
  * swipe handling never sees a hold as a tap, because the pages it turns restart that handling.
  */
 private suspend fun PointerInputScope.detectEdgeHold(
     edgeDirection: (Offset) -> ReaderSwipeDirection?,
     onHoldStart: (ReaderSwipeDirection) -> Unit,
+    onHoldMove: (offsetY: Float) -> Unit,
     onHoldEnd: () -> Unit,
 ) {
     awaitEachGesture {
@@ -1156,6 +1206,7 @@ private suspend fun PointerInputScope.detectEdgeHold(
                 val event = awaitPointerEvent()
                 val pointer = event.changes.firstOrNull { it.id == down.id }
                 val stillHolding = pointer != null && pointer.pressed && event.changes.count { it.pressed } == 1
+                if (stillHolding) onHoldMove(pointer.position.y - down.position.y)
             } while (stillHolding)
         } finally {
             onHoldEnd()

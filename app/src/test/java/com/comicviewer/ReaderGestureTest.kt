@@ -2,6 +2,7 @@ package com.comicviewer
 
 import com.comicviewer.ui.reader.ReaderSwipeDirection
 import com.comicviewer.ui.reader.readerHoldFlipIntervalMillis
+import com.comicviewer.ui.reader.readerHoldFlipPagesPerSecond
 import com.comicviewer.ui.reader.readerHorizontalSwipeEnabled
 import com.comicviewer.ui.reader.readerIncomingPageOffsetAfterCommit
 import com.comicviewer.ui.reader.readerLogicalDirectionForPhysicalDirection
@@ -476,6 +477,26 @@ class ReaderGestureTest {
         // It stays at the top speed however long the edge is held, and a clock glitch can't slow it.
         assertEquals(83L, readerHoldFlipIntervalMillis(60_000L))
         assertEquals(250L, readerHoldFlipIntervalMillis(-10L))
+    }
+
+    @Test
+    fun readerHoldFlipIntervalMillis_slidingTheFingerDoublesOrHalvesTheSpeedWithinLimits() {
+        // One step down halves the speed, three steps down at full speed make it 8 times slower.
+        assertEquals(500L, readerHoldFlipIntervalMillis(0L, speedSteps = -1f))
+        assertEquals(664L, readerHoldFlipIntervalMillis(1_500L, speedSteps = -3f))
+        // Half a step up is about 1.4 times faster.
+        assertEquals(59L, readerHoldFlipIntervalMillis(1_500L, speedSteps = 0.5f))
+        // Never faster than 20 pages a second or slower than 1.
+        assertEquals(50L, readerHoldFlipIntervalMillis(1_500L, speedSteps = 2f))
+        assertEquals(1_000L, readerHoldFlipIntervalMillis(0L, speedSteps = -5f))
+    }
+
+    @Test
+    fun readerHoldFlipPagesPerSecond_roundsToWholePages() {
+        assertEquals(4, readerHoldFlipPagesPerSecond(250L))
+        assertEquals(12, readerHoldFlipPagesPerSecond(83L))
+        assertEquals(20, readerHoldFlipPagesPerSecond(50L))
+        assertEquals(1, readerHoldFlipPagesPerSecond(1_000L))
     }
 
     @Test

@@ -17,6 +17,11 @@
     <string name="import_folder_title">Scansiona cartella</string>
     <string name="import_folder_description">Trova fumetti in una cartella</string>
     <string name="import_selected">Importa (%1$d)</string>
+    <plurals name="reader_hold_flip_speed">
+        <item quantity="one">%1$d pagina al secondo</item>
+        <item quantity="many">%1$d pagine al secondo</item>
+        <item quantity="other">%1$d pagine al secondo</item>
+    </plurals>
     <plurals name="comic_pages">
         <item quantity="one">%1$d pagina</item>
         <item quantity="many">%1$d pagine</item>

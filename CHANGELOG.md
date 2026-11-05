@@ -17,8 +17,9 @@ production version.
   single-page mode; two-page spreads and vertical scrolling show pages whole, so facing pages still
   meet and webtoon spacing stays. Thin panel frames, blank pages and small drawings are kept whole.
 - Hold to flip: pressing and holding the left or right edge of a page keeps turning pages in place,
-  starting at 4 a second and speeding up to about 12, like riffling a flipbook. Lift the finger to
-  stop.
+  starting at 4 a second and speeding up to about 12, like riffling a flipbook. While holding, slide
+  the finger up to flip faster, up to 20 a second, or down to slow down to 1 a second; a label shows
+  the speed. Lift the finger to stop.
 
 ### Changed
 

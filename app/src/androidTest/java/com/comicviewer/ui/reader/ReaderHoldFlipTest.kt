@@ -9,8 +9,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -19,6 +21,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.comicviewer.ComicBook
 import com.comicviewer.ComicPage
 import com.comicviewer.ComicSource
+import com.comicviewer.R
 import com.comicviewer.ReaderPreferences
 import java.io.File
 import org.junit.After
@@ -78,6 +81,41 @@ class ReaderHoldFlipTest {
     }
 
     @Test
+    fun slidingTheFingerUpWhileHolding_flipsAtTheTopSpeed() {
+        showReader(controlsVisible = false)
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onRoot().performTouchInput { down(Offset(width * 0.9f, height * 0.7f)) }
+        composeRule.mainClock.advanceTimeBy(500L)
+        composeRule.onRoot().performTouchInput { moveBy(Offset(0f, -200.dp.toPx())) }
+        composeRule.mainClock.advanceTimeBy(1_500L)
+
+        composeRule.onNodeWithText(speedLabel(20)).assertExists()
+        val flipped = selectedPages.size
+        composeRule.onRoot().performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(500L)
+        assertTrue("flipped $flipped pages", flipped >= 8)
+    }
+
+    @Test
+    fun slidingTheFingerDownWhileHolding_slowsToOnePageASecond() {
+        showReader(controlsVisible = false)
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onRoot().performTouchInput { down(Offset(width * 0.9f, height * 0.3f)) }
+        composeRule.mainClock.advanceTimeBy(500L)
+        composeRule.onRoot().performTouchInput { moveBy(Offset(0f, 300.dp.toPx())) }
+        composeRule.mainClock.advanceTimeBy(2_000L)
+
+        composeRule.onNodeWithText(speedLabel(1)).assertExists()
+        val flipped = selectedPages.size
+        composeRule.onRoot().performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(500L)
+        // One page when the hold is recognized, then one a second.
+        assertTrue("flipped $flipped pages", flipped in 1..3)
+    }
+
+    @Test
     fun tappingTheRightEdge_stillTurnsOnePage() {
         showReader(controlsVisible = false)
 
@@ -98,6 +136,9 @@ class ReaderHoldFlipTest {
 
         assertEquals(listOf(1), selectedPages.toList())
     }
+
+    private fun speedLabel(pagesPerSecond: Int): String =
+        context.resources.getQuantityString(R.plurals.reader_hold_flip_speed, pagesPerSecond, pagesPerSecond)
 
     private fun showReader(controlsVisible: Boolean, startPage: Int = 0) {
         val book = sampleBook()

@@ -4,6 +4,8 @@ import com.comicviewer.ReaderPageMode
 import com.comicviewer.ReaderReadingDirection
 import com.comicviewer.coercePageIndex
 import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 internal const val READER_SWIPE_DISTANCE_FRACTION = 0.14f
@@ -14,6 +16,11 @@ private const val EDGE_SWIPE_RESISTANCE = 0.28f
 private const val HOLD_FLIP_FIRST_INTERVAL_MS = 250L
 private const val HOLD_FLIP_FASTEST_INTERVAL_MS = 83L
 private const val HOLD_FLIP_RAMP_MS = 1_500L
+// While the edge is held, sliding the finger up flips faster and sliding it down slower: each step of
+// travel doubles or halves the speed, within 1 to 20 pages a second.
+internal const val READER_HOLD_FLIP_SPEED_STEP_DP = 80f
+private const val HOLD_FLIP_SHORTEST_INTERVAL_MS = 50L
+private const val HOLD_FLIP_LONGEST_INTERVAL_MS = 1_000L
 
 internal enum class ReaderSwipeDirection {
     Previous,
@@ -226,9 +233,18 @@ internal fun readerSwipeStartOffset(
         } == direction
     ) currentOffsetX else 0f
 
-/** How long hold-to-flip shows a page before the next one, [heldMillis] after the flipping began. */
-internal fun readerHoldFlipIntervalMillis(heldMillis: Long): Long {
+/**
+ * How long hold-to-flip shows a page before the next one, [heldMillis] after the flipping began, with
+ * the finger moved [speedSteps] steps up (negative for down) from where it was pressed.
+ */
+internal fun readerHoldFlipIntervalMillis(heldMillis: Long, speedSteps: Float = 0f): Long {
     val progress = (heldMillis.toFloat() / HOLD_FLIP_RAMP_MS).coerceIn(0f, 1f)
-    return HOLD_FLIP_FIRST_INTERVAL_MS -
+    val ramped = HOLD_FLIP_FIRST_INTERVAL_MS -
         ((HOLD_FLIP_FIRST_INTERVAL_MS - HOLD_FLIP_FASTEST_INTERVAL_MS) * progress).roundToLong()
+    return (ramped / 2f.pow(speedSteps)).roundToLong()
+        .coerceIn(HOLD_FLIP_SHORTEST_INTERVAL_MS, HOLD_FLIP_LONGEST_INTERVAL_MS)
 }
+
+/** The hold-to-flip speed shown while the edge is held, in whole pages a second. */
+internal fun readerHoldFlipPagesPerSecond(intervalMillis: Long): Int =
+    (1_000f / intervalMillis.coerceAtLeast(1L)).roundToInt()

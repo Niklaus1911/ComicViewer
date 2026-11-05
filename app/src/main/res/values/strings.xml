@@ -17,6 +17,10 @@
     <string name="import_folder_title">Scan Folder</string>
     <string name="import_folder_description">Find comics in a folder</string>
     <string name="import_selected">Import (%1$d)</string>
+    <plurals name="reader_hold_flip_speed">
+        <item quantity="one">%1$d page per second</item>
+        <item quantity="other">%1$d pages per second</item>
+    </plurals>
     <plurals name="comic_pages">
         <item quantity="one">%1$d page</item>
         <item quantity="other">%1$d pages</item>

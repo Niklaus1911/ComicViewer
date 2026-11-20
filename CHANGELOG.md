@@ -28,6 +28,7 @@ production version.
 
 ### Fixed
 
+- Parent navigation and breadcrumbs work correctly when browsing from the filesystem root.
 - Buttons remain responsive after the device clock is moved backward.
 - Correct page and title sorting for filenames mixing Western and other decimal digits, avoiding
   inconsistent ordering and possible sorting failures.

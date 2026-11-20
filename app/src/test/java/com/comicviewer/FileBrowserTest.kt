@@ -163,6 +163,22 @@ class FileBrowserTest {
     }
 
     @Test
+    fun browserParentPathFor_handlesFilesystemRoot() {
+        assertEquals("/", browserParentPathFor("/Comics", "/"))
+        assertEquals("/Comics", browserParentPathFor("/Comics/Series", "/"))
+        assertNull(browserParentPathFor("/", "/"))
+    }
+
+    @Test
+    fun browserBreadcrumbs_handlesFilesystemRootWithoutDoubleSeparators() {
+        val crumbs = browserBreadcrumbs("/Comics/Series", "/")
+
+        assertEquals(listOf("/", "/Comics", "/Comics/Series"), crumbs.map { it.path })
+        assertEquals(listOf("/", "Comics", "Series"), crumbs.map { it.name })
+        assertEquals(listOf(BrowserCrumb("/", "/")), browserBreadcrumbs("/", "/"))
+    }
+
+    @Test
     fun browserParentPathFor_normalizesCurrentPath() {
         assertEquals(
             "/storage/emulated/0",

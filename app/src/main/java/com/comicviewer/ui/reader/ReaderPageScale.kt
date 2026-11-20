@@ -156,6 +156,13 @@ internal fun readerPageLayoutDimension(
     return readerResolvedPageDimension(storedDimension, painterIntrinsicDimension)
 }
 
+internal fun readerZoomedPageOffset(
+    currentOffset: Offset,
+    centroidFromCenter: Offset,
+    pan: Offset,
+    scaleChange: Float,
+): Offset = currentOffset * scaleChange + pan + centroidFromCenter * (1f - scaleChange)
+
 internal fun Offset.clampedFor(
     pageWidth: Int,
     pageHeight: Int,

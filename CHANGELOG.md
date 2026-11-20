@@ -28,6 +28,7 @@ production version.
 
 ### Fixed
 
+- Keep the point under your fingers steady when pinching a page that has already been panned.
 - Keep the latest reading progress when merging backups, including progress made since opening a comic.
 - Close metadata-inspection streams on failure and stop cancelled archive inspections while skipping entries.
 - Parent navigation and breadcrumbs work correctly when browsing from the filesystem root.

@@ -770,9 +770,12 @@ internal fun PagedComicReader(
                         )
                         val centroidFromCenter = centroid - viewportCenter
                         val scaleChange = nextScale / previousScale
-                        val nextOffset = pageOffset +
-                            pan +
-                            centroidFromCenter * (1f - scaleChange)
+                        val nextOffset = readerZoomedPageOffset(
+                            currentOffset = pageOffset,
+                            centroidFromCenter = centroidFromCenter,
+                            pan = pan,
+                            scaleChange = scaleChange,
+                        )
 
                         pageScale = nextScale
                         pageOffset = nextOffset.clampedFor(

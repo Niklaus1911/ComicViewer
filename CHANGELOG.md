@@ -28,6 +28,7 @@ production version.
 
 ### Fixed
 
+- Keep pending Pro purchase messages visible while price information finishes loading.
 - Clear stale purchase-checking and pending messages after Google Play confirms there is no Pro purchase.
 - Avoid page jumps when interrupting a swipe animation in right-to-left reading mode.
 - Keep the point under your fingers steady when pinching a page that has already been panned.

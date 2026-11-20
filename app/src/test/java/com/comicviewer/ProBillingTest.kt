@@ -10,6 +10,7 @@ import com.comicviewer.billing.isRecoverableBillingResponseCode
 import com.comicviewer.billing.proAcknowledgeActionFor
 import com.comicviewer.billing.proAcknowledgementDeadlineMillis
 import com.comicviewer.billing.userMessageForBillingResponseCode
+import com.comicviewer.billing.withAvailableProduct
 import com.comicviewer.billing.withoutProPurchase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -134,6 +135,43 @@ class ProBillingTest {
                 nowMs = 2_000L,
                 windowMs = 500L,
             ),
+        )
+    }
+
+    @Test
+    fun withAvailableProduct_preservesPurchaseMessagesWhileUpdatingProductDetails() {
+        listOf(
+            ProBillingMessage.PurchasePending,
+            ProBillingMessage.PurchaseFailed,
+        ).forEach { message ->
+            val state = ProBillingState(message = message)
+
+            assertEquals(
+                state.copy(status = ProBillingStatus.Available, productTitle = "Pro", formattedPrice = "EUR 2.99"),
+                state.withAvailableProduct("Pro", "EUR 2.99"),
+            )
+        }
+    }
+
+    @Test
+    fun withAvailableProduct_clearsObsoleteProductQueryMessages() {
+        listOf(ProBillingMessage.CheckingPurchase, ProBillingMessage.PurchaseUnavailable).forEach { message ->
+            val state = ProBillingState(status = ProBillingStatus.Unavailable, message = message)
+
+            assertEquals(
+                ProBillingState(status = ProBillingStatus.Available, productTitle = "Pro", formattedPrice = "EUR 2.99"),
+                state.withAvailableProduct("Pro", "EUR 2.99"),
+            )
+        }
+    }
+
+    @Test
+    fun withAvailableProduct_preservesOwnershipAndSuccessEventsWithoutPrice() {
+        val state = ProBillingState(isProUnlocked = true, purchaseSuccessEventId = 7L)
+
+        assertEquals(
+            state.copy(status = ProBillingStatus.Available, productTitle = "Pro"),
+            state.withAvailableProduct("Pro", null),
         )
     }
 }

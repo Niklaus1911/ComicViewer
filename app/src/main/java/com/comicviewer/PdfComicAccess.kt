@@ -149,10 +149,16 @@ internal fun pdfRenderSize(
         maxLongSidePx / longSide,
         sqrt(maxPixels / (width * height)),
     )
-    return PdfRenderSize(
-        width = (width * scale).roundToInt().coerceIn(1, maxLongSidePx),
-        height = (height * scale).roundToInt().coerceIn(1, maxLongSidePx),
-    )
+    var renderWidth = (width * scale).roundToInt().coerceIn(1, maxLongSidePx)
+    var renderHeight = (height * scale).roundToInt().coerceIn(1, maxLongSidePx)
+    if (renderWidth.toLong() * renderHeight > maxPixels) {
+        if (renderWidth >= renderHeight) {
+            renderWidth = (maxPixels / renderHeight).toInt().coerceAtLeast(1)
+        } else {
+            renderHeight = (maxPixels / renderWidth).toInt().coerceAtLeast(1)
+        }
+    }
+    return PdfRenderSize(renderWidth, renderHeight)
 }
 
 /**

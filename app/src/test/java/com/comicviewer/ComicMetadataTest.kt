@@ -1,13 +1,75 @@
 package com.comicviewer
 
 import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 class ComicMetadataTest {
+    @get:Rule
+    val temporaryFolder = TemporaryFolder()
+
+    @Test
+    fun inspectStreamComicArchive_checksCancellationWhileDrainingSkippedEntries() {
+        val archive = File(temporaryFolder.root, "Cancelled metadata.cbz")
+        writeZipArchive(archive, linkedMapOf(".hidden/data" to ByteArray(4096), "001.jpg" to sampleJpegHeader()))
+        var checks = 0
+
+        assertThrows(CancellationException::class.java) {
+            inspectStreamComicArchive(archive.inputStream(), shouldContinue = { ++checks <= 7 })
+        }
+    }
+
+    @Test
+    fun inspectStreamComicArchive_closesFailedAndCancelledHeaderProbes() {
+        for (failure in listOf(IOException("Provider failed"), CancellationException("Cancelled"))) {
+            var closed = false
+            val source = object : InputStream() {
+                override fun read(): Int = throw failure
+                override fun close() {
+                    closed = true
+                }
+            }
+            assertThrows(failure.javaClass) { inspectStreamComicArchive(source) }
+            assertTrue(closed)
+        }
+    }
+
+    @Test
+    fun inspectStreamComicArchive_keepsMetadataAndClosesPdfZipAndEmptySources() {
+        val archive = File(temporaryFolder.root, "Metadata.cbz")
+        writeZipArchive(archive, linkedMapOf(
+            "ComicInfo.xml" to "<ComicInfo><Title>One &amp; Two</Title></ComicInfo>".toByteArray(),
+            "001.jpg" to sampleJpegHeader(),
+        ))
+        for (bytes in listOf(archive.readBytes(), "%PDF-1.7".toByteArray(), byteArrayOf())) {
+            var closed = false
+            val source = object : ByteArrayInputStream(bytes) {
+                override fun close() {
+                    closed = true
+                    super.close()
+                }
+            }
+            val facts = inspectStreamComicArchive(source)
+            assertTrue(closed)
+            if (bytes.contentEquals(archive.readBytes())) {
+                assertEquals(1, facts?.pageCount)
+                assertEquals("One & Two", facts?.metadata?.title)
+            } else {
+                assertNull(facts?.pageCount)
+            }
+        }
+    }
+
     @Test
     fun comicLanguageDisplayName_namesCodesInTheAppLanguage() {
         assertEquals("English", comicLanguageDisplayName("en", java.util.Locale.ENGLISH))

@@ -29,6 +29,7 @@ production version.
 ### Fixed
 
 - Keep the latest reading progress when merging backups, including progress made since opening a comic.
+- Close metadata-inspection streams on failure and stop cancelled archive inspections while skipping entries.
 - Parent navigation and breadcrumbs work correctly when browsing from the filesystem root.
 - Keep PDF page bitmaps within the memory limit, including after rounding their dimensions.
 - Avoid adding archives to the library when their only images cannot be opened as comic pages.

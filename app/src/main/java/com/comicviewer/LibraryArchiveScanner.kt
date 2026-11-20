@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import java.io.File
+import java.io.InputStream
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -441,29 +442,35 @@ private fun documentComicFileHasPages(
     }
     // Stream-only providers: read from the start, within the source limit. A stream-only PDF is
     // accepted on its header, since counting its pages would need a full copy.
-    val source = context.contentResolver.openInputStream(uri.toUri())?.buffered() ?: return@runCatching false
-    if (source.startsLikePdf()) {
-        source.close()
-        return@runCatching true
-    }
-    ZipInputStream(
-        BoundedInputStream(
-            input = source,
-            maxBytes = MAX_ARCHIVE_SCAN_SOURCE_BYTES,
-        ),
-    ).use { archive ->
-        var scannedEntries = 0
-        while (true) {
-            val entry = archive.nextEntry ?: break
-            val entryName = entry.name.replace('\\', '/')
-            scannedEntries += 1
-            if (scannedEntries > maxEntries) return@runCatching false
-            if (entry.isDirectory || isHiddenComicPath(entryName)) continue
-            if (detectImageFormat(readImageHeader(archive)) != null) return@runCatching true
+    val source = context.contentResolver.openInputStream(uri.toUri()) ?: return@runCatching false
+    streamComicFileHasPages(source, maxEntries)
+}.getOrDefault(false)
+
+internal fun streamComicFileHasPages(
+    source: InputStream,
+    maxEntries: Int,
+): Boolean {
+    source.buffered().use { input ->
+        if (input.startsLikePdf()) return true
+        ZipInputStream(
+            BoundedInputStream(
+                input = input,
+                maxBytes = MAX_ARCHIVE_SCAN_SOURCE_BYTES,
+            ),
+        ).use { archive ->
+            var scannedEntries = 0
+            while (true) {
+                val entry = archive.nextEntry ?: break
+                val entryName = entry.name.replace('\\', '/')
+                scannedEntries += 1
+                if (scannedEntries > maxEntries) return false
+                if (entry.isDirectory || isHiddenComicPath(entryName)) continue
+                if (detectImageFormat(readImageHeader(archive)) != null) return true
+            }
         }
     }
-    false
-}.getOrDefault(false)
+    return false
+}
 
 private fun shouldSkipArchiveScanDirectory(
     directory: File,

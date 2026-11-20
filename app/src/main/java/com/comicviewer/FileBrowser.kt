@@ -275,7 +275,13 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
             // Stream-only providers: scan from the start, as far as the source limit allows. A
             // stream-only PDF would need a full copy, which a thumbnail is not worth.
             val source = contentResolver.openInputStream(uri)?.buffered() ?: return@runCatching null
-            if (source.startsLikePdf()) {
+            val isPdf = try {
+                source.startsLikePdf()
+            } catch (throwable: Throwable) {
+                source.close()
+                throw throwable
+            }
+            if (isPdf) {
                 source.close()
                 return@runCatching null
             }
@@ -310,8 +316,7 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
                                 header = header,
                                 input = archive,
                                 outputFile = pageFile,
-                                shouldContinue = { coroutineContext.isActive },
-                            ) && detectImageInfo(pageFile) != null
+                                            ) && detectImageInfo(pageFile) != null
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (_: Exception) {

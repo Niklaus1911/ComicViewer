@@ -452,7 +452,10 @@ suspend fun loadComicPagePreviews(
 internal fun ZipArchiveReader.containsComicImage(maxVisitedEntries: Int): Boolean {
     entries.forEachIndexed { index, entry ->
         if (index >= maxVisitedEntries) return false
-        if (!entry.isDirectory && !isHiddenComicPath(entry.name) && sniffImageFormat(entry) != null) return true
+        if (
+            !entry.isDirectory && !isHiddenComicPath(entry.name) && !entry.isComicInfo() &&
+            entry.size in 1L..MAX_ARCHIVE_PAGE_BYTES && sniffImageFormat(entry) != null
+        ) return true
     }
     return false
 }

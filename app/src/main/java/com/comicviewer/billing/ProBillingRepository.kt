@@ -52,6 +52,8 @@ data class ProBillingState(
     val purchaseSuccessEventId: Long = 0L,
 )
 
+internal fun ProBillingState.withoutProPurchase(): ProBillingState = copy(isProUnlocked = false, message = null)
+
 internal fun isRecoverableBillingResponseCode(responseCode: Int): Boolean =
     when (responseCode) {
         BillingClient.BillingResponseCode.NETWORK_ERROR,
@@ -332,7 +334,7 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             if (allowSuccessEvent && purchaseFlowInProgress) {
                 schedulePurchaseFlowRecheckOrFail()
             } else {
-                _state.value = _state.value.copy(isProUnlocked = false)
+                _state.value = _state.value.withoutProPurchase()
             }
         }
     }

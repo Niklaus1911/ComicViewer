@@ -3,17 +3,50 @@ package com.comicviewer
 import com.android.billingclient.api.BillingClient
 import com.comicviewer.billing.ProAcknowledgeAction
 import com.comicviewer.billing.ProBillingMessage
+import com.comicviewer.billing.ProBillingState
+import com.comicviewer.billing.ProBillingStatus
 import com.comicviewer.billing.billingRetryDelayMillis
 import com.comicviewer.billing.isRecoverableBillingResponseCode
 import com.comicviewer.billing.proAcknowledgeActionFor
 import com.comicviewer.billing.proAcknowledgementDeadlineMillis
 import com.comicviewer.billing.userMessageForBillingResponseCode
+import com.comicviewer.billing.withoutProPurchase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProBillingTest {
+    @Test
+    fun withoutProPurchase_clearsStaleMessagesAfterSuccessfulEmptyQuery() {
+        ProBillingMessage.entries.forEach { message ->
+            val state = ProBillingState(status = ProBillingStatus.Available, message = message)
+
+            assertEquals(state.copy(message = null), state.withoutProPurchase())
+        }
+    }
+
+    @Test
+    fun withoutProPurchase_revokesOwnershipWithoutDroppingProductDetailsOrSuccessEvents() {
+        val state = ProBillingState(
+            status = ProBillingStatus.Available,
+            isProUnlocked = true,
+            productTitle = "Pro",
+            formattedPrice = "EUR 2.99",
+            message = ProBillingMessage.CheckingPurchase,
+            purchaseSuccessEventId = 7L,
+        )
+
+        assertEquals(state.copy(isProUnlocked = false, message = null), state.withoutProPurchase())
+    }
+
+    @Test
+    fun withoutProPurchase_keepsAlreadyEmptyStateUnchanged() {
+        val state = ProBillingState(status = ProBillingStatus.Available)
+
+        assertEquals(state, state.withoutProPurchase())
+    }
+
     @Test
     fun isRecoverableBillingResponseCode_marksTransientPurchaseFailuresRecoverable() {
         assertTrue(isRecoverableBillingResponseCode(BillingClient.BillingResponseCode.NETWORK_ERROR))

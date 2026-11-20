@@ -12,12 +12,45 @@ import com.comicviewer.billing.proAcknowledgementDeadlineMillis
 import com.comicviewer.billing.userMessageForBillingResponseCode
 import com.comicviewer.billing.withAvailableProduct
 import com.comicviewer.billing.withoutProPurchase
+import com.comicviewer.ui.library.proBillingMessageForDisplay
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProBillingTest {
+    @Test
+    fun proBillingMessageForDisplay_hidesStaleMessagesWhenProIsOwned() {
+        ProBillingMessage.entries.forEach { message ->
+            val state = ProBillingState(isProUnlocked = true, message = message)
+
+            assertEquals(null, proBillingMessageForDisplay(state))
+        }
+    }
+
+    @Test
+    fun proBillingMessageForDisplay_preservesMessagesAndEmptyStateWhenProIsLocked() {
+        (ProBillingMessage.entries + null).forEach { message ->
+            assertEquals(message, proBillingMessageForDisplay(ProBillingState(message = message)))
+        }
+    }
+
+    @Test
+    fun proBillingMessageForDisplay_hidesFailureWithDebugOverrideWithoutChangingBillingState() {
+        val state = ProBillingState(message = ProBillingMessage.PurchaseFailed)
+        val effectiveState = state.copy(
+            isProUnlocked = effectiveProUnlocked(
+                billingUnlocked = state.isProUnlocked,
+                debugOverrideUnlocked = true,
+                isDebugBuild = true,
+            ),
+        )
+
+        assertEquals(null, proBillingMessageForDisplay(effectiveState))
+        assertFalse(state.isProUnlocked)
+        assertEquals(ProBillingMessage.PurchaseFailed, proBillingMessageForDisplay(state))
+    }
+
     @Test
     fun withoutProPurchase_clearsStaleMessagesAfterSuccessfulEmptyQuery() {
         ProBillingMessage.entries.forEach { message ->

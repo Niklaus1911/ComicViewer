@@ -28,6 +28,7 @@ production version.
 
 ### Fixed
 
+- Hide stale purchase errors when Pro is already unlocked, including with the debug override.
 - Show the correct left and right tap-zone instructions for right-to-left reading in Settings.
 - Keep pending Pro purchase messages visible while price information finishes loading.
 - Clear stale purchase-checking and pending messages after Google Play confirms there is no Pro purchase.

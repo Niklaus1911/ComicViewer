@@ -245,7 +245,7 @@ fun ProUpgradeDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                billingState.message?.let { message ->
+                proBillingMessageForDisplay(billingState)?.let { message ->
                     Text(
                         text = proBillingMessageText(message),
                         style = MaterialTheme.typography.bodySmall,
@@ -322,6 +322,9 @@ private fun proBillingMessageText(message: ProBillingMessage): String =
             ProBillingMessage.PurchaseFailed -> R.string.pro_purchase_failed
         },
     )
+
+internal fun proBillingMessageForDisplay(billingState: ProBillingState): ProBillingMessage? =
+    billingState.message.takeUnless { billingState.isProUnlocked }
 
 @Composable
 private fun ProBenefitRow(

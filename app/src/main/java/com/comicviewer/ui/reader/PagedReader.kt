@@ -359,7 +359,11 @@ internal fun PagedComicReader(
     fun startSwipeDrag(direction: ReaderSwipeDirection) {
         swipeSettleJob?.cancel()
         swipeSettleJob = null
-        val startOffsetX = readerSwipeStartOffset(swipeOffsetX, direction)
+        val startOffsetX = readerSwipeStartOffset(
+            currentOffsetX = swipeOffsetX,
+            direction = direction,
+            readingDirection = activeReaderPreferences.readingDirection,
+        )
         swipeOffsetX = startOffsetX
         swipeDragStartOffsetX = startOffsetX
         activeSwipeDirection = direction

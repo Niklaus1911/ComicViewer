@@ -28,6 +28,7 @@ production version.
 
 ### Fixed
 
+- Avoid page jumps when interrupting a swipe animation in right-to-left reading mode.
 - Keep the point under your fingers steady when pinching a page that has already been panned.
 - Keep the latest reading progress when merging backups, including progress made since opening a comic.
 - Close metadata-inspection streams on failure and stop cancelled archive inspections while skipping entries.

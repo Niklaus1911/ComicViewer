@@ -218,8 +218,13 @@ internal fun readerSwipeDirectionForOffset(offsetX: Float): ReaderSwipeDirection
 internal fun readerSwipeStartOffset(
     currentOffsetX: Float,
     direction: ReaderSwipeDirection,
+    readingDirection: ReaderReadingDirection = ReaderReadingDirection.LeftToRight,
 ): Float =
-    if (readerSwipeDirectionForOffset(currentOffsetX) == direction) currentOffsetX else 0f
+    if (
+        readerSwipeDirectionForOffset(currentOffsetX)?.let { physicalDirection ->
+            readerLogicalDirectionForPhysicalDirection(physicalDirection, readingDirection)
+        } == direction
+    ) currentOffsetX else 0f
 
 /** How long hold-to-flip shows a page before the next one, [heldMillis] after the flipping began. */
 internal fun readerHoldFlipIntervalMillis(heldMillis: Long): Long {

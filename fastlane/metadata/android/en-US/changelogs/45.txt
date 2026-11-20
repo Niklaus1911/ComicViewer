@@ -1,0 +1,1 @@
+Many small fixes: reading progress is kept when merging backups, pinching a panned page stays steady, right-to-left swipes and tap-zone instructions are correct, PDF pages stay within memory limits, broken archives are no longer added, scans stop sooner when cancelled, sorting handles mixed digits, folder browsing works from the root, and Pro purchase messages no longer go stale.

@@ -325,6 +325,29 @@ class ComicArchiveTest {
     }
 
     @Test
+    fun compareComicPageNames_sortsUnicodeDigitsNumerically() {
+        assertTrue(compareComicPageNames("page-٢.jpg", "page-10.jpg") < 0)
+        assertTrue(compareComicPageNames("page-０２.jpg", "page-10.jpg") < 0)
+        assertEquals(0, compareComicPageNames("page-٠.jpg", "page-0.jpg"))
+        assertTrue(compareComicPageNames("page-٠٢.jpg", "page-2.jpg") > 0)
+        assertTrue(compareComicPageNames("", "٢.jpg") < 0)
+    }
+
+    @Test
+    fun compareComicPageNames_keepsMixedDigitAndPunctuationOrderingTransitive() {
+        val names = listOf("1.jpg", "10.jpg", ":.jpg", "٢.jpg", "００.jpg", "0.jpg", "a.jpg", "")
+        for (left in names) {
+            for (middle in names) {
+                for (right in names) {
+                    if (compareComicPageNames(left, middle) < 0 && compareComicPageNames(middle, right) < 0) {
+                        assertTrue("$left < $middle < $right", compareComicPageNames(left, right) < 0)
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun sortComicPaths_sortsArbitraryArchiveNamesNaturally() {
         val pages = listOf(
             "Chapter 2/scan",

@@ -26,6 +26,12 @@ production version.
   With very large images it shows every page it can load in time and skips the rest, instead of
   going black until the finger stops.
 
+### Fixed
+
+- Buttons remain responsive after the device clock is moved backward.
+- Correct page and title sorting for filenames mixing Western and other decimal digits, avoiding
+  inconsistent ordering and possible sorting failures.
+
 ## [1.0.36] - 2026-10-30
 
 ### Added

@@ -11,6 +11,13 @@ import org.junit.Test
 
 class AppStateTest {
     @Test
+    fun shouldAcceptThrottledAction_recoversWhenClockMovesBackward() {
+        assertTrue(shouldAcceptThrottledAction(nowMs = 1_000L, lastAcceptedAtMs = 61_000L))
+        assertFalse(shouldAcceptThrottledAction(nowMs = 1_001L, lastAcceptedAtMs = 1_000L))
+        assertTrue(shouldAcceptThrottledAction(nowMs = 1_350L, lastAcceptedAtMs = 1_000L))
+    }
+
+    @Test
     fun shouldAcceptThrottledAction_blocksClicksInsideWindow() {
         assertFalse(
             shouldAcceptThrottledAction(

@@ -12,7 +12,6 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -285,11 +284,13 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
                 source.close()
                 return@runCatching null
             }
-            ZipInputStream(
+            BoundedZipInputStream(
                 BoundedInputStream(
                     input = source,
                     maxBytes = MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES,
                 ),
+                maxEntryBytes = MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES,
+                shouldContinue = { coroutineContext.isActive },
             ).use { archive ->
                 var visitedEntries = 0
                 var bestEntryName: String? = null
@@ -316,7 +317,8 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
                                 header = header,
                                 input = archive,
                                 outputFile = pageFile,
-                                            ) && detectImageInfo(pageFile) != null
+                                shouldContinue = { coroutineContext.isActive },
+                            ) && detectImageInfo(pageFile) != null
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (_: Exception) {

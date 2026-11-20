@@ -289,13 +289,9 @@ fun SettingsScreen(
             text = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.Absolute.spacedBy(6.dp),
                 ) {
-                    listOf(
-                        R.string.reader_previous_page,
-                        R.string.reader_toggle_controls,
-                        R.string.reader_next_page,
-                    ).forEach { label ->
+                    settingsTapZoneLabels(activeReaderPreferences.readingDirection).forEach { label ->
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
@@ -651,6 +647,11 @@ private fun LanguageSettingsDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ok)) } },
     )
+}
+
+internal fun settingsTapZoneLabels(readingDirection: ReaderReadingDirection): List<Int> {
+    val labels = listOf(R.string.reader_previous_page, R.string.reader_toggle_controls, R.string.reader_next_page)
+    return if (readingDirection == ReaderReadingDirection.RightToLeft) labels.reversed() else labels
 }
 
 private fun AppThemeMode.labelRes(): Int = when (this) {

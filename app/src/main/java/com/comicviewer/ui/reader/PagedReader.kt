@@ -359,7 +359,11 @@ internal fun PagedComicReader(
     fun startSwipeDrag(direction: ReaderSwipeDirection) {
         swipeSettleJob?.cancel()
         swipeSettleJob = null
-        val startOffsetX = readerSwipeStartOffset(swipeOffsetX, direction)
+        val startOffsetX = readerSwipeStartOffset(
+            currentOffsetX = swipeOffsetX,
+            direction = direction,
+            readingDirection = activeReaderPreferences.readingDirection,
+        )
         swipeOffsetX = startOffsetX
         swipeDragStartOffsetX = startOffsetX
         activeSwipeDirection = direction
@@ -770,9 +774,12 @@ internal fun PagedComicReader(
                         )
                         val centroidFromCenter = centroid - viewportCenter
                         val scaleChange = nextScale / previousScale
-                        val nextOffset = pageOffset +
-                            pan +
-                            centroidFromCenter * (1f - scaleChange)
+                        val nextOffset = readerZoomedPageOffset(
+                            currentOffset = pageOffset,
+                            centroidFromCenter = centroidFromCenter,
+                            pan = pan,
+                            scaleChange = scaleChange,
+                        )
 
                         pageScale = nextScale
                         pageOffset = nextOffset.clampedFor(

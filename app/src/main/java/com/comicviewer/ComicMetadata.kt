@@ -10,7 +10,6 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.util.Locale
-import java.util.zip.ZipInputStream
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlinx.coroutines.Dispatchers
@@ -309,44 +308,8 @@ private fun inspectDocumentArchive(
         }
         // Stream-only providers: read from the start, within the source limit. A stream-only PDF
         // cannot be inspected without a full copy.
-        val source = context.contentResolver.openInputStream(uri)?.buffered() ?: return@runCatching null
-        if (source.startsLikePdf()) {
-            source.close()
-            return@runCatching null
-        }
-        val limitedSource = BoundedInputStream(source, MAX_COMIC_INFO_SOURCE_BYTES)
-        ZipInputStream(limitedSource).use { zip ->
-            var visited = 0
-            var pageCount = 0
-            var tooManyEntries = false
-            var metadata: ComicInfoMetadata? = null
-            while (true) {
-                if (!shouldContinue()) throw CancellationException()
-                val entry = zip.nextEntry ?: break
-                visited += 1
-                if (visited > MAX_COMIC_INFO_ARCHIVE_ENTRIES) {
-                    tooManyEntries = true
-                    break
-                }
-                val name = entry.name.replace('\\', '/')
-                if (entry.isDirectory || isHiddenComicPath(name)) continue
-                if (name.substringAfterLast('/').equals("ComicInfo.xml", true)) {
-                    if (metadata == null) {
-                        metadata = readComicInfoBounded(zip)?.let(::parseComicInfoXml)
-                    }
-                } else if (detectImageFormat(readImageHeader(zip)) != null) {
-                    pageCount += 1
-                }
-            }
-            SourceFacts(
-                pageCount = inspectedArchivePageCount(
-                    pageCount = pageCount,
-                    tooManyEntries = tooManyEntries,
-                    sourceLimitReached = limitedSource.limitReached,
-                ),
-                metadata = metadata,
-            )
-        }
+        val source = context.contentResolver.openInputStream(uri) ?: return@runCatching null
+        inspectStreamComicArchive(source, shouldContinue)
     }.getOrElse { throwable ->
         if (throwable is CancellationException) throw throwable
         null
@@ -356,6 +319,46 @@ private fun inspectDocumentArchive(
         lastModifiedAt = context.queryDocumentLong(uri, DocumentsContract.Document.COLUMN_LAST_MODIFIED)
             ?.takeIf { it > 0L },
     )
+}
+
+internal fun inspectStreamComicArchive(
+    source: InputStream,
+    shouldContinue: () -> Boolean = { true },
+): SourceFacts? = source.buffered().use { input ->
+    if (input.startsLikePdf()) return@use null
+    val limitedSource = BoundedInputStream(input, MAX_COMIC_INFO_SOURCE_BYTES)
+    BoundedZipInputStream(limitedSource, MAX_ARCHIVE_PAGE_BYTES, shouldContinue).use { zip ->
+        var visited = 0
+        var pageCount = 0
+        var tooManyEntries = false
+        var metadata: ComicInfoMetadata? = null
+        while (true) {
+            if (!shouldContinue()) throw CancellationException()
+            val entry = zip.nextEntry ?: break
+            visited += 1
+            if (visited > MAX_COMIC_INFO_ARCHIVE_ENTRIES) {
+                tooManyEntries = true
+                break
+            }
+            val name = entry.name.replace('\\', '/')
+            if (entry.isDirectory || isHiddenComicPath(name)) continue
+            if (name.substringAfterLast('/').equals("ComicInfo.xml", true)) {
+                if (metadata == null) {
+                    metadata = readComicInfoBounded(zip)?.let(::parseComicInfoXml)
+                }
+            } else if (detectImageFormat(readImageHeader(zip)) != null) {
+                pageCount += 1
+            }
+        }
+        SourceFacts(
+            pageCount = inspectedArchivePageCount(
+                pageCount = pageCount,
+                tooManyEntries = tooManyEntries,
+                sourceLimitReached = limitedSource.limitReached,
+            ),
+            metadata = metadata,
+        )
+    }
 }
 
 private fun inspectDocumentFolder(
@@ -429,7 +432,7 @@ private fun LibraryComicDetails.normalized(): LibraryComicDetails = copy(
     refreshedAt = refreshedAt.coerceAtLeast(0L),
 )
 
-private data class SourceFacts(
+internal data class SourceFacts(
     val pageCount: Int? = null,
     val fileSizeBytes: Long? = null,
     val lastModifiedAt: Long? = null,

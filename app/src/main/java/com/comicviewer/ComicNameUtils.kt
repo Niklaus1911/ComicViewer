@@ -51,7 +51,9 @@ private object NaturalComicNameComparator : Comparator<String> {
                 leftIndex = numberCompare.nextLeftIndex
                 rightIndex = numberCompare.nextRightIndex
             } else {
-                val charCompare = leftChar.lowercaseChar().compareTo(rightChar.lowercaseChar())
+                val leftSortChar = if (leftChar.isDigit()) '0' else leftChar.lowercaseChar()
+                val rightSortChar = if (rightChar.isDigit()) '0' else rightChar.lowercaseChar()
+                val charCompare = leftSortChar.compareTo(rightSortChar)
                 if (charCompare != 0) return charCompare
                 leftIndex += 1
                 rightIndex += 1
@@ -75,17 +77,17 @@ private object NaturalComicNameComparator : Comparator<String> {
 
         val leftRaw = left.substring(leftStart, leftEnd)
         val rightRaw = right.substring(rightStart, rightEnd)
-        val leftNumber = leftRaw.trimStart('0').ifEmpty { "0" }
-        val rightNumber = rightRaw.trimStart('0').ifEmpty { "0" }
+        val leftNumber = leftRaw.map { it.digitToInt() }.dropWhile { it == 0 }
+        val rightNumber = rightRaw.map { it.digitToInt() }.dropWhile { it == 0 }
 
-        val lengthCompare = leftNumber.length.compareTo(rightNumber.length)
+        val lengthCompare = leftNumber.size.compareTo(rightNumber.size)
         if (lengthCompare != 0) {
             return NumberCompare(lengthCompare, leftEnd, rightEnd)
         }
 
-        val valueCompare = leftNumber.compareTo(rightNumber)
-        if (valueCompare != 0) {
-            return NumberCompare(valueCompare, leftEnd, rightEnd)
+        for (index in leftNumber.indices) {
+            val valueCompare = leftNumber[index].compareTo(rightNumber[index])
+            if (valueCompare != 0) return NumberCompare(valueCompare, leftEnd, rightEnd)
         }
 
         val rawLengthCompare = leftRaw.length.compareTo(rightRaw.length)

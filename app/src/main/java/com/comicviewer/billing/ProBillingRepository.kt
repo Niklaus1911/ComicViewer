@@ -52,6 +52,8 @@ data class ProBillingState(
     val purchaseSuccessEventId: Long = 0L,
 )
 
+internal fun ProBillingState.withoutProPurchase(): ProBillingState = copy(isProUnlocked = false, message = null)
+
 internal fun isRecoverableBillingResponseCode(responseCode: Int): Boolean =
     when (responseCode) {
         BillingClient.BillingResponseCode.NETWORK_ERROR,
@@ -70,6 +72,13 @@ internal fun userMessageForBillingResponseCode(responseCode: Int): ProBillingMes
     } else {
         ProBillingMessage.PurchaseFailed
     }
+
+internal fun ProBillingState.withAvailableProduct(title: String, price: String?): ProBillingState = copy(
+    status = ProBillingStatus.Available,
+    productTitle = title,
+    formattedPrice = price,
+    message = message.takeIf { it == ProBillingMessage.PurchasePending || it == ProBillingMessage.PurchaseFailed },
+)
 
 internal fun billingRetryDelayMillis(
     attempt: Int,
@@ -255,11 +264,9 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             proProductDetails = productDetailsResult.productDetailsList.firstOrNull()
             val productDetails = proProductDetails
             _state.value = if (productDetails != null) {
-                _state.value.copy(
-                    status = ProBillingStatus.Available,
-                    productTitle = productDetails.title,
-                    formattedPrice = productDetails.oneTimePurchaseOfferDetails?.formattedPrice,
-                    message = null,
+                _state.value.withAvailableProduct(
+                    title = productDetails.title,
+                    price = productDetails.oneTimePurchaseOfferDetails?.formattedPrice,
                 )
             } else {
                 _state.value.copy(
@@ -332,7 +339,7 @@ class ProBillingRepository(context: Context) : PurchasesUpdatedListener {
             if (allowSuccessEvent && purchaseFlowInProgress) {
                 schedulePurchaseFlowRecheckOrFail()
             } else {
-                _state.value = _state.value.copy(isProUnlocked = false)
+                _state.value = _state.value.withoutProPurchase()
             }
         }
     }

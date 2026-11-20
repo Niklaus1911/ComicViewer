@@ -139,11 +139,7 @@ suspend fun restoreAppBackup(
     } else {
         readableLibrary.fold(currentLibrary) { current, comic -> upsertLibraryComic(current, comic) }
     }
-    val nextHistory = if (mode == RestoreMode.Replace) {
-        readableHistory
-    } else {
-        readableHistory.fold(currentHistory) { current, comic -> upsertRecentComic(current, comic) }
-    }
+    val nextHistory = restoredRecentComics(currentHistory, readableHistory, mode)
     val nextMetadata = if (mode == RestoreMode.Replace) {
         filteredMetadata
     } else {
@@ -184,6 +180,20 @@ suspend fun restoreAppBackup(
         skippedSources = (backup.libraryComics.size - readableLibrary.size) +
             (backup.recentComics.size - readableHistory.size),
     )
+}
+
+internal fun restoredRecentComics(
+    currentHistory: List<RecentComic>,
+    backupHistory: List<RecentComic>,
+    mode: RestoreMode,
+): List<RecentComic> {
+    if (mode == RestoreMode.Replace) return backupHistory
+    return backupHistory.fold(currentHistory) { current, comic ->
+        val existing = current.firstOrNull { it.sourceType == comic.sourceType && it.path == comic.path }
+        val existingReadAt = existing?.let { maxOf(it.lastOpenedAt, it.completedAt ?: 0L) }
+        val backupReadAt = maxOf(comic.lastOpenedAt, comic.completedAt ?: 0L)
+        if (existingReadAt != null && existingReadAt >= backupReadAt) current else upsertRecentComic(current, comic)
+    }
 }
 
 private fun Context.canReadBackupSource(sourceType: RecentComicSourceType, path: String): Boolean = when (sourceType) {

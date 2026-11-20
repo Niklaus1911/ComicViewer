@@ -300,6 +300,34 @@ class ReaderGestureTest {
     }
 
     @Test
+    fun readerSwipeStartOffset_preservesCompatibleInterruptedRtlOffset() {
+        assertEquals(
+            320f,
+            readerSwipeStartOffset(320f, ReaderSwipeDirection.Next, readingDirection = ReaderReadingDirection.RightToLeft),
+        )
+        assertEquals(
+            -320f,
+            readerSwipeStartOffset(-320f, ReaderSwipeDirection.Previous, readingDirection = ReaderReadingDirection.RightToLeft),
+        )
+        assertEquals(
+            0f,
+            readerSwipeStartOffset(0f, ReaderSwipeDirection.Next, readingDirection = ReaderReadingDirection.RightToLeft),
+        )
+    }
+
+    @Test
+    fun readerSwipeStartOffset_snapsConflictingInterruptedRtlOffsetToCenter() {
+        assertEquals(
+            0f,
+            readerSwipeStartOffset(320f, ReaderSwipeDirection.Previous, readingDirection = ReaderReadingDirection.RightToLeft),
+        )
+        assertEquals(
+            0f,
+            readerSwipeStartOffset(-320f, ReaderSwipeDirection.Next, readingDirection = ReaderReadingDirection.RightToLeft),
+        )
+    }
+
+    @Test
     fun readerSwipeStartOffset_preservesCompatibleInterruptedSettleOffset() {
         assertEquals(
             320f,

@@ -71,4 +71,16 @@ class PdfComicTest {
         val size = pdfRenderSize(0, 0, requestedWidth = 100, requestedHeight = 100)
         assertTrue(size.width >= 1 && size.height >= 1)
     }
+
+    @Test
+    fun pdfRenderSize_keepsRoundedDimensionsWithinPixelBudget() {
+        for ((width, height) in listOf(2930 to 4096, 4096 to 2930, 1 to Int.MAX_VALUE)) {
+            val size = pdfRenderSize(width, height, 20_000, 20_000, fill = true)
+
+            assertTrue(size.width > 0 && size.height > 0)
+            assertTrue(size.width.toLong() * size.height <= MAX_PDF_RENDER_PIXELS)
+        }
+        val tinyBudget = pdfRenderSize(1, 100_000, 100, 100_000, maxPixels = 10)
+        assertTrue(tinyBudget.width.toLong() * tinyBudget.height <= 10L)
+    }
 }

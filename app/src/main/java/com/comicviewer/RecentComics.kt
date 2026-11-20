@@ -116,6 +116,7 @@ fun updateRecentComicPage(
             comic.copy(
                 lastPageIndex = coercePageIndex(pageIndex, normalizedPageCount),
                 pageCount = normalizedPageCount,
+                lastOpenedAt = nowMs,
                 completedAt = comic.completedAt ?: nowMs.takeIf {
                     normalizedPageCount > 0 &&
                         coercePageIndex(pageIndex, normalizedPageCount) == normalizedPageCount - 1

@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import com.comicviewer.ui.reader.MAX_PAGE_DETAIL_STEP
 import com.comicviewer.ui.reader.ReaderSwipeDirection
+import com.comicviewer.ui.reader.clampedFor
 import com.comicviewer.ui.reader.readerEffectivePageScale
 import com.comicviewer.ui.reader.readerFitWidthScaleMultiplier
 import com.comicviewer.ui.reader.readerPageDetailStep
@@ -16,11 +17,55 @@ import com.comicviewer.ui.reader.readerSpreadPageIndices
 import com.comicviewer.ui.reader.readerSpreadStartIndex
 import com.comicviewer.ui.reader.readerSpreadTargetIndex
 import com.comicviewer.ui.reader.readerTargetPageIndex
+import com.comicviewer.ui.reader.readerZoomedPageOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ReaderLayoutTest {
+    @Test
+    fun readerZoomedPageOffset_keepsPannedContentUnderPinchCentroid() {
+        val offset = Offset(200f, -150f)
+        val centroid = Offset(100f, 50f)
+        val pan = Offset(20f, -10f)
+        val nextOffset = readerZoomedPageOffset(offset, centroid, pan, scaleChange = 1.5f)
+
+        assertEquals(Offset(270f, -260f), nextOffset)
+        val contentPoint = (centroid - offset) / 2f
+        assertEquals(centroid + pan, contentPoint * 3f + nextOffset)
+    }
+
+    @Test
+    fun readerZoomedPageOffset_handlesCenteredZoomAndPanWithoutZoom() {
+        assertEquals(Offset.Zero, readerZoomedPageOffset(Offset.Zero, Offset.Zero, Offset.Zero, 2f))
+        assertEquals(
+            Offset(220f, -160f),
+            readerZoomedPageOffset(Offset(200f, -150f), Offset(100f, 50f), Offset(20f, -10f), 1f),
+        )
+    }
+
+    @Test
+    fun readerZoomedPageOffset_roundTripsZoomAroundAnOffsetAnchor() {
+        val offset = Offset(160f, -80f)
+        val centroid = Offset(75f, -30f)
+        val zoomed = readerZoomedPageOffset(offset, centroid, Offset.Zero, 1.5f)
+        val restored = readerZoomedPageOffset(zoomed, centroid, Offset.Zero, 1f / 1.5f)
+
+        assertEquals(offset.x, restored.x, 0.0001f)
+        assertEquals(offset.y, restored.y, 0.0001f)
+    }
+
+    @Test
+    fun readerZoomedPageOffset_clampsToPageBoundsAndHandlesEmptyViewport() {
+        val offset = readerZoomedPageOffset(Offset(400f, -400f), Offset.Zero, Offset.Zero, 1.5f)
+
+        assertEquals(Offset(500f, -500f), offset.clampedFor(1000, 1000, 2f, IntSize(1000, 1000)))
+        assertEquals(Offset.Zero, offset.clampedFor(1000, 1000, 2f, IntSize.Zero))
+        val resetOffset = offset.clampedFor(1000, 1000, 1f, IntSize(1000, 1000))
+        assertEquals(0f, resetOffset.x, 0f)
+        assertEquals(0f, resetOffset.y, 0f)
+    }
+
     @Test
     fun readerPageDetailStep_roundsZoomUpToWholeStepsWithinBounds() {
         assertEquals(1, readerPageDetailStep(1f))

@@ -26,6 +26,25 @@ production version.
   With very large images it shows every page it can load in time and skips the rest, instead of
   going black until the finger stops.
 
+### Fixed
+
+- Hide stale purchase errors when Pro is already unlocked, including with the debug override.
+- Show the correct left and right tap-zone instructions for right-to-left reading in Settings.
+- Keep pending Pro purchase messages visible while price information finishes loading.
+- Clear stale purchase-checking and pending messages after Google Play confirms there is no Pro purchase.
+- Avoid page jumps when interrupting a swipe animation in right-to-left reading mode.
+- Keep the point under your fingers steady when pinching a page that has already been panned.
+- Keep the latest reading progress when merging backups, including progress made since opening a comic.
+- Close metadata-inspection streams on failure and stop cancelled archive inspections while skipping entries.
+- Parent navigation and breadcrumbs work correctly when browsing from the filesystem root.
+- Keep PDF page bitmaps within the memory limit, including after rounding their dimensions.
+- Avoid adding archives to the library when their only images cannot be opened as comic pages.
+- Close document-provider streams when detecting a comic fails or is cancelled.
+- Bound decompression of skipped ZIP entries and stop cancelled scans sooner for stream-only providers.
+- Buttons remain responsive after the device clock is moved backward.
+- Correct page and title sorting for filenames mixing Western and other decimal digits, avoiding
+  inconsistent ordering and possible sorting failures.
+
 ## [1.0.36] - 2026-10-30
 
 ### Added

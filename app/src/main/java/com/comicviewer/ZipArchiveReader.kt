@@ -13,7 +13,9 @@ import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
+import java.util.zip.ZipEntry
 import java.util.zip.ZipException
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CancellationException
 
 private const val END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50L
@@ -35,6 +37,35 @@ private const val METHOD_STORED = 0
 private const val METHOD_DEFLATED = 8
 private const val CENTRAL_DIRECTORY_BUFFER_BYTES = 64 * 1024
 internal const val ZIP_ENTRY_BUFFER_BYTES = 64 * 1024
+
+internal class BoundedZipInputStream(
+    input: InputStream,
+    private val maxEntryBytes: Long,
+    private val shouldContinue: () -> Boolean = { true },
+) : ZipInputStream(input) {
+    private var remaining = maxEntryBytes
+
+    init {
+        require(maxEntryBytes >= 0L)
+    }
+
+    override fun getNextEntry(): ZipEntry? {
+        if (!shouldContinue()) throw CancellationException()
+        val entry = super.getNextEntry()
+        remaining = entry?.size?.takeIf { it >= 0L } ?: maxEntryBytes
+        return entry
+    }
+
+    override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+        if (offset < 0 || length < 0 || offset > buffer.size - length) throw IndexOutOfBoundsException()
+        if (!shouldContinue()) throw CancellationException()
+        if (length == 0) return 0
+        val read = super.read(buffer, offset, minOf(length.toLong(), remaining.coerceAtLeast(1L)).toInt())
+        if (read > remaining) throw ZipException("Archive entry exceeds the supported size limit.")
+        if (read > 0) remaining -= read
+        return read
+    }
+}
 
 class ZipEntryLimitExceededException(val limit: Int) :
     IOException("Archive contains more than $limit entries.")

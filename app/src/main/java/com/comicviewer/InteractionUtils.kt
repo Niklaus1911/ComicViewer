@@ -6,4 +6,4 @@ fun shouldAcceptThrottledAction(
     nowMs: Long,
     lastAcceptedAtMs: Long,
     throttleMs: Long = TAP_THROTTLE_MS,
-): Boolean = nowMs - lastAcceptedAtMs >= throttleMs
+): Boolean = nowMs < lastAcceptedAtMs || nowMs - lastAcceptedAtMs >= throttleMs

@@ -12,7 +12,6 @@ import java.io.File
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import java.util.zip.ZipInputStream
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -32,7 +31,7 @@ private const val MAX_THUMBNAIL_OUTPUT_BYTES = 8L * 1024L * 1024L
 private const val MAX_THUMBNAIL_CACHE_BYTES = 128L * 1024L * 1024L
 private const val MAX_THUMBNAIL_CACHE_FILES = 512
 private const val JPEG_THUMBNAIL_QUALITY = 92
-private const val THUMBNAIL_CACHE_VERSION = 2
+private const val THUMBNAIL_CACHE_VERSION = 3
 private const val MAX_CONCURRENT_THUMBNAIL_GENERATIONS = 2
 private const val HEX_DIGITS = "0123456789abcdef"
 private val thumbnailCacheLock = Any()
@@ -275,15 +274,23 @@ private suspend fun Context.extractDocumentArchiveThumbnailTo(
             // Stream-only providers: scan from the start, as far as the source limit allows. A
             // stream-only PDF would need a full copy, which a thumbnail is not worth.
             val source = contentResolver.openInputStream(uri)?.buffered() ?: return@runCatching null
-            if (source.startsLikePdf()) {
+            val isPdf = try {
+                source.startsLikePdf()
+            } catch (throwable: Throwable) {
+                source.close()
+                throw throwable
+            }
+            if (isPdf) {
                 source.close()
                 return@runCatching null
             }
-            ZipInputStream(
+            BoundedZipInputStream(
                 BoundedInputStream(
                     input = source,
                     maxBytes = MAX_DOCUMENT_ARCHIVE_THUMBNAIL_BYTES,
                 ),
+                maxEntryBytes = MAX_ARCHIVE_THUMBNAIL_SOURCE_BYTES,
+                shouldContinue = { coroutineContext.isActive },
             ).use { archive ->
                 var visitedEntries = 0
                 var bestEntryName: String? = null

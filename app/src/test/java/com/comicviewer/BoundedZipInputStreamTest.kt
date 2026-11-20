@@ -44,7 +44,7 @@ class BoundedZipInputStreamTest {
     }
 
     @Test
-    fun boundedZipInputStream_limitsDirectReadsAndRejectsKnownOversizedEntries() {
+    fun boundedZipInputStream_limitsUnknownSizesButAllowsKnownOversizedEntries() {
         val archive = File(temporaryFolder.root, "Oversized.cbz")
         writeZipArchive(archive, linkedMapOf("deflated" to ByteArray(33), "stored" to ByteArray(33)), setOf("stored"))
 
@@ -60,7 +60,9 @@ class BoundedZipInputStreamTest {
         val stored = File(temporaryFolder.root, "Stored.cbz")
         writeZipArchive(stored, mapOf("stored" to ByteArray(33)), setOf("stored"))
         BoundedZipInputStream(stored.inputStream(), maxEntryBytes = 32).use { input ->
-            assertThrows(ZipException::class.java) { input.nextEntry }
+            assertEquals("stored", input.nextEntry?.name)
+            assertArrayEquals(ByteArray(33), input.readBytes())
+            assertNull(input.nextEntry)
         }
     }
 

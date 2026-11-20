@@ -52,8 +52,7 @@ internal class BoundedZipInputStream(
     override fun getNextEntry(): ZipEntry? {
         if (!shouldContinue()) throw CancellationException()
         val entry = super.getNextEntry()
-        if (entry != null && entry.size > maxEntryBytes) throw ZipException("Archive entry exceeds the supported size limit.")
-        remaining = minOf(maxEntryBytes, entry?.size?.takeIf { it >= 0L } ?: maxEntryBytes)
+        remaining = entry?.size?.takeIf { it >= 0L } ?: maxEntryBytes
         return entry
     }
 

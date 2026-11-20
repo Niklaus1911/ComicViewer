@@ -451,6 +451,7 @@ internal fun streamComicFileHasPages(
     source: InputStream,
     maxEntries: Int,
     shouldContinue: () -> Boolean = { true },
+    maxEntryBytes: Long = MAX_ARCHIVE_PAGE_BYTES,
 ): Boolean {
     source.buffered().use { input ->
         if (input.startsLikePdf()) return true
@@ -459,7 +460,7 @@ internal fun streamComicFileHasPages(
                 input = input,
                 maxBytes = MAX_ARCHIVE_SCAN_SOURCE_BYTES,
             ),
-            maxEntryBytes = MAX_ARCHIVE_PAGE_BYTES,
+            maxEntryBytes = maxEntryBytes,
             shouldContinue = shouldContinue,
         ).use { archive ->
             var scannedEntries = 0
@@ -469,6 +470,7 @@ internal fun streamComicFileHasPages(
                 scannedEntries += 1
                 if (scannedEntries > maxEntries) return false
                 if (entry.isDirectory || isHiddenComicPath(entryName)) continue
+                if (entry.size > maxEntryBytes) continue
                 if (detectImageFormat(readImageHeader(archive)) != null) return true
             }
         }
